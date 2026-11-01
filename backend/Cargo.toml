@@ -15,6 +15,11 @@ tower-http = { version = "0.5", features = ["cors", "trace"] }
 anyhow = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+dotenvy = "0.15.7"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+jsonwebtoken = { version = "9", default-features = false }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+ring = "0.17"
+base64 = "0.22"
