@@ -1,15 +1,16 @@
 use axum::{
-    extract::{State, Path},
+    extract::State,
     Json,
 };
 use crate::db::AppState;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::models::*;
+use crate::validation::{ValidatedJson, ValidatedPath};
 use uuid::Uuid;
 
 pub async fn create_route(
     State(state): State<AppState>,
-    Json(payload): Json<CreateRoute>,
+    ValidatedJson(payload): ValidatedJson<CreateRoute>,
 ) -> AppResult<Json<Route>> {
     let route = sqlx::query_as::<_, Route>(
         r#"
@@ -29,7 +30,7 @@ pub async fn create_route(
 
 pub async fn get_route(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    ValidatedPath(id): ValidatedPath<Uuid>,
 ) -> AppResult<Json<Route>> {
     let route = sqlx::query_as::<_, Route>(
         r#"
@@ -61,7 +62,7 @@ pub async fn list_routes(
 
 pub async fn get_trip_routes(
     State(state): State<AppState>,
-    Path(trip_id): Path<Uuid>,
+    ValidatedPath(trip_id): ValidatedPath<Uuid>,
 ) -> AppResult<Json<Vec<Route>>> {
     let routes = sqlx::query_as::<_, Route>(
         r#"
@@ -79,8 +80,8 @@ pub async fn get_trip_routes(
 
 pub async fn update_route(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-    Json(payload): Json<UpdateRoute>,
+    ValidatedPath(id): ValidatedPath<Uuid>,
+    ValidatedJson(payload): ValidatedJson<UpdateRoute>,
 ) -> AppResult<Json<Route>> {
     let route = sqlx::query_as::<_, Route>(
         r#"
@@ -102,12 +103,13 @@ pub async fn update_route(
 
 pub async fn delete_route(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    ValidatedPath(id): ValidatedPath<Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
-    sqlx::query("DELETE FROM routes WHERE id = $1")
+    let result = sqlx::query("DELETE FROM routes WHERE id = $1")
         .bind(id)
         .execute(&state.pool)
         .await?;
+    if result.rows_affected() == 0 { return Err(AppError::NotFound); }
 
     Ok(Json(serde_json::json!({ "status": "deleted" })))
 }

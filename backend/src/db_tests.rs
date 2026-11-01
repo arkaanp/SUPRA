@@ -68,12 +68,13 @@ async fn migrated_schema_supports_existing_handlers_and_constraints() {
         .expect("migrations are repeatable");
     let app = create_router(state.clone());
 
+    let email = format!("{}@example.invalid", Uuid::new_v4());
     let (status, user) = request(
         &app,
         "POST",
         "/api/users",
         Some(json!({
-            "full_name": "API Test", "email": format!("{}@example.invalid", Uuid::new_v4()),
+            "full_name": "API Test", "email": email,
             "password_hash": "test-only-placeholder"
         })),
     )
@@ -81,6 +82,33 @@ async fn migrated_schema_supports_existing_handlers_and_constraints() {
     assert_eq!(status, StatusCode::OK, "{user}");
     let user_id = user["id"].as_str().expect("user id");
     assert!(user.get("password_hash").is_none());
+    let (status, conflict) = request(
+        &app,
+        "POST",
+        "/api/users",
+        Some(json!({
+            "full_name": "Duplicate", "email": email, "password_hash": "test-only-placeholder"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{conflict}");
+    assert_eq!(conflict["code"], "conflict");
+    let (status, missing) =
+        request(&app, "GET", &format!("/api/users/{}", Uuid::new_v4()), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{missing}");
+    assert_eq!(missing["code"], "not_found");
+    let (status, bad_fk) = request(
+        &app,
+        "POST",
+        "/api/trips",
+        Some(json!({
+            "user_id": Uuid::new_v4(), "name": "Bad trip", "start_location": "A",
+            "destination": "B", "planned_departure": "2030-01-01T12:00:00Z"
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{bad_fk}");
+    assert_eq!(bad_fk["code"], "invalid_request");
 
     let (status, trip) = request(
         &app,
@@ -134,13 +162,27 @@ async fn migrated_schema_supports_existing_handlers_and_constraints() {
         &app,
         "PUT",
         &format!("/api/users/{user_id}/preferences"),
-        Some(json!({
-            "alert_unhealthy_aqi": true, "alert_heavy_rain": false, "alert_severe_traffic": true
-        })),
+        Some(json!({ "alert_heavy_rain": false })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{prefs}");
     assert_eq!(prefs["alert_heavy_rain"], false);
+    assert_eq!(prefs["alert_unhealthy_aqi"], true);
+    let (status, prefs) = request(
+        &app,
+        "PUT",
+        &format!("/api/users/{user_id}/preferences"),
+        Some(json!({
+            "alert_severe_traffic": false
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{prefs}");
+    assert_eq!(
+        prefs["alert_heavy_rain"], false,
+        "omitted values are preserved"
+    );
+    assert_eq!(prefs["alert_severe_traffic"], false);
 
     let (status, notification) = request(
         &app,
@@ -184,6 +226,8 @@ async fn migrated_schema_supports_existing_handlers_and_constraints() {
         .await
         .expect("verify cascade");
     assert_eq!(remaining, 0);
+    let (status, missing) = request(&app, "DELETE", &format!("/api/users/{user_id}"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{missing}");
     sqlx::query("DELETE FROM historical_data WHERE location_point = $1")
         .bind(format!("test-{user_id}"))
         .execute(&state.pool)

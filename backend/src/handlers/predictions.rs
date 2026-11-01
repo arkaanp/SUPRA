@@ -1,15 +1,16 @@
 use axum::{
-    extract::{State, Path},
+    extract::State,
     Json,
 };
 use crate::db::AppState;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::models::*;
+use crate::validation::{ValidatedJson, ValidatedPath};
 use uuid::Uuid;
 
 pub async fn create_prediction(
     State(state): State<AppState>,
-    Json(payload): Json<CreatePrediction>,
+    ValidatedJson(payload): ValidatedJson<CreatePrediction>,
 ) -> AppResult<Json<Prediction>> {
     let prediction = sqlx::query_as::<_, Prediction>(
         r#"
@@ -36,7 +37,7 @@ pub async fn create_prediction(
 
 pub async fn get_prediction(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    ValidatedPath(id): ValidatedPath<Uuid>,
 ) -> AppResult<Json<Prediction>> {
     let prediction = sqlx::query_as::<_, Prediction>(
         r#"
@@ -68,7 +69,7 @@ pub async fn list_predictions(
 
 pub async fn get_route_predictions(
     State(state): State<AppState>,
-    Path(route_id): Path<Uuid>,
+    ValidatedPath(route_id): ValidatedPath<Uuid>,
 ) -> AppResult<Json<Vec<Prediction>>> {
     let predictions = sqlx::query_as::<_, Prediction>(
         r#"
@@ -86,12 +87,13 @@ pub async fn get_route_predictions(
 
 pub async fn delete_prediction(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    ValidatedPath(id): ValidatedPath<Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
-    sqlx::query("DELETE FROM predictions WHERE id = $1")
+    let result = sqlx::query("DELETE FROM predictions WHERE id = $1")
         .bind(id)
         .execute(&state.pool)
         .await?;
+    if result.rows_affected() == 0 { return Err(AppError::NotFound); }
 
     Ok(Json(serde_json::json!({ "status": "deleted" })))
 }

@@ -1,15 +1,16 @@
 use axum::{
-    extract::{State, Path},
+    extract::State,
     Json,
 };
 use crate::db::AppState;
 use crate::error::AppResult;
 use crate::models::*;
+use crate::validation::{ValidatedJson, ValidatedPath};
 use uuid::Uuid;
 
 pub async fn get_preferences(
     State(state): State<AppState>,
-    Path(user_id): Path<Uuid>,
+    ValidatedPath(user_id): ValidatedPath<Uuid>,
 ) -> AppResult<Json<NotificationPreference>> {
     let pref = sqlx::query_as::<_, NotificationPreference>(
         r#"
@@ -26,17 +27,17 @@ pub async fn get_preferences(
 
 pub async fn update_preferences(
     State(state): State<AppState>,
-    Path(user_id): Path<Uuid>,
-    Json(payload): Json<UpdateNotificationPreference>,
+    ValidatedPath(user_id): ValidatedPath<Uuid>,
+    ValidatedJson(payload): ValidatedJson<UpdateNotificationPreference>,
 ) -> AppResult<Json<NotificationPreference>> {
     let pref = sqlx::query_as::<_, NotificationPreference>(
         r#"
         INSERT INTO notification_preferences (user_id, alert_unhealthy_aqi, alert_heavy_rain, alert_severe_traffic)
-        VALUES ($1, $2, $3, $4)
+        VALUES ($1, COALESCE($2, TRUE), COALESCE($3, TRUE), COALESCE($4, TRUE))
         ON CONFLICT (user_id) DO UPDATE
-        SET alert_unhealthy_aqi = COALESCE(EXCLUDED.alert_unhealthy_aqi, notification_preferences.alert_unhealthy_aqi),
-            alert_heavy_rain = COALESCE(EXCLUDED.alert_heavy_rain, notification_preferences.alert_heavy_rain),
-            alert_severe_traffic = COALESCE(EXCLUDED.alert_severe_traffic, notification_preferences.alert_severe_traffic),
+        SET alert_unhealthy_aqi = COALESCE($2, notification_preferences.alert_unhealthy_aqi),
+            alert_heavy_rain = COALESCE($3, notification_preferences.alert_heavy_rain),
+            alert_severe_traffic = COALESCE($4, notification_preferences.alert_severe_traffic),
             updated_at = NOW()
         RETURNING id, user_id, alert_unhealthy_aqi, alert_heavy_rain, alert_severe_traffic, updated_at
         "#,
