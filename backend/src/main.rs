@@ -3,6 +3,8 @@ mod error;
 mod models;
 mod routes;
 mod handlers;
+#[cfg(test)]
+mod db_tests;
 
 use axum::Router;
 use db::AppState;
@@ -13,6 +15,12 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() {
+    let command = std::env::args().nth(1);
+    if !matches!(command.as_deref(), None | Some("migrate")) {
+        eprintln!("Usage: supra_backend [migrate]");
+        std::process::exit(2);
+    }
+
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
             std::env::var("RUST_LOG").unwrap_or_else(|_| "supra_backend=info,tower_http=debug".into()),
@@ -25,6 +33,12 @@ async fn main() {
 
     let state = AppState::new(&database_url).await.expect("Failed to connect to database");
     tracing::info!("Database connection pool established");
+
+    if command.as_deref() == Some("migrate") {
+        db::MIGRATOR.run(&state.pool).await.expect("Failed to apply migrations");
+        tracing::info!("Database migrations applied");
+        return;
+    }
 
     let app: Router = create_router(state).layer(CorsLayer::permissive());
 

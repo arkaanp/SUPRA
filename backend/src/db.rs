@@ -1,6 +1,9 @@
 use sqlx::postgres::{PgPool, PgPoolOptions};
 use std::time::Duration;
 
+/// Versioned schema, applied explicitly via `cargo run -- migrate` or by tests.
+pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
+
 #[derive(Clone)]
 pub struct AppState {
     pub pool: PgPool,
