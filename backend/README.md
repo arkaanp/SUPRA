@@ -63,3 +63,15 @@ ignored; a green unit-only run is **not** a verified database run.
 No demo seed is needed for the test. The current endpoints are not authenticated
 yet: use only on a private development network until identity/authorization is
 implemented.
+
+## API errors and input format
+
+Handler failures return JSON such as `{"error":"Resource not found","code":"not_found"}`.
+The codes/statuses are `invalid_request` (400: malformed input or invalid
+references), `not_found` (404), `conflict` (409: duplicate unique value), and
+`internal_error` (500). Internal database details are logged server-side rather
+than sent to clients. Request JSON rejects unknown fields. Route waypoints must
+be a non-empty array of `{ "lat": number, "lng": number }` objects; probabilities
+and traffic density are numbers between 0 and 1. Notification list `limit` must
+be 1–100 and `offset` non-negative. Preferences may be partially upserted;
+omitted flags default to true on creation and remain unchanged on update.

@@ -1,14 +1,16 @@
 use axum::{
-    extract::{State, Path, Query},
+    extract::State,
     Json,
 };
 use crate::db::AppState;
 use crate::error::AppResult;
 use crate::models::*;
+use crate::validation::{ValidatedJson, ValidatedPath, ValidatedQuery};
 use serde::Deserialize;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ListNotificationsQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
@@ -17,7 +19,7 @@ pub struct ListNotificationsQuery {
 
 pub async fn create_notification(
     State(state): State<AppState>,
-    Json(payload): Json<CreateNotification>,
+    ValidatedJson(payload): ValidatedJson<CreateNotification>,
 ) -> AppResult<Json<Notification>> {
     let notification = sqlx::query_as::<_, Notification>(
         r#"
@@ -38,7 +40,7 @@ pub async fn create_notification(
 
 pub async fn get_notification(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    ValidatedPath(id): ValidatedPath<Uuid>,
 ) -> AppResult<Json<Notification>> {
     let notification = sqlx::query_as::<_, Notification>(
         r#"
@@ -70,8 +72,8 @@ pub async fn list_notifications(
 
 pub async fn get_user_notifications(
     State(state): State<AppState>,
-    Path(user_id): Path<Uuid>,
-    Query(query): Query<ListNotificationsQuery>,
+    ValidatedPath(user_id): ValidatedPath<Uuid>,
+    ValidatedQuery(query): ValidatedQuery<ListNotificationsQuery>,
 ) -> AppResult<Json<Vec<Notification>>> {
     let limit = query.limit.unwrap_or(50);
     let offset = query.offset.unwrap_or(0);
@@ -113,7 +115,7 @@ pub async fn get_user_notifications(
 
 pub async fn mark_notification_read(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    ValidatedPath(id): ValidatedPath<Uuid>,
 ) -> AppResult<Json<Notification>> {
     let notification = sqlx::query_as::<_, Notification>(
         r#"

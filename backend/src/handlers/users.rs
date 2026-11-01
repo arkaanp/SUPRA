@@ -1,15 +1,16 @@
 use axum::{
-    extract::{State, Path},
+    extract::State,
     Json,
 };
 use crate::db::AppState;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::models::*;
+use crate::validation::{ValidatedJson, ValidatedPath};
 use uuid::Uuid;
 
 pub async fn create_user(
     State(state): State<AppState>,
-    Json(payload): Json<CreateUser>,
+    ValidatedJson(payload): ValidatedJson<CreateUser>,
 ) -> AppResult<Json<User>> {
     let user = sqlx::query_as::<_, User>(
         r#"
@@ -29,7 +30,7 @@ pub async fn create_user(
 
 pub async fn get_user(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    ValidatedPath(id): ValidatedPath<Uuid>,
 ) -> AppResult<Json<User>> {
     let user = sqlx::query_as::<_, User>(
         r#"
@@ -61,8 +62,8 @@ pub async fn list_users(
 
 pub async fn update_user(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-    Json(payload): Json<UpdateUser>,
+    ValidatedPath(id): ValidatedPath<Uuid>,
+    ValidatedJson(payload): ValidatedJson<UpdateUser>,
 ) -> AppResult<Json<User>> {
     let user = sqlx::query_as::<_, User>(
         r#"
@@ -84,12 +85,13 @@ pub async fn update_user(
 
 pub async fn delete_user(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    ValidatedPath(id): ValidatedPath<Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
-    sqlx::query("DELETE FROM users WHERE id = $1")
+    let result = sqlx::query("DELETE FROM users WHERE id = $1")
         .bind(id)
         .execute(&state.pool)
         .await?;
+    if result.rows_affected() == 0 { return Err(AppError::NotFound); }
 
     Ok(Json(serde_json::json!({ "status": "deleted" })))
 }

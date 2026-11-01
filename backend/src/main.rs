@@ -3,6 +3,7 @@ mod error;
 mod models;
 mod routes;
 mod handlers;
+mod validation;
 #[cfg(test)]
 mod db_tests;
 

@@ -1,21 +1,23 @@
 use axum::{
-    extract::{State, Path, Query},
+    extract::State,
     Json,
 };
 use crate::db::AppState;
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::models::*;
+use crate::validation::{ValidatedJson, ValidatedPath, ValidatedQuery};
 use serde::Deserialize;
 use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ListTripsQuery {
     pub user_id: Option<Uuid>,
 }
 
 pub async fn create_trip(
     State(state): State<AppState>,
-    Json(payload): Json<CreateTrip>,
+    ValidatedJson(payload): ValidatedJson<CreateTrip>,
 ) -> AppResult<Json<Trip>> {
     let trip = sqlx::query_as::<_, Trip>(
         r#"
@@ -37,7 +39,7 @@ pub async fn create_trip(
 
 pub async fn get_trip(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    ValidatedPath(id): ValidatedPath<Uuid>,
 ) -> AppResult<Json<Trip>> {
     let trip = sqlx::query_as::<_, Trip>(
         r#"
@@ -54,7 +56,7 @@ pub async fn get_trip(
 
 pub async fn list_trips(
     State(state): State<AppState>,
-    Query(query): Query<ListTripsQuery>,
+    ValidatedQuery(query): ValidatedQuery<ListTripsQuery>,
 ) -> AppResult<Json<Vec<Trip>>> {
     match query.user_id {
         Some(user_id) => {
@@ -86,7 +88,7 @@ pub async fn list_trips(
 
 pub async fn get_user_trips(
     State(state): State<AppState>,
-    Path(user_id): Path<Uuid>,
+    ValidatedPath(user_id): ValidatedPath<Uuid>,
 ) -> AppResult<Json<Vec<Trip>>> {
     let trips = sqlx::query_as::<_, Trip>(
         r#"
@@ -104,8 +106,8 @@ pub async fn get_user_trips(
 
 pub async fn update_trip(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
-    Json(payload): Json<UpdateTrip>,
+    ValidatedPath(id): ValidatedPath<Uuid>,
+    ValidatedJson(payload): ValidatedJson<UpdateTrip>,
 ) -> AppResult<Json<Trip>> {
     let trip = sqlx::query_as::<_, Trip>(
         r#"
@@ -131,12 +133,13 @@ pub async fn update_trip(
 
 pub async fn delete_trip(
     State(state): State<AppState>,
-    Path(id): Path<Uuid>,
+    ValidatedPath(id): ValidatedPath<Uuid>,
 ) -> AppResult<Json<serde_json::Value>> {
-    sqlx::query("DELETE FROM trips WHERE id = $1")
+    let result = sqlx::query("DELETE FROM trips WHERE id = $1")
         .bind(id)
         .execute(&state.pool)
         .await?;
+    if result.rows_affected() == 0 { return Err(AppError::NotFound); }
 
     Ok(Json(serde_json::json!({ "status": "deleted" })))
 }

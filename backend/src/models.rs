@@ -19,6 +19,7 @@ pub struct User {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateUser {
     pub full_name: String,
     pub email: String,
@@ -26,6 +27,7 @@ pub struct CreateUser {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateUser {
     pub full_name: Option<String>,
     pub email: Option<String>,
@@ -47,6 +49,7 @@ pub struct Trip {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateTrip {
     pub user_id: Uuid,
     pub name: String,
@@ -56,6 +59,7 @@ pub struct CreateTrip {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateTrip {
     pub name: Option<String>,
     pub start_location: Option<String>,
@@ -77,6 +81,7 @@ pub struct Route {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateRoute {
     pub trip_id: Uuid,
     pub waypoints: Value,
@@ -84,6 +89,7 @@ pub struct CreateRoute {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateRoute {
     pub waypoints: Option<Value>,
     pub total_distance: Option<f64>,
@@ -105,6 +111,7 @@ pub struct Prediction {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreatePrediction {
     pub route_id: Uuid,
     pub target_time: DateTime<Utc>,
@@ -128,6 +135,7 @@ pub struct NotificationPreference {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateNotificationPreference {
     pub alert_unhealthy_aqi: Option<bool>,
     pub alert_heavy_rain: Option<bool>,
@@ -150,6 +158,7 @@ pub struct Notification {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateNotification {
     pub user_id: Uuid,
     pub title: String,
