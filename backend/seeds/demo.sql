@@ -1,17 +1,17 @@
--- OPTIONAL DEMO DATA ONLY. Never use these values as real forecasts or credentials.
+-- OPTIONAL DEMO DATA ONLY. Never use these values as real forecasts.
 -- Apply after migrations, to a local/disposable database, with:
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f seeds/demo.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -v demo_user_id=AUTH_UUID -v demo_email=AUTH_EMAIL -f seeds/demo.sql
+-- demo_user_id and demo_email must belong to the same real Supabase Auth user.
 -- Stable IDs make repeated application idempotent. Existing rows are not changed.
 BEGIN;
 
-INSERT INTO users (id, full_name, email, password_hash)
-VALUES ('d0000000-0000-4000-8000-000000000001', 'Demo Commuter',
-        'demo@supra.invalid', 'DEMO_ACCOUNT_NO_VALID_PASSWORD')
+INSERT INTO users (id, full_name, email)
+VALUES (:'demo_user_id'::uuid, 'Demo Commuter', :'demo_email')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO trips (id, user_id, name, start_location, destination, planned_departure)
 VALUES ('d0000000-0000-4000-8000-000000000002',
-        'd0000000-0000-4000-8000-000000000001',
+        :'demo_user_id'::uuid,
         'Morning Commute (demo)', 'Jakarta Kota', 'Sudirman Central',
         NOW() + INTERVAL '8 hours')
 ON CONFLICT (id) DO NOTHING;
@@ -38,12 +38,12 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO notification_preferences (id, user_id)
 VALUES ('d0000000-0000-4000-8000-000000000006',
-        'd0000000-0000-4000-8000-000000000001')
+        :'demo_user_id'::uuid)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO notifications (id, user_id, title, message_body, severity)
 VALUES ('d0000000-0000-4000-8000-000000000007',
-        'd0000000-0000-4000-8000-000000000001',
+        :'demo_user_id'::uuid,
         'Demo alert', 'Illustrative data, not a live forecast.', 'medium')
 ON CONFLICT (id) DO NOTHING;
 
