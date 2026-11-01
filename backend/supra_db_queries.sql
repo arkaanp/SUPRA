@@ -1,5 +1,8 @@
 -- ============================================================================
 -- Supra Database System - PostgreSQL Schema & Queries
+-- LEGACY REFERENCE ONLY: this file mixes schema and executable demo DML.
+-- Use migrations/ for schema and seeds/ for explicit demo data instead.
+-- Do not execute this whole file against a live database.
 -- Reference: instructions/uml_diagrams.md (Section 2: Entity-Relationship Diagram)
 -- System: Trip-Based Dynamic Air Quality and Weather Forecast with Agentic AI
 -- Database: PostgreSQL (via Supabase)
