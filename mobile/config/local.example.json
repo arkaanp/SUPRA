@@ -1,0 +1,5 @@
+{
+  "SUPABASE_URL": "https://your-project.supabase.co",
+  "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_replace_me",
+  "SUPRA_API_URL": "http://localhost:3000"
+}
