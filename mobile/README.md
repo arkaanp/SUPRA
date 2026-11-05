@@ -49,7 +49,24 @@ changing defines.
 - Account data is cleared across sign-out/user switches. Profile-load errors have
   retry/sign-out actions rather than falling back to invented data.
 
-**Not available yet:** live conditions, route generation, forecast orchestration,
+## Initial provider conditions
+
+Home now has an explicit coordinate lookup (Jakarta/Bogor presets and optional
+BMKG village code). It calls Axum's authenticated `/api/conditions/current`;
+no provider credentials belong in the client. Weather uses Open-Meteo, falling
+back to BMKG only when the primary is unavailable and a matching `adm4` is supplied.
+BMKG results are labeled as upcoming forecasts, not current measurements.
+OpenAQ displays nearby station PM2.5, distance, attribution and stale state;
+it does not claim to compute US AQI/ISPU from a single reading. TomTom displays
+the nearest road-fragment speed, not traffic density or a route ETA. Results
+include source links and WIB timestamps; unavailable providers do not hide
+healthy signals. There is no automatic polling or simulated-value fallback.
+
+Configure `OPENAQ_API_KEY` and `TOMTOM_API_KEY` in `../backend/.env`, restart
+Axum, and use **Load conditions** after login. Missing keys display unavailable
+states. See `../backend/docs/current-conditions.md` for provider setup and limits.
+
+**Not available yet:** route-wide conditions, route generation, forecast orchestration,
 map overlays, saved locations, Agent 1 chat, automatic Agent 2 alerts, and push
 delivery. The app explicitly shows these limitations; it does not seed mock
 forecasts or notifications. Retained map/forecast widgets are reference UI only.

@@ -9,6 +9,7 @@ import '../models/notification.dart';
 import '../models/notification_preference.dart';
 import '../models/trip.dart';
 import '../models/user.dart';
+import '../models/current_conditions.dart';
 import 'authenticated_client.dart';
 import 'backend_api.dart';
 
@@ -135,6 +136,26 @@ class SupraService extends ChangeNotifier {
     _preferences = prefs;
     _ready = true;
     notifyListeners();
+  });
+
+  Future<CurrentConditions> getCurrentConditions(
+    double latitude,
+    double longitude, [
+    String? adm4,
+  ]) => _withApi((api, id) async {
+    final query = Uri(
+      queryParameters: {
+        'latitude': '$latitude',
+        'longitude': '$longitude',
+        if (adm4 != null && adm4.trim().isNotEmpty) 'adm4': adm4.trim(),
+      },
+    ).query;
+    final result = CurrentConditions.fromJson(
+      await api.request('GET', '/api/conditions/current?$query')
+          as Map<String, dynamic>,
+    );
+    _requireSameUser(id);
+    return result;
   });
 
   Future<User> login(String email, String password) async {

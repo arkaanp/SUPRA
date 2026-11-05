@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/supra_api_service.dart';
+import '../widgets/current_conditions_panel.dart';
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -27,16 +28,7 @@ class HomeScreen extends StatelessWidget {
             style: Theme.of(context).textTheme.headlineSmall,
           ),
           const SizedBox(height: 16),
-          const Card(
-            child: Padding(
-              padding: EdgeInsets.all(20),
-              child: Text(
-                'AQI, rain and traffic forecasts are not available yet. '
-                'You can save trips and manage alert preferences. No simulated '
-                'conditions or forecasts are shown.',
-              ),
-            ),
-          ),
+          const CurrentConditionsPanel(),
           const SizedBox(height: 16),
           Text('${service.trips.length} saved trips'),
           Text(
