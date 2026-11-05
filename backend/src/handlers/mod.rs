@@ -1,4 +1,5 @@
 pub mod users;
+pub mod health;
 pub mod trips;
 pub mod routes;
 pub mod predictions;
