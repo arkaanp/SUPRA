@@ -1,2 +1,25 @@
 /backend/target
 /guidelines
+/backend/.env
+
+# Local environment files; keep placeholder templates shareable.
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Flutter/FVM generated files and machine-local configuration.
+/mobile/.dart_tool/
+/mobile/.fvm/
+/mobile/build/
+/mobile/.idea/
+/mobile/*.iml
+/mobile/.flutter-plugins*
+/mobile/android/.gradle/
+/mobile/android/local.properties
+/mobile/**/ephemeral/
+/mobile/config/local.json
+
+# Copied private guidelines remain local.
+/mobile/instructions/
+/mobile/supra-ai-agents-architecture.md
