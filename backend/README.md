@@ -91,6 +91,17 @@ ignored; a green unit-only run is **not** a verified database run.
 No demo seed or real Supabase account is needed: tests use locally signed JWTs
 and a mock JWKS endpoint. Test against real Supabase before production deployment.
 
+## Initial user-facing data sources
+
+Authenticated `GET /api/conditions/current?latitude=-6.2&longitude=106.82`
+combines Open-Meteo weather (optional BMKG fallback), nearby OpenAQ PM2.5 and
+TomTom nearest-road traffic. Set `OPENAQ_API_KEY` and `TOMTOM_API_KEY` in
+`backend/.env`. Missing/failing providers are reported separately without
+discarding healthy signals. BMKG requires the matching optional `adm4` village
+code and returns an explicitly labeled upcoming forecast, not an observation.
+See [the conditions contract](docs/current-conditions.md) for response fields,
+coverage, attribution, timeouts, credential setup and verification limitations.
+
 ## API errors and input format
 
 ### Public health endpoints

@@ -9,17 +9,31 @@ use axum::{
 };
 
 pub fn create_router(state: AppState, verifier: crate::auth::AuthVerifier) -> Router {
+    create_router_with_conditions(
+        state,
+        verifier,
+        std::sync::Arc::new(crate::conditions::ConditionsService::from_env()),
+    )
+}
+
+pub(crate) fn create_router_with_conditions(
+    state: AppState,
+    verifier: crate::auth::AuthVerifier,
+    conditions: std::sync::Arc<crate::conditions::ConditionsService>,
+) -> Router {
     Router::new()
         .route("/health/live", get(health::live))
         .route("/health/ready", get(health::ready))
         .merge(protected_routes(verifier))
         .fallback(|| async { crate::error::AppError::NotFound })
         .method_not_allowed_fallback(|| async { crate::error::AppError::MethodNotAllowed })
+        .layer(axum::Extension(conditions))
         .with_state(state)
 }
 
 fn protected_routes(verifier: crate::auth::AuthVerifier) -> Router<AppState> {
     Router::new()
+        .route("/api/conditions/current", get(crate::conditions::current))
         // ====================================================================
         // Users
         // ====================================================================
