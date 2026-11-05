@@ -1,8 +1,8 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
-use serde_json::Value;
 
 // ---------------------------------------------------------------------------
 // Users
@@ -13,8 +13,6 @@ pub struct User {
     pub id: Uuid,
     pub full_name: String,
     pub email: String,
-    #[serde(skip_serializing)]
-    pub password_hash: String,
     pub created_at: DateTime<Utc>,
 }
 
@@ -22,15 +20,12 @@ pub struct User {
 #[serde(deny_unknown_fields)]
 pub struct CreateUser {
     pub full_name: String,
-    pub email: String,
-    pub password_hash: String,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateUser {
     pub full_name: Option<String>,
-    pub email: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -51,7 +46,6 @@ pub struct Trip {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateTrip {
-    pub user_id: Uuid,
     pub name: String,
     pub start_location: String,
     pub destination: String,
@@ -110,16 +104,6 @@ pub struct Prediction {
     pub generated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CreatePrediction {
-    pub route_id: Uuid,
-    pub target_time: DateTime<Utc>,
-    pub predicted_aqi: f64,
-    pub predicted_rainfall_prob: f64,
-    pub predicted_traffic_density: f64,
-}
-
 // ---------------------------------------------------------------------------
 // Notification Preferences
 // ---------------------------------------------------------------------------
@@ -155,13 +139,4 @@ pub struct Notification {
     pub severity: String,
     pub sent_at: DateTime<Utc>,
     pub is_read: bool,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CreateNotification {
-    pub user_id: Uuid,
-    pub title: String,
-    pub message_body: String,
-    pub severity: String,
 }

@@ -10,8 +10,8 @@ use crate::{
     error::AppError,
     handlers::{notifications::ListNotificationsQuery, trips::ListTripsQuery},
     models::{
-        CreateNotification, CreatePrediction, CreateRoute, CreateTrip, CreateUser,
-        UpdateNotificationPreference, UpdateRoute, UpdateTrip, UpdateUser,
+        CreateRoute, CreateTrip, CreateUser, UpdateNotificationPreference, UpdateRoute, UpdateTrip,
+        UpdateUser,
     },
 };
 
@@ -84,36 +84,10 @@ fn nonempty(value: &str, field: &str, max: usize) -> Result<(), AppError> {
     Ok(())
 }
 
-fn email(value: &str) -> Result<(), AppError> {
-    nonempty(value, "email", 255)?;
-    let (local, domain) = value
-        .split_once('@')
-        .ok_or_else(|| AppError::bad_request("Invalid email"))?;
-    if local.is_empty()
-        || domain.contains('@')
-        || !domain.contains('.')
-        || domain.starts_with('.')
-        || domain.ends_with('.')
-        || value.chars().any(char::is_whitespace)
-    {
-        return Err(AppError::bad_request("Invalid email"));
-    }
-    Ok(())
-}
-
 fn nonnegative(value: f64, field: &str) -> Result<(), AppError> {
     if !value.is_finite() || value < 0.0 {
         return Err(AppError::bad_request(format!(
             "{field} must be a finite non-negative number"
-        )));
-    }
-    Ok(())
-}
-
-fn probability(value: f64, field: &str) -> Result<(), AppError> {
-    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
-        return Err(AppError::bad_request(format!(
-            "{field} must be between 0 and 1"
         )));
     }
     Ok(())
@@ -146,8 +120,7 @@ fn waypoints(value: &Value) -> Result<(), AppError> {
 impl Validate for CreateUser {
     fn validate(&self) -> Result<(), AppError> {
         nonempty(&self.full_name, "full_name", 255)?;
-        email(&self.email)?;
-        nonempty(&self.password_hash, "password_hash", 255)
+        Ok(())
     }
 }
 
@@ -155,9 +128,6 @@ impl Validate for UpdateUser {
     fn validate(&self) -> Result<(), AppError> {
         if let Some(name) = &self.full_name {
             nonempty(name, "full_name", 255)?;
-        }
-        if let Some(email_value) = &self.email {
-            email(email_value)?;
         }
         Ok(())
     }
@@ -205,32 +175,8 @@ impl Validate for UpdateRoute {
     }
 }
 
-impl Validate for CreatePrediction {
-    fn validate(&self) -> Result<(), AppError> {
-        nonnegative(self.predicted_aqi, "predicted_aqi")?;
-        probability(self.predicted_rainfall_prob, "predicted_rainfall_prob")?;
-        probability(self.predicted_traffic_density, "predicted_traffic_density")
-    }
-}
-
 impl Validate for UpdateNotificationPreference {
     fn validate(&self) -> Result<(), AppError> {
-        Ok(())
-    }
-}
-
-impl Validate for CreateNotification {
-    fn validate(&self) -> Result<(), AppError> {
-        nonempty(&self.title, "title", 255)?;
-        nonempty(&self.message_body, "message_body", 4000)?;
-        if !matches!(
-            self.severity.as_str(),
-            "low" | "medium" | "high" | "critical"
-        ) {
-            return Err(AppError::bad_request(
-                "severity must be low, medium, high, or critical",
-            ));
-        }
         Ok(())
     }
 }
@@ -256,19 +202,19 @@ impl Validate for ListTripsQuery {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{db::AppState, routes::create_router};
+    use crate::{auth::test_support::Fixture, db::AppState, routes::create_router};
     use axum::{
         body::{Body, to_bytes},
         http::{Request, StatusCode},
     };
     use tower::ServiceExt;
+    use uuid::Uuid;
 
     #[test]
-    fn reject_invalid_route_and_probability() {
+    fn reject_invalid_route() {
         assert!(waypoints(&serde_json::json!([[-6.2, 106.8]])).is_err());
         assert!(waypoints(&serde_json::json!([{"lat": 91, "lng": 106}])).is_err());
         assert!(waypoints(&serde_json::json!([{"lat": -6.2, "lng": 106.8}])).is_ok());
-        assert!(probability(1.5, "rain").is_err());
     }
 
     #[tokio::test]
@@ -276,32 +222,20 @@ mod tests {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .connect_lazy("postgres://localhost/supra_test")
             .expect("valid test URL");
-        let router = create_router(AppState { pool });
+        let fixture = Fixture::new().await;
+        let router = create_router(AppState { pool }, fixture.verifier.clone());
+        let token = fixture.token(Uuid::new_v4(), "test@example.com");
         let cases = [
             (
                 "POST",
                 "/api/routes",
                 serde_json::json!({"trip_id": "00000000-0000-4000-8000-000000000001", "waypoints": [[-6.2, 106.8]], "total_distance": 1}),
             ),
-            (
-                "POST",
-                "/api/predictions",
-                serde_json::json!({"route_id": "00000000-0000-4000-8000-000000000001", "target_time": "2030-01-01T00:00:00Z", "predicted_aqi": 42, "predicted_rainfall_prob": 1.2, "predicted_traffic_density": 0.5}),
-            ),
-            (
-                "POST",
-                "/api/notifications",
-                serde_json::json!({"user_id": "00000000-0000-4000-8000-000000000001", "title": "Alert", "message_body": "Body", "severity": "invalid"}),
-            ),
+            ("POST", "/api/users", serde_json::json!({"full_name": ""})),
             (
                 "POST",
                 "/api/users",
-                serde_json::json!({"full_name": "", "email": "not-an-email", "password_hash": "x"}),
-            ),
-            (
-                "POST",
-                "/api/users",
-                serde_json::json!({"full_name": "A", "email": "a@example.com", "password_hash": "x", "typo": true}),
+                serde_json::json!({"full_name": "A", "email": "a@example.com", "typo": true}),
             ),
             (
                 "PUT",
@@ -324,6 +258,7 @@ mod tests {
                 .method(method)
                 .uri(path)
                 .header("content-type", "application/json")
+                .header("authorization", format!("Bearer {token}"))
                 .body(Body::from(value.to_string()))
                 .expect("request");
             let response = router.clone().oneshot(request).await.expect("response");

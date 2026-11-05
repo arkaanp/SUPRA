@@ -1,11 +1,12 @@
+mod auth;
 mod db;
-mod error;
-mod models;
-mod routes;
-mod handlers;
-mod validation;
 #[cfg(test)]
 mod db_tests;
+mod error;
+mod handlers;
+mod models;
+mod routes;
+mod validation;
 
 use axum::Router;
 use db::AppState;
@@ -22,30 +23,54 @@ async fn main() {
         std::process::exit(2);
     }
 
+    // Load the backend's local .env regardless of the working directory.
+    // dotenvy leaves variables already supplied by the environment unchanged.
+    let env_path = concat!(env!("CARGO_MANIFEST_DIR"), "/.env");
+    if let Err(error) = dotenvy::from_path(env_path) {
+        match &error {
+            dotenvy::Error::Io(io_error) if io_error.kind() == std::io::ErrorKind::NotFound => {}
+            _ => panic!("Failed to load backend/.env: {error}"),
+        }
+    }
+
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
-            std::env::var("RUST_LOG").unwrap_or_else(|_| "supra_backend=info,tower_http=debug".into()),
+            std::env::var("RUST_LOG")
+                .unwrap_or_else(|_| "supra_backend=info,tower_http=debug".into()),
         ))
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let database_url = std::env::var("DATABASE_URL")
-        .expect("DATABASE_URL environment variable must be set (e.g. postgres://user:pass@host:5432/db)");
+    let database_url = std::env::var("DATABASE_URL").expect(
+        "DATABASE_URL environment variable must be set (e.g. postgres://user:pass@host:5432/db)",
+    );
 
-    let state = AppState::new(&database_url).await.expect("Failed to connect to database");
+    let state = AppState::new(&database_url)
+        .await
+        .expect("Failed to connect to database");
     tracing::info!("Database connection pool established");
 
     if command.as_deref() == Some("migrate") {
-        db::MIGRATOR.run(&state.pool).await.expect("Failed to apply migrations");
+        db::MIGRATOR
+            .run(&state.pool)
+            .await
+            .expect("Failed to apply migrations");
         tracing::info!("Database migrations applied");
         return;
     }
 
-    let app: Router = create_router(state).layer(CorsLayer::permissive());
+    let supabase_url = std::env::var("SUPABASE_URL").expect("SUPABASE_URL must be set");
+    let audience =
+        std::env::var("SUPABASE_JWT_AUDIENCE").unwrap_or_else(|_| "authenticated".into());
+    let verifier =
+        auth::AuthVerifier::new(&supabase_url, &audience).expect("Invalid Supabase configuration");
+    let app: Router = create_router(state, verifier).layer(CorsLayer::permissive());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     tracing::info!("Supra backend listening on http://{}", addr);
 
-    let listener = tokio::net::TcpListener::bind(addr).await.expect("Failed to bind address");
+    let listener = tokio::net::TcpListener::bind(addr)
+        .await
+        .expect("Failed to bind address");
     axum::serve(listener, app).await.expect("Server failed");
 }

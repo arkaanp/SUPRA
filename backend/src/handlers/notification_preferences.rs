@@ -1,17 +1,20 @@
-use axum::{
-    extract::State,
-    Json,
-};
+use crate::auth::{AuthUser, require_self};
 use crate::db::AppState;
 use crate::error::AppResult;
 use crate::models::*;
 use crate::validation::{ValidatedJson, ValidatedPath};
+use axum::{
+    Json,
+    extract::{Extension, State},
+};
 use uuid::Uuid;
 
 pub async fn get_preferences(
     State(state): State<AppState>,
+    Extension(user): Extension<AuthUser>,
     ValidatedPath(user_id): ValidatedPath<Uuid>,
 ) -> AppResult<Json<NotificationPreference>> {
+    require_self(&user, user_id)?;
     let pref = sqlx::query_as::<_, NotificationPreference>(
         r#"
         SELECT id, user_id, alert_unhealthy_aqi, alert_heavy_rain, alert_severe_traffic, updated_at
@@ -27,9 +30,11 @@ pub async fn get_preferences(
 
 pub async fn update_preferences(
     State(state): State<AppState>,
+    Extension(user): Extension<AuthUser>,
     ValidatedPath(user_id): ValidatedPath<Uuid>,
     ValidatedJson(payload): ValidatedJson<UpdateNotificationPreference>,
 ) -> AppResult<Json<NotificationPreference>> {
+    require_self(&user, user_id)?;
     let pref = sqlx::query_as::<_, NotificationPreference>(
         r#"
         INSERT INTO notification_preferences (user_id, alert_unhealthy_aqi, alert_heavy_rain, alert_severe_traffic)
