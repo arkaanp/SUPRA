@@ -9,6 +9,8 @@ use serde_json::json;
 pub enum AppError {
     BadRequest(String),
     NotFound,
+    MethodNotAllowed,
+    Unavailable,
     Conflict,
     Internal(sqlx::Error),
 }
@@ -43,6 +45,16 @@ impl IntoResponse for AppError {
                 StatusCode::NOT_FOUND,
                 "not_found",
                 "Resource not found".into(),
+            ),
+            Self::MethodNotAllowed => (
+                StatusCode::METHOD_NOT_ALLOWED,
+                "method_not_allowed",
+                "Method not allowed".into(),
+            ),
+            Self::Unavailable => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "unavailable",
+                "Service not ready".into(),
             ),
             Self::Conflict => (
                 StatusCode::CONFLICT,

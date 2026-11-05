@@ -93,6 +93,27 @@ and a mock JWKS endpoint. Test against real Supabase before production deploymen
 
 ## API errors and input format
 
+### Public health endpoints
+
+| Request | Success | Failure |
+| --- | --- | --- |
+| `GET /health/live` | 200 `{"status":"ok"}` | No dependency check |
+| `GET /health/ready` | 200 `{"status":"ready"}` | 503 `{"error":"Service not ready","code":"unavailable"}` |
+
+These probes do not require a bearer token or call Supabase Auth. Readiness
+executes `SELECT 1` against PostgreSQL with a **two-second total timeout**,
+including connection-pool acquisition. It checks connectivity only, not schema
+compatibility or Gemini/ML availability. Liveness stays successful if the
+database becomes unavailable after startup; startup still requires the initial
+database connection to succeed. Use readiness, not liveness, to gate traffic.
+
+All existing resource endpoints remain protected. Unknown paths return JSON
+404 (`not_found`) without token verification. Unsupported methods on public
+health paths return JSON 405 (`method_not_allowed`); on protected resource paths
+they require authentication first (401 without a valid token, 405 with one).
+405 responses preserve the HTTP `Allow` header. `HEAD` follows Axum's normal GET
+behavior and returns headers/status without a body.
+
 Handler failures return JSON such as `{"error":"Resource not found","code":"not_found"}`.
 The codes/statuses are `unauthorized` (401: invalid/missing token),
 `invalid_request` (400: malformed input or invalid
