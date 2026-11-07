@@ -26,6 +26,8 @@ class InteractiveLocationMap extends StatefulWidget {
   final bool showLandmarks;
   final bool forceCanvas;
   final bool showFooter;
+  final List<LatLng>? routeWaypoints;
+  final Color? routeColor;
 
   const InteractiveLocationMap({
     super.key,
@@ -39,6 +41,8 @@ class InteractiveLocationMap extends StatefulWidget {
     this.showLandmarks = true,
     this.forceCanvas = false,
     this.showFooter = true,
+    this.routeWaypoints,
+    this.routeColor,
   });
 
   @override
@@ -93,9 +97,16 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
     super.didUpdateWidget(oldWidget);
     if (widget.selectedLocation != oldWidget.selectedLocation) {
       _currentLocation = widget.selectedLocation;
-      if (_currentLocation != null) {
+      if (_currentLocation != null && widget.showFooter) {
         _resolveAddress(_currentLocation!);
       }
+      if (_useMapLibre) {
+        _updateMapLibreLayers();
+      }
+    }
+    if (widget.secondaryLocation != oldWidget.secondaryLocation ||
+        widget.routeWaypoints != oldWidget.routeWaypoints ||
+        widget.routeColor != oldWidget.routeColor) {
       if (_useMapLibre) {
         _updateMapLibreLayers();
       }
@@ -151,7 +162,22 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
         );
       }
 
-      if (loc != null && sec != null) {
+      final waypoints = widget.routeWaypoints;
+      if (waypoints != null && waypoints.length >= 2) {
+        final colorHex = widget.routeColor != null
+            ? '#${(widget.routeColor!.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}'
+            : '#0F766E';
+        await controller.addLine(
+          ml.LineOptions(
+            geometry: waypoints
+                .map((p) => ml.LatLng(p.latitude, p.longitude))
+                .toList(),
+            lineColor: colorHex,
+            lineWidth: 4.5,
+            lineOpacity: 0.9,
+          ),
+        );
+      } else if (loc != null && sec != null) {
         await controller.addLine(
           ml.LineOptions(
             geometry: [
@@ -363,8 +389,10 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
                             ),
 
                             // Connecting route line.
-                            if (location != null &&
-                                widget.secondaryLocation != null)
+                            if ((location != null &&
+                                    widget.secondaryLocation != null) ||
+                                (widget.routeWaypoints != null &&
+                                    widget.routeWaypoints!.length >= 2))
                               ClipRect(
                                 child: Transform.translate(
                                   offset: _panOffset,
@@ -377,8 +405,12 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                     child: CustomPaint(
                                       size: size,
                                       painter: _RouteLinePainter(
-                                        from: location,
-                                        to: widget.secondaryLocation!,
+                                        from: location ??
+                                            widget.routeWaypoints!.first,
+                                        to: widget.secondaryLocation ??
+                                            widget.routeWaypoints!.last,
+                                        waypoints: widget.routeWaypoints,
+                                        color: widget.routeColor,
                                         minLat: minLat,
                                         maxLat: maxLat,
                                         minLon: minLon,
@@ -1306,10 +1338,12 @@ class _JakartaCanvasPainter extends CustomPainter {
   bool shouldRepaint(covariant _JakartaCanvasPainter old) => false;
 }
 
-/// Draws a dashed route line between from and to coordinates.
+/// Draws a route line (either multi-point waypoints or direct segment) between coordinates.
 class _RouteLinePainter extends CustomPainter {
   final LatLng from;
   final LatLng to;
+  final List<LatLng>? waypoints;
+  final Color? color;
   final double minLat;
   final double maxLat;
   final double minLon;
@@ -1318,6 +1352,8 @@ class _RouteLinePainter extends CustomPainter {
   _RouteLinePainter({
     required this.from,
     required this.to,
+    this.waypoints,
+    this.color,
     required this.minLat,
     required this.maxLat,
     required this.minLon,
@@ -1337,21 +1373,35 @@ class _RouteLinePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final a = _toPx(from, size);
-    final b = _toPx(to, size);
-
     final linePaint = Paint()
-      ..color = SupraTheme.brand.withValues(alpha: 0.6)
-      ..strokeWidth = 3
+      ..color = (color ?? SupraTheme.brand).withValues(alpha: 0.85)
+      ..strokeWidth = 3.5
       ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
 
-    canvas.drawLine(a, b, linePaint);
+    final pts = (waypoints != null && waypoints!.length >= 2)
+        ? waypoints!
+        : [from, to];
+
+    final path = Path();
+    for (int i = 0; i < pts.length; i++) {
+      final p = _toPx(pts[i], size);
+      if (i == 0) {
+        path.moveTo(p.dx, p.dy);
+      } else {
+        path.lineTo(p.dx, p.dy);
+      }
+    }
+    canvas.drawPath(path, linePaint);
   }
 
   @override
   bool shouldRepaint(covariant _RouteLinePainter old) =>
-      old.from != from || old.to != to;
+      old.from != from ||
+      old.to != to ||
+      old.waypoints != waypoints ||
+      old.color != color;
 }
 
 class _PinTipPainter extends CustomPainter {

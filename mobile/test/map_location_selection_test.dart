@@ -294,7 +294,7 @@ void main() {
       expect(find.text('Select start location on map'), findsOneWidget);
 
       // Tap Monas chip
-      await tester.tap(find.text('Monas'));
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Monas'));
       await tester.pump();
 
       // Confirm
