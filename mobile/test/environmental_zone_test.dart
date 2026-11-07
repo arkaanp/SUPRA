@@ -127,6 +127,53 @@ void main() {
       expect(rainingZone.descriptiveLabel, contains('🌧️ 4.5 mm'));
     });
 
+    test('pm25Color and rainColor maintain very low opacity for map clarity', () {
+      const goodZone = EnvironmentalZone(
+        id: 'g',
+        name: 'G',
+        center: LatLng(latitude: -6.2, longitude: 106.8),
+        pm25: 10.0,
+        rainfallMm: 0.0,
+      );
+      const modZone = EnvironmentalZone(
+        id: 'm',
+        name: 'M',
+        center: LatLng(latitude: -6.2, longitude: 106.8),
+        pm25: 25.0,
+        rainfallMm: 0.0,
+      );
+      const unhZone = EnvironmentalZone(
+        id: 'u',
+        name: 'U',
+        center: LatLng(latitude: -6.2, longitude: 106.8),
+        pm25: 80.0,
+        rainfallMm: 0.0,
+      );
+      const hazZone = EnvironmentalZone(
+        id: 'h',
+        name: 'H',
+        center: LatLng(latitude: -6.2, longitude: 106.8),
+        pm25: 300.0,
+        rainfallMm: 0.0,
+      );
+      const rainZone = EnvironmentalZone(
+        id: 'r',
+        name: 'R',
+        center: LatLng(latitude: -6.2, longitude: 106.8),
+        pm25: 20.0,
+        rainfallMm: 5.0,
+        isRaining: true,
+      );
+
+      // Verify opacity is very low (<= 0.20)
+      expect(goodZone.pm25Color.a, lessThanOrEqualTo(0.08));
+      expect(modZone.pm25Color.a, lessThanOrEqualTo(0.10));
+      expect(unhZone.pm25Color.a, lessThanOrEqualTo(0.16));
+      expect(hazZone.pm25Color.a, lessThanOrEqualTo(0.20));
+      expect(rainZone.rainColor.a, lessThanOrEqualTo(0.16));
+      expect(rainZone.compositeAreaColor.a, lessThanOrEqualTo(0.22));
+    });
+
     test('contains correctly checks polygon boundaries', () {
       const zone = EnvironmentalZone(
         id: 'poly_test',

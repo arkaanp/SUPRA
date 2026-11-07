@@ -1886,8 +1886,8 @@ class _JakartaCanvasPainter extends CustomPainter {
         canvas.drawPath(
           path,
           Paint()
-            ..color = zone.solidAqiColor.withValues(alpha: 0.35)
-            ..strokeWidth = 1.0
+            ..color = zone.solidAqiColor.withValues(alpha: 0.18)
+            ..strokeWidth = 0.8
             ..style = PaintingStyle.stroke,
         );
 
@@ -2049,8 +2049,8 @@ class _JakartaCanvasPainter extends CustomPainter {
     canvas.clipPath(clipPath);
 
     final rainPaint = Paint()
-      ..color = const Color(0xFF60A5FA).withValues(alpha: 0.40)
-      ..strokeWidth = 1.2
+      ..color = const Color(0xFF60A5FA).withValues(alpha: 0.18)
+      ..strokeWidth = 0.9
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 
