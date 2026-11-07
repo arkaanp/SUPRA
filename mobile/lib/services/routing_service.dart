@@ -6,32 +6,141 @@ import 'package:http/http.dart' as http;
 import '../config/map_config.dart';
 import '../models/location.dart';
 import '../models/route_option.dart';
+import 'supra_api_service.dart';
+import 'transit_network.dart';
 
-/// Service responsible for fetching road-accurate routes from OpenStreetMap / OSRM
-/// and generating multi-modal recommendations factoring in weather, PM2.5 air pollution, and traffic.
+/// Service responsible for fetching road-accurate routes from OpenStreetMap / OSRM,
+/// live environmental conditions (PM2.5, rain, weather) from real-time APIs,
+/// and generating multi-modal recommendations with rapid transit itineraries.
 class RoutingService {
   final http.Client? client;
   final bool useNetwork;
 
+  static final Map<String, double> _pm25Cache = {};
+  static final Map<String, double> _rainCache = {};
+
   RoutingService({this.client, bool? useNetwork})
     : useNetwork =
           useNetwork ?? (client != null || !MapConfig.isTestEnvironment);
+
+  /// Fetches live PM2.5 air pollution (in µg/m³) for a location via backend OpenAQ/TomTom
+  /// or Open-Meteo Air Quality API with fallback to Jakarta baseline.
+  Future<double> fetchLivePm25(LatLng point) async {
+    final cacheKey =
+        '${point.latitude.toStringAsFixed(2)},${point.longitude.toStringAsFixed(2)}';
+    if (_pm25Cache.containsKey(cacheKey)) {
+      return _pm25Cache[cacheKey]!;
+    }
+
+    if (!useNetwork) return 48.0;
+
+    // 1. If user is signed in to Supra, check backend /api/conditions/current
+    try {
+      if (SupraService.instance.currentUser != null) {
+        final cond = await SupraService.instance.getCurrentConditions(
+          point.latitude,
+          point.longitude,
+        );
+        final val = (cond.airQuality.data?['pm25_ug_m3'] as num?)?.toDouble();
+        if (val != null && val > 0) {
+          _pm25Cache[cacheKey] = val;
+          return val;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Open-Meteo Air Quality API (public, live satellite & observation blend)
+    final httpClient = client ?? http.Client();
+    final url = Uri.parse(
+      'https://air-quality-api.open-meteo.com/v1/air-quality?'
+      'latitude=${point.latitude}&longitude=${point.longitude}&current=pm2_5',
+    );
+
+    try {
+      final res = await httpClient.get(url).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final json = jsonDecode(res.body) as Map<String, dynamic>;
+        final val = (json['current']?['pm2_5'] as num?)?.toDouble();
+        if (val != null && val >= 0) {
+          _pm25Cache[cacheKey] = val;
+          return val;
+        }
+      }
+    } catch (_) {
+    } finally {
+      if (client == null) httpClient.close();
+    }
+
+    return 48.0; // Baseline fallback
+  }
+
+  /// Fetches live rainfall precipitation (in mm) for a location via backend or Open-Meteo Weather API.
+  Future<double> fetchLiveRainfallMm(LatLng point) async {
+    final cacheKey =
+        '${point.latitude.toStringAsFixed(2)},${point.longitude.toStringAsFixed(2)}';
+    if (_rainCache.containsKey(cacheKey)) {
+      return _rainCache[cacheKey]!;
+    }
+
+    if (!useNetwork) return 0.0;
+
+    // 1. Backend /api/conditions/current
+    try {
+      if (SupraService.instance.currentUser != null) {
+        final cond = await SupraService.instance.getCurrentConditions(
+          point.latitude,
+          point.longitude,
+        );
+        final val = (cond.weather.data?['precipitation_mm'] as num?)
+            ?.toDouble();
+        if (val != null && val >= 0) {
+          _rainCache[cacheKey] = val;
+          return val;
+        }
+      }
+    } catch (_) {}
+
+    // 2. Open-Meteo Forecast API
+    final httpClient = client ?? http.Client();
+    final url = Uri.parse(
+      'https://api.open-meteo.com/v1/forecast?'
+      'latitude=${point.latitude}&longitude=${point.longitude}&current=precipitation,rain',
+    );
+
+    try {
+      final res = await httpClient.get(url).timeout(const Duration(seconds: 4));
+      if (res.statusCode == 200) {
+        final json = jsonDecode(res.body) as Map<String, dynamic>;
+        final val = (json['current']?['precipitation'] as num?)?.toDouble();
+        if (val != null && val >= 0) {
+          _rainCache[cacheKey] = val;
+          return val;
+        }
+      }
+    } catch (_) {
+    } finally {
+      if (client == null) httpClient.close();
+    }
+
+    return 0.0;
+  }
 
   /// Fetches road-accurate route alternatives for Car, Motorcycle, and Public Transit,
   /// enriched with environmental risk assessments and recommended health/safety measures.
   Future<List<RouteOption>> calculateRoutes({
     required LatLng start,
     required LatLng destination,
+    String? startName,
+    String? destinationName,
     double? pm25UgM3,
     double? rainfallMm,
     double? rainProbability,
     double? trafficDensity,
   }) async {
-    // Default environmental baseline for Greater Jakarta if not supplied:
-    // Typical Jakarta urban baseline: moderate-to-high PM2.5 (~48 µg/m³), moderate traffic (~0.65).
-    final pm25 = pm25UgM3 ?? 48.0;
-    final rainMm = rainfallMm ?? 0.0;
-    final rainProb = rainProbability ?? (rainMm > 0 ? 0.75 : 0.20);
+    // Retrieve live PM2.5 and rain from real-time APIs if not explicitly provided
+    final pm25 = pm25UgM3 ?? await fetchLivePm25(start);
+    final rainMm = rainfallMm ?? await fetchLiveRainfallMm(start);
+    final rainProb = rainProbability ?? (rainMm > 0 ? 0.85 : 0.20);
     final traffic = (trafficDensity ?? 0.65).clamp(0.0, 1.0);
 
     // 1. Fetch road-accurate geometry from OSRM
@@ -114,16 +223,25 @@ class RoutingService {
       );
     }
 
-    // 4. Generate Public Transit Option (KRL / MRT / TransJakarta)
-    final transitDuration = _calculateTransitDuration(roadDistanceKm);
+    // 4. Generate Public Transit Option (MRT / KRL / LRT Rapid Transit Network)
+    final transitResult = TransitNetwork.buildTransitRoute(
+      origin: start,
+      destination: destination,
+      originName: startName,
+      destinationName: destinationName,
+    );
+    final transitDuration = transitResult.estimatedDuration;
+    final transitDistanceKm = transitResult.totalDistanceKm;
     final transitRisks = <String>[];
     final transitMeasures = <String>[];
 
     if (rainMm > 0.5 || rainProb >= 0.40) {
       transitRisks.add(
-        'Wet outdoor walking during transfer between station entrance and destination.',
+        'Wet outdoor walking during transfer (${transitResult.walkToStationKm.toStringAsFixed(1)} km to ${transitResult.departureStation.name.split(" (").first}).',
       );
-      transitMeasures.add('Bring a compact umbrella for walking transfers.');
+      transitMeasures.add(
+        'Bring a compact umbrella for walking to and from station entrances.',
+      );
     }
     if (pm25 >= 35.0) {
       transitRisks.add(
@@ -220,16 +338,12 @@ class RoutingService {
 
     final transitOption = RouteOption(
       mode: TransportMode.publicTransit,
-      title: 'Public Transit (KRL/MRT)',
+      title:
+          '${transitResult.departureStation.system.displayName} (${transitResult.departureStation.name.split(" (").first.replaceAll("Stasiun ", "")} → ${transitResult.arrivalStation.name.split(" (").first.replaceAll("Stasiun ", "")})',
       estimatedDuration: transitDuration,
-      distanceKm: roadDistanceKm * 1.05,
-      waypoints: _generateTransitCorridor(start, destination),
-      turnSteps: const [
-        'Walk to Station Platform',
-        'Board KRL / MRT Service',
-        'Transfer via Dedicated Interchange',
-        'Walk to Final Destination',
-      ],
+      distanceKm: transitDistanceKm,
+      waypoints: transitResult.transitWaypoints,
+      turnSteps: transitResult.turnSteps,
       isRecommended: recommendedMode == TransportMode.publicTransit,
       recommendationReason: recommendedMode == TransportMode.publicTransit
           ? recommendationReason
@@ -258,12 +372,6 @@ class RoutingService {
     final effectiveSpeedKmh = 36.0 - (traffic * 10.0);
     final hours = distanceKm / max(18.0, effectiveSpeedKmh);
     return Duration(minutes: max(5, (hours * 60).round()));
-  }
-
-  Duration _calculateTransitDuration(double distanceKm) {
-    // Train/MRT ~35 km/h + 8 min fixed wait/boarding buffer
-    final transitHours = distanceKm / 35.0;
-    return Duration(minutes: max(12, (transitHours * 60).round() + 8));
   }
 
   Future<_OsrmFetchResult> _fetchOsrmRoute(
@@ -362,24 +470,6 @@ class RoutingService {
               start.longitude +
               (destination.longitude - start.longitude) * t +
               wobbleLon,
-        ),
-      );
-    }
-    return pts;
-  }
-
-  List<LatLng> _generateTransitCorridor(LatLng start, LatLng destination) {
-    // Smoother straight-line rail alignment
-    final List<LatLng> pts = [];
-    const int segments = 16;
-    for (int i = 0; i <= segments; i++) {
-      final t = i / segments;
-      pts.add(
-        LatLng(
-          latitude:
-              start.latitude + (destination.latitude - start.latitude) * t,
-          longitude:
-              start.longitude + (destination.longitude - start.longitude) * t,
         ),
       );
     }

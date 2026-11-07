@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/location.dart';
 import '../models/trip.dart';
+import '../services/geocoding_service.dart';
 import '../services/supra_api_service.dart';
 import '../widgets/interactive_location_map.dart';
 import 'map_screen.dart';
@@ -68,21 +69,21 @@ class _TripScreenState extends State<TripScreen> {
     );
 
     if (picked != null && mounted) {
-      final landmark = findNearestLandmark(picked);
-      final label = landmark != null
-          ? '${landmark.name} (${picked.latitude.toStringAsFixed(4)}, ${picked.longitude.toStringAsFixed(4)})'
-          : 'Point (${picked.latitude.toStringAsFixed(4)}, ${picked.longitude.toStringAsFixed(4)})';
+      final geocoder = GeocodingService();
+      final label = await geocoder.reverseGeocode(picked);
 
-      setState(() {
-        if (isStart) {
-          _startCoord = picked;
-          _start.text = label;
-        } else {
-          _destCoord = picked;
-          _destination.text = label;
-        }
-        _showRouteMap = true;
-      });
+      if (mounted) {
+        setState(() {
+          if (isStart) {
+            _startCoord = picked;
+            _start.text = label;
+          } else {
+            _destCoord = picked;
+            _destination.text = label;
+          }
+          _showRouteMap = true;
+        });
+      }
     }
   }
 
@@ -179,21 +180,18 @@ class _TripScreenState extends State<TripScreen> {
           secondaryLocation: _destCoord,
           selectedLabel: 'S',
           secondaryLabel: 'D',
-          onLocationChanged: (loc) {
+          onLocationChanged: (loc) async {
+            final geocoder = GeocodingService();
+            final address = await geocoder.reverseGeocode(loc);
+            if (!mounted) return;
             setState(() {
               if (_startCoord == null || _destCoord != null) {
                 _startCoord = loc;
                 _destCoord = null;
-                final lm = findNearestLandmark(loc);
-                _start.text = lm != null
-                    ? '${lm.name} (${loc.latitude.toStringAsFixed(4)}, ${loc.longitude.toStringAsFixed(4)})'
-                    : 'Point (${loc.latitude.toStringAsFixed(4)}, ${loc.longitude.toStringAsFixed(4)})';
+                _start.text = address;
               } else {
                 _destCoord = loc;
-                final lm = findNearestLandmark(loc);
-                _destination.text = lm != null
-                    ? '${lm.name} (${loc.latitude.toStringAsFixed(4)}, ${loc.longitude.toStringAsFixed(4)})'
-                    : 'Point (${loc.latitude.toStringAsFixed(4)}, ${loc.longitude.toStringAsFixed(4)})';
+                _destination.text = address;
               }
             });
           },

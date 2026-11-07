@@ -6,6 +6,7 @@ import '../models/location.dart';
 import '../models/prediction.dart';
 import '../models/route.dart';
 import '../models/route_option.dart';
+import '../services/geocoding_service.dart';
 import '../services/routing_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/route_planner_view.dart';
@@ -48,9 +49,12 @@ class MapScreen extends StatefulWidget {
 
 class _MapScreenState extends State<MapScreen> {
   late final RoutingService _routingService;
+  final GeocodingService _geocodingService = GeocodingService();
   bool _showTraffic = true;
   bool _showRain = true;
   LatLng? _inspectedLocation;
+  String? _inspectedAddress;
+  double? _inspectedPm25;
   late bool _useMapLibre;
   ml.MapLibreMapController? _mapController;
 
@@ -85,6 +89,8 @@ class _MapScreenState extends State<MapScreen> {
       final options = await _routingService.calculateRoutes(
         start: widget.start,
         destination: widget.destination,
+        startName: widget.startName,
+        destinationName: widget.destinationName,
         pm25UgM3: widget.initialPm25,
         rainfallMm: widget.initialRainMm,
       );
@@ -103,6 +109,22 @@ class _MapScreenState extends State<MapScreen> {
       }
     } catch (_) {
       if (mounted) setState(() => _loadingRoutes = false);
+    }
+  }
+
+  Future<void> _onInspectLocation(LatLng tapped) async {
+    setState(() {
+      _inspectedLocation = tapped;
+      _inspectedAddress = null;
+      _inspectedPm25 = null;
+    });
+    final addr = await _geocodingService.reverseGeocode(tapped);
+    final pm = await _routingService.fetchLivePm25(tapped);
+    if (mounted && _inspectedLocation == tapped) {
+      setState(() {
+        _inspectedAddress = addr;
+        _inspectedPm25 = pm;
+      });
     }
   }
 
@@ -244,16 +266,16 @@ class _MapScreenState extends State<MapScreen> {
                     onMapCreated: _onMapCreated,
                     onStyleLoadedCallback: _drawMapLibreRoute,
                     onMapClick: (point, coordinates) {
-                      setState(() {
-                        _inspectedLocation = LatLng(
+                      _onInspectLocation(
+                        LatLng(
                           latitude: double.parse(
                             coordinates.latitude.toStringAsFixed(4),
                           ),
                           longitude: double.parse(
                             coordinates.longitude.toStringAsFixed(4),
                           ),
-                        );
-                      });
+                        ),
+                      );
                     },
                     compassEnabled: true,
                     trackCameraPosition: true,
@@ -272,9 +294,7 @@ class _MapScreenState extends State<MapScreen> {
                       totalDistanceKm: distance,
                     ),
                     predictions: widget.predictions,
-                    onTapLocation: (tapped) {
-                      setState(() => _inspectedLocation = tapped);
-                    },
+                    onTapLocation: _onInspectLocation,
                   ),
 
                 // Top inspected location card
@@ -314,20 +334,48 @@ class _MapScreenState extends State<MapScreen> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
-                                  nearest != null
-                                      ? nearest.name
-                                      : 'Tapped location',
+                                  _inspectedAddress ??
+                                      (nearest?.name ?? 'Tapped location'),
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w700,
                                     fontSize: 12,
                                   ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                                Text(
-                                  'Lat: ${_inspectedLocation!.latitude.toStringAsFixed(4)}, Lon: ${_inspectedLocation!.longitude.toStringAsFixed(4)}',
-                                  style: const TextStyle(
-                                    fontSize: 11,
-                                    color: SupraTheme.textSecondary,
-                                  ),
+                                Row(
+                                  children: [
+                                    Text(
+                                      'Lat: ${_inspectedLocation!.latitude.toStringAsFixed(4)}, Lon: ${_inspectedLocation!.longitude.toStringAsFixed(4)}',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        color: SupraTheme.textSecondary,
+                                      ),
+                                    ),
+                                    if (_inspectedPm25 != null) ...[
+                                      const SizedBox(width: 6),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                          vertical: 1,
+                                        ),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFFEF3C7),
+                                          borderRadius: BorderRadius.circular(
+                                            4,
+                                          ),
+                                        ),
+                                        child: Text(
+                                          'PM2.5: ${_inspectedPm25!.toStringAsFixed(0)} µg/m³',
+                                          style: const TextStyle(
+                                            fontSize: 9,
+                                            fontWeight: FontWeight.w700,
+                                            color: Color(0xFF92400E),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ],
                             ),

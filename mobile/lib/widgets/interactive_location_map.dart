@@ -1,10 +1,13 @@
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart' as ml;
 
 import '../config/map_config.dart';
 import '../models/location.dart';
+import '../services/geocoding_service.dart';
 import '../theme/app_theme.dart';
 
 /// Interactive map widget allowing users to visually select geographic coordinates
@@ -52,11 +55,34 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
   late bool _useMapLibre;
   String _mapStyle = MapConfig.cartoPositron;
 
+  final GeocodingService _geocodingService = GeocodingService();
+  String? _resolvedAddress;
+
+  // Canvas pan & zoom state
+  Offset _panOffset = Offset.zero;
+  double _zoomFactor = 1.0;
+  Offset _dragStart = Offset.zero;
+  Offset _panStart = Offset.zero;
+  bool _isDragging = false;
+
   @override
   void initState() {
     super.initState();
     _currentLocation = widget.selectedLocation;
-    _useMapLibre = !widget.forceCanvas && MapConfig.isMapLibreSupported;
+    _useMapLibre =
+        !widget.forceCanvas &&
+        !MapConfig.isTestEnvironment &&
+        MapConfig.isMapLibreSupported;
+    if (_currentLocation != null) {
+      _resolveAddress(_currentLocation!);
+    }
+  }
+
+  Future<void> _resolveAddress(LatLng loc) async {
+    final addr = await _geocodingService.reverseGeocode(loc);
+    if (mounted && _currentLocation == loc) {
+      setState(() => _resolvedAddress = addr);
+    }
   }
 
   @override
@@ -64,6 +90,9 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
     super.didUpdateWidget(oldWidget);
     if (widget.selectedLocation != oldWidget.selectedLocation) {
       _currentLocation = widget.selectedLocation;
+      if (_currentLocation != null) {
+        _resolveAddress(_currentLocation!);
+      }
       if (_useMapLibre) {
         _updateMapLibreLayers();
       }
@@ -146,12 +175,18 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
       longitude: double.parse(lon.toStringAsFixed(4)),
     );
     setState(() => _currentLocation = location);
+    _resolveAddress(location);
     _updateMapLibreLayers();
     widget.onLocationChanged?.call(location);
   }
 
   void animateToLocation(LatLng loc) {
-    setState(() => _currentLocation = loc);
+    setState(() {
+      _currentLocation = loc;
+      _panOffset = Offset.zero;
+      _zoomFactor = 1.3;
+    });
+    _resolveAddress(loc);
     if (_useMapLibre && _mapController != null) {
       _mapController!.animateCamera(
         ml.CameraUpdate.newLatLngZoom(
@@ -169,8 +204,15 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
     final usableW = max(1.0, size.width - 2 * pad);
     final usableH = max(1.0, size.height - 2 * pad);
 
-    final normalizedX = ((localPos.dx - pad) / usableW).clamp(0.0, 1.0);
-    final normalizedY = ((localPos.dy - pad) / usableH).clamp(0.0, 1.0);
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+    final unzoomedX =
+        (localPos.dx - _panOffset.dx - centerX) / _zoomFactor + centerX;
+    final unzoomedY =
+        (localPos.dy - _panOffset.dy - centerY) / _zoomFactor + centerY;
+
+    final normalizedX = ((unzoomedX - pad) / usableW).clamp(0.0, 1.0);
+    final normalizedY = ((unzoomedY - pad) / usableH).clamp(0.0, 1.0);
 
     final lon = minLon + normalizedX * (maxLon - minLon);
     final lat = maxLat - normalizedY * (maxLat - minLat);
@@ -185,6 +227,7 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
     if (!widget.isInteractive) return;
     final location = _pixelToLatLng(localPos, size);
     setState(() => _currentLocation = location);
+    _resolveAddress(location);
     widget.onLocationChanged?.call(location);
   }
 
@@ -243,6 +286,11 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
                     rotateGesturesEnabled: widget.isInteractive,
                     scrollGesturesEnabled: widget.isInteractive,
                     zoomGesturesEnabled: widget.isInteractive,
+                    gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                      Factory<OneSequenceGestureRecognizer>(
+                        () => EagerGestureRecognizer(),
+                      ),
+                    },
                   )
                 else
                   LayoutBuilder(
@@ -250,36 +298,85 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
                       final size = mapConstraints.biggest;
                       return GestureDetector(
                         behavior: HitTestBehavior.opaque,
-                        onTapDown: (details) =>
-                            _handleCanvasTap(details.localPosition, size),
-                        onPanUpdate: (details) =>
-                            _handleCanvasTap(details.localPosition, size),
+                        onTapUp: (details) {
+                          if (!_isDragging) {
+                            _handleCanvasTap(details.localPosition, size);
+                          }
+                        },
+                        onScaleStart: (details) {
+                          _dragStart = details.localFocalPoint;
+                          _panStart = _panOffset;
+                          _isDragging = false;
+                        },
+                        onScaleUpdate: (details) {
+                          final dist =
+                              (details.localFocalPoint - _dragStart).distance;
+                          if (dist > 3.0 || details.scale != 1.0) {
+                            _isDragging = true;
+                            setState(() {
+                              _panOffset =
+                                  _panStart +
+                                  (details.localFocalPoint - _dragStart);
+                              if (details.scale != 1.0) {
+                                _zoomFactor = (_zoomFactor * details.scale)
+                                    .clamp(0.6, 3.5);
+                              }
+                            });
+                          }
+                        },
+                        onScaleEnd: (details) {
+                          Future.microtask(() => _isDragging = false);
+                        },
                         child: Stack(
                           children: [
-                            // Base vector map canvas.
-                            CustomPaint(
-                              size: size,
-                              painter: _JakartaCanvasPainter(
-                                minLat: minLat,
-                                maxLat: maxLat,
-                                minLon: minLon,
-                                maxLon: maxLon,
-                                showLandmarks: widget.showLandmarks,
+                            // Base vector map canvas with pan and zoom.
+                            ClipRect(
+                              child: Transform.translate(
+                                offset: _panOffset,
+                                child: Transform.scale(
+                                  scale: _zoomFactor,
+                                  origin: Offset(
+                                    size.width / 2,
+                                    size.height / 2,
+                                  ),
+                                  child: CustomPaint(
+                                    size: size,
+                                    painter: _JakartaCanvasPainter(
+                                      minLat: minLat,
+                                      maxLat: maxLat,
+                                      minLon: minLon,
+                                      maxLon: maxLon,
+                                      showLandmarks: widget.showLandmarks,
+                                    ),
+                                  ),
+                                ),
                               ),
                             ),
 
                             // Connecting route line.
                             if (location != null &&
                                 widget.secondaryLocation != null)
-                              CustomPaint(
-                                size: size,
-                                painter: _RouteLinePainter(
-                                  from: location,
-                                  to: widget.secondaryLocation!,
-                                  minLat: minLat,
-                                  maxLat: maxLat,
-                                  minLon: minLon,
-                                  maxLon: maxLon,
+                              ClipRect(
+                                child: Transform.translate(
+                                  offset: _panOffset,
+                                  child: Transform.scale(
+                                    scale: _zoomFactor,
+                                    origin: Offset(
+                                      size.width / 2,
+                                      size.height / 2,
+                                    ),
+                                    child: CustomPaint(
+                                      size: size,
+                                      painter: _RouteLinePainter(
+                                        from: location,
+                                        to: widget.secondaryLocation!,
+                                        minLat: minLat,
+                                        maxLat: maxLat,
+                                        minLon: minLon,
+                                        maxLon: maxLon,
+                                      ),
+                                    ),
+                                  ),
                                 ),
                               ),
 
@@ -306,6 +403,106 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
                       );
                     },
                   ),
+
+                // Floating Zoom & Reset Map Controls
+                Positioned(
+                  right: 10,
+                  bottom: 10,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.95),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                      boxShadow: const [
+                        BoxShadow(
+                          color: Color(0x14000000),
+                          blurRadius: 4,
+                          offset: Offset(0, 2),
+                        ),
+                      ],
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(Icons.add, size: 16),
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: 32,
+                          ),
+                          padding: EdgeInsets.zero,
+                          tooltip: 'Zoom in',
+                          onPressed: () {
+                            if (_useMapLibre && _mapController != null) {
+                              _mapController!.animateCamera(
+                                ml.CameraUpdate.zoomIn(),
+                              );
+                            } else {
+                              setState(
+                                () => _zoomFactor = (_zoomFactor * 1.25).clamp(
+                                  0.6,
+                                  3.5,
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                        const SizedBox(
+                          width: 24,
+                          child: Divider(height: 1, thickness: 0.5),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.remove, size: 16),
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: 32,
+                          ),
+                          padding: EdgeInsets.zero,
+                          tooltip: 'Zoom out',
+                          onPressed: () {
+                            if (_useMapLibre && _mapController != null) {
+                              _mapController!.animateCamera(
+                                ml.CameraUpdate.zoomOut(),
+                              );
+                            } else {
+                              setState(
+                                () => _zoomFactor = (_zoomFactor / 1.25).clamp(
+                                  0.6,
+                                  3.5,
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                        const SizedBox(
+                          width: 24,
+                          child: Divider(height: 1, thickness: 0.5),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.my_location, size: 15),
+                          constraints: const BoxConstraints(
+                            minWidth: 32,
+                            minHeight: 32,
+                          ),
+                          padding: EdgeInsets.zero,
+                          tooltip: 'Center on selected location',
+                          onPressed: () {
+                            final target =
+                                _currentLocation ?? widget.selectedLocation;
+                            if (target != null) {
+                              animateToLocation(target);
+                            } else {
+                              setState(() {
+                                _panOffset = Offset.zero;
+                                _zoomFactor = 1.0;
+                              });
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
 
                 // Top controls overlay: MapLibre badge + style toggle.
                 Positioned(
@@ -458,14 +655,17 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            nearest != null
-                                ? '${nearest.name} (${nearest.area})'
-                                : 'Selected Point',
+                            _resolvedAddress ??
+                                (nearest != null
+                                    ? '${nearest.name} (${nearest.area})'
+                                    : 'Selected Point'),
                             style: const TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 12,
                               color: SupraTheme.onSurface,
                             ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                           Text(
                             'Lat: ${location.latitude.toStringAsFixed(4)}, Lon: ${location.longitude.toStringAsFixed(4)}',
@@ -527,8 +727,12 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
       1.0,
     );
 
-    final px = pad + normX * usableW;
-    final py = pad + normY * usableH;
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+    final baseX = pad + normX * usableW;
+    final baseY = pad + normY * usableH;
+    final px = (baseX - centerX) * _zoomFactor + centerX + _panOffset.dx;
+    final py = (baseY - centerY) * _zoomFactor + centerY + _panOffset.dy;
 
     return Positioned(
       left: px - 14,
@@ -571,7 +775,7 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
   }
 }
 
-/// Modal bottom sheet to pick a location using MapLibre GL.
+/// Modal bottom sheet to pick a location using MapLibre GL or Vector Canvas with live search & geocoding.
 Future<LatLng?> showLocationPickerSheet({
   required BuildContext context,
   LatLng? initialLocation,
@@ -579,6 +783,9 @@ Future<LatLng?> showLocationPickerSheet({
 }) async {
   LatLng selected =
       initialLocation ?? const LatLng(latitude: -6.2088, longitude: 106.8456);
+
+  final geocoder = GeocodingService();
+  String resolvedAddress = 'Resolving location…';
 
   return showModalBottomSheet<LatLng>(
     context: context,
@@ -589,11 +796,23 @@ Future<LatLng?> showLocationPickerSheet({
     ),
     builder: (context) {
       final mapKey = GlobalKey<_InteractiveLocationMapState>();
+      final searchCtrl = TextEditingController();
+      List<GeocodedPlace> searchResults = [];
 
       return StatefulBuilder(
         builder: (context, setSheetState) {
+          void updateAddress(LatLng loc) {
+            geocoder.reverseGeocode(loc).then((addr) {
+              setSheetState(() => resolvedAddress = addr);
+            });
+          }
+
+          if (resolvedAddress == 'Resolving location…') {
+            updateAddress(selected);
+          }
+
           return SafeArea(
-            child: Padding(
+            child: SingleChildScrollView(
               padding: EdgeInsets.only(
                 left: 16,
                 right: 16,
@@ -641,9 +860,109 @@ Future<LatLng?> showLocationPickerSheet({
                   ),
                   const SizedBox(height: 8),
 
+                  // Search input bar with autocomplete
+                  TextField(
+                    controller: searchCtrl,
+                    decoration: InputDecoration(
+                      hintText: 'Search place, station, or street in Jakarta…',
+                      prefixIcon: const Icon(Icons.search, size: 20),
+                      suffixIcon: searchCtrl.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, size: 18),
+                              onPressed: () {
+                                searchCtrl.clear();
+                                setSheetState(() => searchResults = []);
+                              },
+                            )
+                          : null,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 10,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                      ),
+                    ),
+                    onChanged: (text) async {
+                      if (text.trim().length >= 2) {
+                        final res = await geocoder.searchPlaces(text);
+                        setSheetState(() => searchResults = res);
+                      } else {
+                        setSheetState(() => searchResults = []);
+                      }
+                    },
+                  ),
+
+                  // Autocomplete dropdown suggestions
+                  if (searchResults.isNotEmpty)
+                    Container(
+                      margin: const EdgeInsets.only(top: 6),
+                      constraints: const BoxConstraints(maxHeight: 140),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: SupraTheme.divider),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x14000000),
+                            blurRadius: 6,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: searchResults.length,
+                        separatorBuilder: (context, _) =>
+                            const Divider(height: 1),
+                        itemBuilder: (context, i) {
+                          final place = searchResults[i];
+                          return ListTile(
+                            dense: true,
+                            visualDensity: VisualDensity.compact,
+                            leading: const Icon(
+                              Icons.location_on,
+                              size: 18,
+                              color: SupraTheme.brand,
+                            ),
+                            title: Text(
+                              place.name,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                              ),
+                            ),
+                            subtitle: Text(
+                              place.displayName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: SupraTheme.textSecondary,
+                              ),
+                            ),
+                            onTap: () {
+                              setSheetState(() {
+                                selected = place.point;
+                                resolvedAddress = place.displayName;
+                                searchResults = [];
+                                searchCtrl.text = place.name;
+                              });
+                              mapKey.currentState?.animateToLocation(
+                                place.point,
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  const SizedBox(height: 8),
+
                   // Quick preset landmark chips.
                   SizedBox(
-                    height: 38,
+                    height: 34,
                     child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       itemCount: greaterJakartaLandmarks.length,
@@ -670,6 +989,7 @@ Future<LatLng?> showLocationPickerSheet({
                           backgroundColor: const Color(0xFFF1F5F9),
                           onSelected: (_) {
                             setSheetState(() => selected = landmark.point);
+                            updateAddress(landmark.point);
                             mapKey.currentState?.animateToLocation(
                               landmark.point,
                             );
@@ -678,7 +998,7 @@ Future<LatLng?> showLocationPickerSheet({
                       },
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
 
                   // Interactive MapLibre Map.
                   InteractiveLocationMap(
@@ -686,10 +1006,58 @@ Future<LatLng?> showLocationPickerSheet({
                     selectedLocation: selected,
                     onLocationChanged: (newLoc) {
                       setSheetState(() => selected = newLoc);
+                      updateAddress(newLoc);
                     },
-                    height: 280,
+                    height: 200,
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 10),
+
+                  // Dynamic Resolved Address Card
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: SupraTheme.divider),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.place,
+                          color: SupraTheme.brand,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                resolvedAddress,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Text(
+                                'Lat: ${selected.latitude.toStringAsFixed(4)}, Lon: ${selected.longitude.toStringAsFixed(4)}',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: SupraTheme.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
 
                   // Confirm button.
                   ElevatedButton.icon(

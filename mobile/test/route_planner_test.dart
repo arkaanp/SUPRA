@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supra_mobile_ui/models/location.dart';
 import 'package:supra_mobile_ui/models/route_option.dart';
+import 'package:supra_mobile_ui/services/geocoding_service.dart';
 import 'package:supra_mobile_ui/services/routing_service.dart';
+import 'package:supra_mobile_ui/services/transit_network.dart';
 import 'package:supra_mobile_ui/widgets/route_planner_view.dart';
 
 void main() {
@@ -289,5 +291,78 @@ void main() {
         );
       },
     );
+  });
+
+  group('GeocodingService tests', () {
+    test('reverseGeocode returns landmark or coordinates address', () async {
+      final service = GeocodingService(useNetwork: false);
+      final monas = const LatLng(latitude: -6.1754, longitude: 106.8272);
+      final addr = await service.reverseGeocode(monas);
+      expect(addr, contains('Monas'));
+    });
+
+    test('searchPlaces finds matching Greater Jakarta landmarks offline', () async {
+      final service = GeocodingService(useNetwork: false);
+      final results = await service.searchPlaces('Sudirman');
+      expect(results.isNotEmpty, isTrue);
+      expect(results.any((r) => r.name.contains('Sudirman')), isTrue);
+    });
+
+    test('reverseGeocode handles custom point outside named landmarks', () async {
+      final service = GeocodingService(useNetwork: false);
+      final customPoint = const LatLng(latitude: -6.3000, longitude: 106.8500);
+      final addr = await service.reverseGeocode(customPoint);
+      expect(addr, isNotEmpty);
+      expect(addr.contains('area') || addr.contains('Point'), isTrue);
+    });
+  });
+
+  group('TransitNetwork tests', () {
+    test('findNearestStation accurately locates rapid transit stations', () {
+      final bundaranHi = const LatLng(latitude: -6.1950, longitude: 106.8230);
+      final station = TransitNetwork.findNearestStation(bundaranHi);
+      expect(station.id, 'mrt_bundaran_hi');
+      expect(station.system, TransitSystem.mrt);
+    });
+
+    test('buildTransitRoute generates multi-leg itinerary with stations and walking legs', () {
+      final origin = const LatLng(latitude: -6.2400, longitude: 106.8000); // near Blok M
+      final dest = const LatLng(latitude: -6.1950, longitude: 106.8230); // Bundaran HI
+
+      final route = TransitNetwork.buildTransitRoute(
+        origin: origin,
+        destination: dest,
+        originName: 'Blok M Area',
+        destinationName: 'Bundaran HI',
+      );
+
+      expect(route.departureStation.name, isNotEmpty);
+      expect(route.arrivalStation.name, isNotEmpty);
+      expect(route.transitWaypoints.length, greaterThan(2)); // Not a straight line!
+      expect(route.turnSteps.any((s) => s.contains('Walk')), isTrue);
+      expect(route.turnSteps.any((s) => s.contains('Board')), isTrue);
+      expect(route.turnSteps.any((s) => s.contains('Alight')), isTrue);
+      expect(route.totalDistanceKm, greaterThan(0));
+    });
+  });
+
+  group('RoutingService transit & live PM2.5 integration tests', () {
+    test('calculateRoutes returns realistic multi-point transit corridor', () async {
+      final service = RoutingService(useNetwork: false);
+      final options = await service.calculateRoutes(
+        start: const LatLng(latitude: -6.2400, longitude: 106.8000),
+        destination: const LatLng(latitude: -6.1950, longitude: 106.8230),
+      );
+
+      final transit = options.firstWhere((o) => o.mode == TransportMode.publicTransit);
+      expect(transit.waypoints.length, greaterThan(2));
+      expect(transit.turnSteps.any((step) => step.contains('Board') || step.contains('Walk')), isTrue);
+    });
+
+    test('fetchLivePm25 returns reasonable default when offline', () async {
+      final service = RoutingService(useNetwork: false);
+      final pm25 = await service.fetchLivePm25(const LatLng(latitude: -6.2, longitude: 106.8));
+      expect(pm25, inInclusiveRange(0.0, 500.0));
+    });
   });
 }

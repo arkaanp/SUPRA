@@ -215,7 +215,7 @@ void main() {
       expect(find.text('Select location in Greater Jakarta'), findsOneWidget);
 
       // Select Bundaran HI preset
-      await tester.tap(find.text('Bundaran HI'));
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Bundaran HI'));
       await tester.pump();
 
       // Confirm
