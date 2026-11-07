@@ -5,6 +5,7 @@ import '../models/route_option.dart';
 import '../services/geocoding_service.dart';
 import '../services/routing_service.dart';
 import '../services/supra_api_service.dart';
+import '../services/transit_network.dart';
 import '../theme/app_theme.dart';
 import '../widgets/interactive_location_map.dart';
 
@@ -115,6 +116,19 @@ class _TripScreenState extends State<TripScreen> {
         ),
       );
     }
+    for (final st in TransitNetwork.stations) {
+      final cleanName = st.name
+          .replaceAll('Halte Transjakarta ', 'Halte ')
+          .replaceAll('Stasiun KRL ', 'Stasiun ')
+          .replaceAll('Stasiun MRT ', 'Stasiun ');
+      candidates.add(
+        NearbySnapOption(
+          name: cleanName,
+          point: st.point,
+          distanceKm: tap.distanceTo(st.point),
+        ),
+      );
+    }
     candidates.sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
 
     final unique = <NearbySnapOption>[];
@@ -133,11 +147,29 @@ class _TripScreenState extends State<TripScreen> {
       } else if (unique.isNotEmpty) {
         final closest = unique.first;
         final distMeters = (closest.distanceKm * 1000).round();
-        _tempTappedName = distMeters < 30
+        _tempTappedName = distMeters < 50
             ? closest.name
             : '${closest.name} (~$distMeters m away)';
       }
     });
+  }
+
+  Future<void> _onMapTapped(LatLng tapCoord) async {
+    setState(() {
+      _tempTappedPoint = tapCoord;
+      _mapSearchResults = [];
+    });
+    _updateSnapOptions(tapCoord);
+
+    try {
+      final realAddress = await _geocoder.reverseGeocode(tapCoord);
+      if (mounted && _tempTappedPoint == tapCoord) {
+        setState(() {
+          _tempTappedName = realAddress;
+          _mapSearchController.text = realAddress;
+        });
+      }
+    } catch (_) {}
   }
 
   void _startPickingMode({required bool forStart, bool focusSearch = false}) {
@@ -353,8 +385,7 @@ class _TripScreenState extends State<TripScreen> {
                       showFooter: false,
                       onLocationChanged: (tapCoord) {
                         if (_isPickingOnMap) {
-                          setState(() => _tempTappedPoint = tapCoord);
-                          _updateSnapOptions(tapCoord);
+                          _onMapTapped(tapCoord);
                         }
                       },
                     ),

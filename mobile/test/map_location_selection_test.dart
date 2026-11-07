@@ -88,6 +88,18 @@ void main() {
         expect(nearest.adm4, '31.74.04.1003');
       },
     );
+
+    test(
+      'greaterJakartaLandmarks contains only real public places and no McDonald\'s entries',
+      () {
+        expect(
+          greaterJakartaLandmarks.any(
+            (lm) => lm.name.toLowerCase().contains('mcdonald'),
+          ),
+          isFalse,
+        );
+      },
+    );
   });
 
   group('InteractiveLocationMap widget tests', () {
@@ -400,9 +412,22 @@ void main() {
         expect(find.text('Start Route Navigation'), findsNothing);
         expect(find.text('Show Route'), findsOneWidget);
 
+        // Verify routeWaypoints is null (no straight line or route polyline drawn!)
+        final mapBeforeRoute = tester.widget<InteractiveLocationMap>(
+          find.byType(InteractiveLocationMap),
+        );
+        expect(mapBeforeRoute.routeWaypoints, isNull);
+
         // Click Show Route
         await tester.tap(find.text('Show Route'));
         await tester.pumpAndSettle();
+
+        // After Show Route is clicked, road-accurate waypoints are supplied
+        final mapAfterRoute = tester.widget<InteractiveLocationMap>(
+          find.byType(InteractiveLocationMap),
+        );
+        expect(mapAfterRoute.routeWaypoints, isNotNull);
+        expect(mapAfterRoute.routeWaypoints!.length, greaterThan(2));
 
         // Routes calculated: Car and Motorcycle shown, public transit removed
         expect(find.textContaining('Car (Automobile)'), findsOneWidget);

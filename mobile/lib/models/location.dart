@@ -95,14 +95,14 @@ const List<NamedLocation> greaterJakartaLandmarks = [
     point: LatLng(latitude: -6.1934, longitude: 106.8228),
   ),
   NamedLocation(
-    name: 'McDonald\'s Sarinah Thamrin',
+    name: 'Sarinah Thamrin',
     area: 'Central Jakarta',
     point: LatLng(latitude: -6.1878, longitude: 106.8241),
   ),
   NamedLocation(
-    name: 'McDonald\'s Hayam Wuruk',
-    area: 'Central Jakarta',
-    point: LatLng(latitude: -6.1610, longitude: 106.8198),
+    name: 'Kota Tua (Fatahillah)',
+    area: 'West Jakarta',
+    point: LatLng(latitude: -6.1352, longitude: 106.8133),
   ),
   NamedLocation(
     name: 'Stasiun Gambir',
@@ -137,14 +137,14 @@ const List<NamedLocation> greaterJakartaLandmarks = [
     adm4: '31.74.04.1003',
   ),
   NamedLocation(
-    name: 'McDonald\'s Kemang',
+    name: 'Blok M Hub & Plaza',
     area: 'South Jakarta',
-    point: LatLng(latitude: -6.2750, longitude: 106.8180),
+    point: LatLng(latitude: -6.2445, longitude: 106.7978),
   ),
   NamedLocation(
-    name: 'McDonald\'s TB Simatupang',
+    name: 'Cilandak Town Square (Citos)',
     area: 'South Jakarta',
-    point: LatLng(latitude: -6.2995, longitude: 106.8235),
+    point: LatLng(latitude: -6.2925, longitude: 106.7997),
   ),
   NamedLocation(
     name: 'Pondok Indah Mall (PIM)',
@@ -192,14 +192,14 @@ const List<NamedLocation> greaterJakartaLandmarks = [
     point: LatLng(latitude: -6.3020, longitude: 106.6520),
   ),
   NamedLocation(
-    name: 'McDonald\'s BSD Sunburst',
+    name: 'AEON Mall BSD City',
     area: 'South Tangerang',
-    point: LatLng(latitude: -6.2978, longitude: 106.6685),
+    point: LatLng(latitude: -6.3045, longitude: 106.6436),
   ),
   NamedLocation(
-    name: 'McDonald\'s Bintaro Sektor 9',
+    name: 'Bintaro Jaya Xchange Mall',
     area: 'South Tangerang',
-    point: LatLng(latitude: -6.2842, longitude: 106.7118),
+    point: LatLng(latitude: -6.2842, longitude: 106.7280),
   ),
   NamedLocation(
     name: 'Universitas Indonesia (Depok)',
@@ -207,9 +207,9 @@ const List<NamedLocation> greaterJakartaLandmarks = [
     point: LatLng(latitude: -6.3650, longitude: 106.8280),
   ),
   NamedLocation(
-    name: 'McDonald\'s Margonda',
+    name: 'Margo City Mall',
     area: 'Depok',
-    point: LatLng(latitude: -6.3712, longitude: 106.8324),
+    point: LatLng(latitude: -6.3728, longitude: 106.8344),
   ),
   NamedLocation(
     name: 'Cibinong City Mall (CCM)',
@@ -217,9 +217,9 @@ const List<NamedLocation> greaterJakartaLandmarks = [
     point: LatLng(latitude: -6.4836, longitude: 106.8406),
   ),
   NamedLocation(
-    name: 'McDonald\'s Cibinong City Mall',
+    name: 'Pemda Cibinong (Kab. Bogor)',
     area: 'Cibinong, Bogor',
-    point: LatLng(latitude: -6.4840, longitude: 106.8410),
+    point: LatLng(latitude: -6.4880, longitude: 106.8320),
   ),
   NamedLocation(
     name: 'Stasiun Cibinong',
@@ -243,9 +243,9 @@ const List<NamedLocation> greaterJakartaLandmarks = [
     adm4: '32.71.01.1001',
   ),
   NamedLocation(
-    name: 'McDonald\'s Lodaya Pajajaran Bogor',
+    name: 'Taman Kencana Bogor',
     area: 'Bogor',
-    point: LatLng(latitude: -6.5912, longitude: 106.8055),
+    point: LatLng(latitude: -6.5890, longitude: 106.8010),
   ),
   NamedLocation(
     name: 'Botani Square Mall Bogor',
@@ -263,9 +263,9 @@ const List<NamedLocation> greaterJakartaLandmarks = [
     point: LatLng(latitude: -6.2383, longitude: 106.9756),
   ),
   NamedLocation(
-    name: 'McDonald\'s Grand Galaxy',
+    name: 'Summarecon Mall Bekasi',
     area: 'Bekasi',
-    point: LatLng(latitude: -6.2642, longitude: 106.9721),
+    point: LatLng(latitude: -6.2255, longitude: 106.9998),
   ),
   NamedLocation(
     name: 'Stasiun Bekasi',

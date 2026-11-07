@@ -180,18 +180,6 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
             lineOpacity: 0.9,
           ),
         );
-      } else if (loc != null && sec != null) {
-        await controller.addLine(
-          ml.LineOptions(
-            geometry: [
-              ml.LatLng(loc.latitude, loc.longitude),
-              ml.LatLng(sec.latitude, sec.longitude),
-            ],
-            lineColor: '#0F766E',
-            lineWidth: 3.5,
-            lineOpacity: 0.85,
-          ),
-        );
       }
     } catch (_) {
       // Discard errors during controller reloads.
@@ -415,11 +403,9 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                               ),
                             ),
 
-                            // Connecting route line.
-                            if ((location != null &&
-                                    widget.secondaryLocation != null) ||
-                                (widget.routeWaypoints != null &&
-                                    widget.routeWaypoints!.length >= 2))
+                            // Connecting route line: ONLY when routeWaypoints is provided and has >= 2 points!
+                            if (widget.routeWaypoints != null &&
+                                widget.routeWaypoints!.length >= 2)
                               ClipRect(
                                 child: Transform.translate(
                                   offset: _panOffset,
@@ -432,10 +418,8 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                     child: CustomPaint(
                                       size: size,
                                       painter: _RouteLinePainter(
-                                        from: location ??
-                                            widget.routeWaypoints!.first,
-                                        to: widget.secondaryLocation ??
-                                            widget.routeWaypoints!.last,
+                                        from: widget.routeWaypoints!.first,
+                                        to: widget.routeWaypoints!.last,
                                         waypoints: widget.routeWaypoints,
                                         color: widget.routeColor,
                                         minLat: minLat,
@@ -1400,6 +1384,8 @@ class _RouteLinePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (waypoints == null || waypoints!.length < 2) return;
+
     final linePaint = Paint()
       ..color = (color ?? SupraTheme.brand).withValues(alpha: 0.85)
       ..strokeWidth = 3.5
@@ -1407,9 +1393,7 @@ class _RouteLinePainter extends CustomPainter {
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round;
 
-    final pts = (waypoints != null && waypoints!.length >= 2)
-        ? waypoints!
-        : [from, to];
+    final pts = waypoints!;
 
     final path = Path();
     for (int i = 0; i < pts.length; i++) {
