@@ -205,12 +205,33 @@ class _TripScreenState extends State<TripScreen> {
     _mapKey.currentState?.animateToLocation(target);
   }
 
-  Future<void> _teleportToTypedPlace(String query) async {
+  void _choosePlaceAndConfirm(GeocodedPlace place) {
+    setState(() {
+      if (_isPickingStart) {
+        _startCoord = place.point;
+        _start.text = place.name;
+      } else {
+        _destCoord = place.point;
+        _destination.text = place.name;
+        _historyFrequencies[place.name] =
+            (_historyFrequencies[place.name] ?? 0) + 1;
+      }
+      _isPickingOnMap = false;
+      _mapSearchResults = [];
+      _tempTappedPoint = place.point;
+      _tempTappedName = place.name;
+      _mapSearchController.text = place.name;
+      _selectedRoute = null;
+      _calculatedRoutes = [];
+    });
+    _mapKey.currentState?.animateToLocation(place.point);
+  }
+
+  Future<void> _chooseTypedPlaceAndConfirm(String query) async {
     if (query.trim().isEmpty) return;
     final results = await _geocoder.searchPlaces(query);
     if (results.isNotEmpty) {
-      final chosen = results.first;
-      _teleportToPoint(chosen.point, chosen.name);
+      _choosePlaceAndConfirm(results.first);
     }
   }
 
@@ -454,7 +475,7 @@ class _TripScreenState extends State<TripScreen> {
                                       ),
                                       onChanged: _onMapSearchChanged,
                                       onSubmitted: (val) =>
-                                          _teleportToTypedPlace(val),
+                                          _chooseTypedPlaceAndConfirm(val),
                                     ),
                                   ),
                                   if (_mapSearchController.text.isNotEmpty)
@@ -527,10 +548,7 @@ class _TripScreenState extends State<TripScreen> {
                                           overflow: TextOverflow.ellipsis,
                                         ),
                                         onTap: () {
-                                          _teleportToPoint(
-                                            place.point,
-                                            place.name,
-                                          );
+                                          _choosePlaceAndConfirm(place);
                                         },
                                       );
                                     },

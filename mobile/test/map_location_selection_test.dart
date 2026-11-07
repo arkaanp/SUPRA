@@ -349,18 +349,11 @@ void main() {
 
         expect(find.textContaining('Cibinong City Mall'), findsWidgets);
 
-        // Tap Cibinong City Mall suggestion
+        // Tap Cibinong City Mall suggestion -> Automatically chooses the location!
         await tester.tap(find.textContaining('Cibinong City Mall').first);
         await tester.pumpAndSettle();
 
-        // Banner should reflect the teleported place
-        expect(find.textContaining('Selected: Cibinong City Mall'), findsOneWidget);
-
-        // Confirm
-        await tester.tap(find.text('Confirm location'));
-        await tester.pumpAndSettle();
-
-        // Start field now contains Cibinong City Mall
+        // Start field now automatically contains Cibinong City Mall
         expect(
           find.byWidgetPredicate(
             (w) =>
@@ -400,13 +393,19 @@ void main() {
         await tester.enterText(searchField, 'scbd');
         await tester.pumpAndSettle();
 
-        // Select SCBD
+        // Select SCBD from suggestions -> Automatically chooses destination!
         await tester.tap(find.textContaining('Sudirman CBD').first);
         await tester.pumpAndSettle();
 
-        // Confirm destination
-        await tester.tap(find.text('Confirm location'));
-        await tester.pumpAndSettle();
+        // Destination field now automatically contains Sudirman CBD
+        expect(
+          find.byWidgetPredicate(
+            (w) =>
+                w is TextField &&
+                (w.controller?.text.contains('Sudirman CBD') ?? false),
+          ),
+          findsOneWidget,
+        );
 
         // Back on main screen: routes NOT calculated yet until "Show Route" clicked
         expect(find.text('Start Route Navigation'), findsNothing);
