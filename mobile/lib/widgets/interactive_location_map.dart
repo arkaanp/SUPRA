@@ -189,8 +189,6 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
 
           final colorHex =
               '#${(areaColor.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
-          final borderHex =
-              '#${(zone.solidAqiColor.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
           await controller.addFill(
             ml.FillOptions(
               geometry: [
@@ -200,7 +198,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
               ],
               fillColor: colorHex,
               fillOpacity: areaColor.a,
-              fillOutlineColor: borderHex,
+              fillOutlineColor: colorHex,
             ),
           );
         }
@@ -1216,29 +1214,38 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
             constraints: const BoxConstraints(maxWidth: 135),
             decoration: BoxDecoration(
-              color: zone.solidAqiColor.withValues(alpha: 0.92),
-              borderRadius: BorderRadius.circular(8),
+              color: Colors.white.withValues(alpha: 0.92),
+              borderRadius: BorderRadius.circular(6),
               border: Border.all(
                 color: isSelected
-                    ? Colors.white
-                    : Colors.white.withValues(alpha: 0.75),
-                width: isSelected ? 2.0 : 1.0,
+                    ? zone.solidAqiColor
+                    : zone.solidAqiColor.withValues(alpha: 0.35),
+                width: isSelected ? 1.5 : 0.8,
               ),
               boxShadow: const [
                 BoxShadow(
-                  color: Color(0x33000000),
+                  color: Color(0x1A000000),
                   blurRadius: 3,
-                  offset: Offset(0, 1.5),
+                  offset: Offset(0, 1),
                 ),
               ],
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  margin: const EdgeInsets.only(right: 4),
+                  decoration: BoxDecoration(
+                    color: zone.solidAqiColor,
+                    shape: BoxShape.circle,
+                  ),
+                ),
                 if (zone.isRaining)
                   const Padding(
                     padding: EdgeInsets.only(right: 3),
-                    child: Text('🌧️', style: TextStyle(fontSize: 10)),
+                    child: Text('🌧️', style: TextStyle(fontSize: 9)),
                   ),
                 Flexible(
                   child: Column(
@@ -1248,9 +1255,9 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                       Text(
                         zone.name,
                         style: const TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w800,
-                          fontSize: 9.5,
+                          color: SupraTheme.onSurface,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 9.0,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -1258,11 +1265,11 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                       Text(
                         zone.isRaining
                             ? '${zone.rainfallMm.toStringAsFixed(1)}mm · PM ${zone.pm25.toStringAsFixed(0)}'
-                            : 'PM2.5: ${zone.pm25.toStringAsFixed(0)} (${zone.aqiCategory})',
+                            : 'PM ${zone.pm25.toStringAsFixed(0)} · ${zone.aqiCategory}',
                         style: const TextStyle(
-                          color: Colors.white,
+                          color: SupraTheme.textSecondary,
                           fontWeight: FontWeight.w600,
-                          fontSize: 8.0,
+                          fontSize: 7.5,
                         ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -2020,12 +2027,12 @@ class _JakartaCanvasPainter extends CustomPainter {
           canvas.drawPath(path, Paint()..color = areaColor);
         }
 
-        // Zone perimeter border
+        // Zone perimeter border (whisper-thin, barely noticeable)
         canvas.drawPath(
           path,
           Paint()
-            ..color = zone.solidAqiColor.withValues(alpha: 0.18)
-            ..strokeWidth = 0.8
+            ..color = zone.solidAqiColor.withValues(alpha: 0.035)
+            ..strokeWidth = 0.5
             ..style = PaintingStyle.stroke,
         );
 
@@ -2187,8 +2194,8 @@ class _JakartaCanvasPainter extends CustomPainter {
     canvas.clipPath(clipPath);
 
     final rainPaint = Paint()
-      ..color = const Color(0xFF60A5FA).withValues(alpha: 0.18)
-      ..strokeWidth = 0.9
+      ..color = const Color(0xFF60A5FA).withValues(alpha: 0.05)
+      ..strokeWidth = 0.6
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 

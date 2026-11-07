@@ -165,13 +165,13 @@ void main() {
         isRaining: true,
       );
 
-      // Verify opacity is very low (<= 0.20)
-      expect(goodZone.pm25Color.a, lessThanOrEqualTo(0.08));
-      expect(modZone.pm25Color.a, lessThanOrEqualTo(0.10));
-      expect(unhZone.pm25Color.a, lessThanOrEqualTo(0.16));
-      expect(hazZone.pm25Color.a, lessThanOrEqualTo(0.20));
-      expect(rainZone.rainColor.a, lessThanOrEqualTo(0.16));
-      expect(rainZone.compositeAreaColor.a, lessThanOrEqualTo(0.22));
+      // Verify opacity is barely noticeable (all single <= 0.08, composite <= 0.12)
+      expect(goodZone.pm25Color.a, lessThanOrEqualTo(0.03));
+      expect(modZone.pm25Color.a, lessThanOrEqualTo(0.04));
+      expect(unhZone.pm25Color.a, lessThanOrEqualTo(0.06));
+      expect(hazZone.pm25Color.a, lessThanOrEqualTo(0.08));
+      expect(rainZone.rainColor.a, lessThanOrEqualTo(0.06));
+      expect(rainZone.compositeAreaColor.a, lessThanOrEqualTo(0.12));
     });
 
     test('contains correctly checks polygon boundaries', () {
