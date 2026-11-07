@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../config/map_config.dart';
 import '../models/location.dart';
+import 'transit_network.dart';
 
 /// Represents a geographic place found via geocoding search.
 class GeocodedPlace {
@@ -128,69 +129,140 @@ class GeocodingService {
   }
 
   /// Searches for points of interest, streets, or districts within Greater Jakarta.
+  /// Always returns suggestions based on the user's input, even if there are no exact matches.
   Future<List<GeocodedPlace>> searchPlaces(String query) async {
     final cleanQuery = query.trim();
     if (cleanQuery.isEmpty) return const [];
+    final lowerQuery = cleanQuery.toLowerCase();
 
-    // Local instant match first
-    final localMatches = greaterJakartaLandmarks
-        .where((lm) => lm.name.toLowerCase().contains(cleanQuery.toLowerCase()))
-        .map(
-          (lm) => GeocodedPlace(
+    // 1. Local landmark matches
+    final localMatches = <GeocodedPlace>[];
+    for (final lm in greaterJakartaLandmarks) {
+      if (lm.name.toLowerCase().contains(lowerQuery) ||
+          lm.area.toLowerCase().contains(lowerQuery)) {
+        localMatches.add(
+          GeocodedPlace(
             name: lm.name.split(' (').first,
             displayName: '${lm.name}, ${lm.area}',
             point: lm.point,
             type: 'landmark',
           ),
-        )
-        .toList();
-
-    if (!useNetwork) {
-      return localMatches;
+        );
+      }
     }
 
-    final httpClient = client ?? http.Client();
-    final url = Uri.parse(
-      'https://nominatim.openstreetmap.org/search?'
-      'q=${Uri.encodeComponent(cleanQuery)}&format=jsonv2&limit=5&countrycodes=id'
-      '&viewbox=106.3,-5.8,107.3,-6.9&bounded=1',
-    );
-
-    try {
-      final response = await httpClient
-          .get(
-            url,
-            headers: {'User-Agent': 'SUPRA-Jakarta-Transit/1.0 (Mobile App)'},
-          )
-          .timeout(const Duration(seconds: 4));
-
-      if (response.statusCode == 200) {
-        final list = jsonDecode(response.body) as List?;
-        if (list != null && list.isNotEmpty) {
-          final results = list
-              .map(
-                (item) => GeocodedPlace.fromJson(item as Map<String, dynamic>),
-              )
-              .where((p) => p.point.isInGreaterJakarta)
-              .toList();
-
-          // Merge without duplicate coordinates
-          final combined = <GeocodedPlace>[...localMatches];
-          for (final res in results) {
-            if (!combined.any((c) => c.point.distanceTo(res.point) < 0.2)) {
-              combined.add(res);
-            }
-          }
-          return combined;
+    // 2. Transit haltes and stations matching (Transjakarta & KRL)
+    for (final s in TransitNetwork.stations) {
+      if (s.name.toLowerCase().contains(lowerQuery) ||
+          s.line.toLowerCase().contains(lowerQuery)) {
+        final cleanName = s.name
+            .replaceAll('Halte Transjakarta ', '')
+            .replaceAll('Stasiun KRL ', '')
+            .replaceAll('Stasiun MRT ', '');
+        if (!localMatches.any(
+          (m) => m.name == cleanName || m.point.distanceTo(s.point) < 0.1,
+        )) {
+          localMatches.add(
+            GeocodedPlace(
+              name: cleanName,
+              displayName: '${s.name} (${s.line})',
+              point: s.point,
+              type: 'transit',
+            ),
+          );
         }
       }
-    } catch (_) {
-      // Ignore network failures and return local matches
-    } finally {
-      if (client == null) httpClient.close();
     }
 
-    return localMatches;
+    List<GeocodedPlace> results = List.from(localMatches);
+
+    if (useNetwork) {
+      final httpClient = client ?? http.Client();
+      final url = Uri.parse(
+        'https://nominatim.openstreetmap.org/search?'
+        'q=${Uri.encodeComponent(cleanQuery)}&format=jsonv2&limit=5&countrycodes=id'
+        '&viewbox=106.3,-5.8,107.3,-6.9&bounded=1',
+      );
+
+      try {
+        final response = await httpClient
+            .get(
+              url,
+              headers: {'User-Agent': 'SUPRA-Jakarta-Transit/1.0 (Mobile App)'},
+            )
+            .timeout(const Duration(seconds: 4));
+
+        if (response.statusCode == 200) {
+          final list = jsonDecode(response.body) as List?;
+          if (list != null && list.isNotEmpty) {
+            final netPlaces = list
+                .map(
+                  (item) =>
+                      GeocodedPlace.fromJson(item as Map<String, dynamic>),
+                )
+                .where((p) => p.point.isInGreaterJakarta)
+                .toList();
+
+            for (final res in netPlaces) {
+              if (!results.any((c) => c.point.distanceTo(res.point) < 0.2)) {
+                results.add(res);
+              }
+            }
+          }
+        }
+      } catch (_) {
+        // Fall back to local matches on error
+      } finally {
+        if (client == null) httpClient.close();
+      }
+    }
+
+    // 3. Fallback: If no direct matches were found, still show suggestions based
+    // on the input no matter what!
+    if (results.isEmpty) {
+      results.add(
+        GeocodedPlace(
+          name: cleanQuery,
+          displayName: '$cleanQuery, Central Jakarta',
+          point: const LatLng(latitude: -6.1754, longitude: 106.8272),
+          type: 'suggestion',
+        ),
+      );
+      results.add(
+        GeocodedPlace(
+          name: '$cleanQuery (South Jakarta)',
+          displayName: '$cleanQuery, South Jakarta (SCBD / Senayan area)',
+          point: const LatLng(latitude: -6.2268, longitude: 106.8077),
+          type: 'suggestion',
+        ),
+      );
+      results.add(
+        GeocodedPlace(
+          name: '$cleanQuery (West Jakarta)',
+          displayName: '$cleanQuery, West Jakarta (Grogol / Tomang area)',
+          point: const LatLng(latitude: -6.1674, longitude: 106.7885),
+          type: 'suggestion',
+        ),
+      );
+      results.add(
+        GeocodedPlace(
+          name: '$cleanQuery (North Jakarta)',
+          displayName: '$cleanQuery, North Jakarta (Kota / Ancol area)',
+          point: const LatLng(latitude: -6.1376, longitude: 106.8171),
+          type: 'suggestion',
+        ),
+      );
+      results.add(
+        GeocodedPlace(
+          name: '$cleanQuery (East Jakarta)',
+          displayName: '$cleanQuery, East Jakarta (Jatinegara / Cawang area)',
+          point: const LatLng(latitude: -6.2152, longitude: 106.8703),
+          type: 'suggestion',
+        ),
+      );
+    }
+
+    return results;
   }
 
   String _offlineFallback(LatLng location) {

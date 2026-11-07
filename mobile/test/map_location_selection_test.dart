@@ -310,6 +310,55 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets(
+      'Map picking mode allows typing to teleport map and always shows suggestions',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: TripScreen())),
+        );
+
+        // Tap Pick on map
+        await tester.tap(find.text('Pick on map'));
+        await tester.pumpAndSettle();
+
+        // Find the map search field
+        final searchField = find.byWidgetPredicate(
+          (w) =>
+              w is TextField &&
+              (w.decoration?.hintText?.contains('teleport') ?? false),
+        );
+        expect(searchField, findsOneWidget);
+
+        // Type a query that has no direct landmark match, e.g. "Kopi Kenangan"
+        await tester.enterText(searchField, 'Kopi Kenangan');
+        await tester.pumpAndSettle();
+
+        // Suggestions should STILL be shown based on input no matter what!
+        expect(find.textContaining('Kopi Kenangan'), findsWidgets);
+
+        // Tap the first suggestion
+        await tester.tap(find.text('Kopi Kenangan, Central Jakarta'));
+        await tester.pumpAndSettle();
+
+        // Banner should reflect the teleported place
+        expect(find.textContaining('Selected: Kopi Kenangan'), findsOneWidget);
+
+        // Confirm
+        await tester.tap(find.text('Confirm location'));
+        await tester.pumpAndSettle();
+
+        // Start field now contains Kopi Kenangan
+        expect(
+          find.byWidgetPredicate(
+            (w) =>
+                w is TextField &&
+                (w.controller?.text.contains('Kopi Kenangan') ?? false),
+          ),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   group('MapScreen inspection tests', () {

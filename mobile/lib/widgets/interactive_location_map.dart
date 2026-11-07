@@ -73,6 +73,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
   Offset _dragStart = Offset.zero;
   Offset _panStart = Offset.zero;
   bool _isDragging = false;
+  Size? _lastCanvasSize;
 
   @override
   void initState() {
@@ -211,11 +212,29 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
     widget.onLocationChanged?.call(location);
   }
 
-  void animateToLocation(LatLng loc) {
+  void animateToLocation(LatLng loc, {Size? mapSize}) {
+    final size = mapSize ?? _lastCanvasSize ?? const Size(400, 300);
+    const pad = 18.0;
+    final usableW = max(1.0, size.width - 2 * pad);
+    final usableH = max(1.0, size.height - 2 * pad);
+    final normX =
+        ((loc.longitude - minLon) / (maxLon - minLon)).clamp(0.0, 1.0);
+    final normY =
+        ((maxLat - loc.latitude) / (maxLat - minLat)).clamp(0.0, 1.0);
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+    final baseX = pad + normX * usableW;
+    final baseY = pad + normY * usableH;
+    const targetZoom = 1.35;
+    final targetPan = Offset(
+      -(baseX - centerX) * targetZoom,
+      -(baseY - centerY) * targetZoom,
+    );
+
     setState(() {
       _currentLocation = loc;
-      _panOffset = Offset.zero;
-      _zoomFactor = 1.3;
+      _panOffset = targetPan;
+      _zoomFactor = targetZoom;
     });
     _resolveAddress(loc);
     if (_useMapLibre && _mapController != null) {
@@ -227,7 +246,6 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
       );
       _updateMapLibreLayers();
     }
-    widget.onLocationChanged?.call(loc);
   }
 
   LatLng _pixelToLatLng(Offset localPos, Size size) {
@@ -330,6 +348,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                   LayoutBuilder(
                     builder: (context, mapConstraints) {
                       final size = mapConstraints.biggest;
+                      _lastCanvasSize = size;
                       return GestureDetector(
                         behavior: HitTestBehavior.opaque,
                         onTapUp: (details) {
