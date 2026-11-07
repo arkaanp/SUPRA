@@ -28,6 +28,7 @@ class InteractiveLocationMap extends StatefulWidget {
   final bool showFooter;
   final List<LatLng>? routeWaypoints;
   final Color? routeColor;
+  final BorderRadius? borderRadius;
 
   const InteractiveLocationMap({
     super.key,
@@ -43,13 +44,14 @@ class InteractiveLocationMap extends StatefulWidget {
     this.showFooter = true,
     this.routeWaypoints,
     this.routeColor,
+    this.borderRadius,
   });
 
   @override
-  State<InteractiveLocationMap> createState() => _InteractiveLocationMapState();
+  State<InteractiveLocationMap> createState() => InteractiveLocationMapState();
 }
 
-class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
+class InteractiveLocationMapState extends State<InteractiveLocationMap> {
   // Service envelope bounds matching backend validation.
   static const double minLat = -6.9;
   static const double maxLat = -5.8;
@@ -268,15 +270,18 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isBounded = constraints.maxHeight.isFinite;
+        final radius = widget.borderRadius ?? BorderRadius.circular(16);
 
         final mapWidget = ClipRRect(
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: radius,
           child: Container(
             height: isBounded ? null : widget.height,
             decoration: BoxDecoration(
               color: const Color(0xFFF8FAFC),
-              border: Border.all(color: SupraTheme.divider),
-              borderRadius: BorderRadius.circular(16),
+              border: radius == BorderRadius.zero
+                  ? null
+                  : Border.all(color: SupraTheme.divider),
+              borderRadius: radius,
             ),
             child: Stack(
               children: [
@@ -840,7 +845,7 @@ Future<LatLng?> showLocationPickerSheet({
       borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
     ),
     builder: (context) {
-      final mapKey = GlobalKey<_InteractiveLocationMapState>();
+      final mapKey = GlobalKey<InteractiveLocationMapState>();
       final searchCtrl = TextEditingController();
       List<GeocodedPlace> searchResults = [];
 

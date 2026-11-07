@@ -8,7 +8,6 @@ import '../services/supra_api_service.dart';
 import '../services/transit_network.dart';
 import '../theme/app_theme.dart';
 import '../widgets/interactive_location_map.dart';
-import '../widgets/route_planner_view.dart';
 
 class NearbySnapOption {
   final String name;
@@ -21,8 +20,12 @@ class NearbySnapOption {
   });
 }
 
+/// Grab / Gojek style trip planner with persistent top map occupying at least
+/// half of the screen at all times, smooth map-picking with entrance/gate landmark snap,
+/// and multi-modal route & health evaluation (Car, Motorcycle, Transjakarta BRT, KRL).
 class TripScreen extends StatefulWidget {
   const TripScreen({super.key});
+
   @override
   State<TripScreen> createState() => _TripScreenState();
 }
@@ -32,19 +35,20 @@ class _TripScreenState extends State<TripScreen> {
   final _destination = TextEditingController();
   final GeocodingService _geocoder = GeocodingService();
   final RoutingService _routingService = RoutingService();
+  final GlobalKey<InteractiveLocationMapState> _mapKey =
+      GlobalKey<InteractiveLocationMapState>();
 
-  DateTime? _departure;
   bool _busy = false;
 
-  // Single Map state
+  // Single Map state: Current GPS anchor defaults to Monas (Central Jakarta)
   static const LatLng _defaultCurrentLocation = LatLng(
     latitude: -6.1754,
     longitude: 106.8272,
-  ); // Monas / Central Jakarta (Current GPS Anchor)
+  );
   LatLng _startCoord = _defaultCurrentLocation;
   LatLng? _destCoord;
 
-  // Picking mode state ("When the user picks the map, only then the user can tap the location")
+  // Picking mode state ("Pilih Lewat Peta" like Grab / Gojek)
   bool _isPickingOnMap = false;
   bool _isPickingStart = false;
   LatLng? _tempTappedPoint;
@@ -141,6 +145,7 @@ class _TripScreenState extends State<TripScreen> {
       _tempTappedPoint = initial;
       _updateSnapOptions(initial);
     });
+    _mapKey.currentState?.animateToLocation(initial);
   }
 
   void _confirmPickedLocation() {
@@ -202,40 +207,73 @@ class _TripScreenState extends State<TripScreen> {
     }
   }
 
-  Future<void> _pickDeparture() async {
-    final now = DateTime.now();
-    final date = await showDatePicker(
-      context: context,
-      initialDate: now,
-      firstDate: now,
-      lastDate: now.add(const Duration(days: 365)),
-    );
-    if (!mounted || date == null) return;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.now(),
-    );
-    if (!mounted || time == null) return;
-    setState(
-      () => _departure = DateTime(
-        date.year,
-        date.month,
-        date.day,
-        time.hour,
-        time.minute,
-      ),
-    );
+  void _onSearchChanged(String query) async {
+    if (query.trim().isEmpty) {
+      setState(() => _searchResults = []);
+      return;
+    }
+    final results = await _geocoder.searchPlaces(query);
+    if (mounted) {
+      setState(() => _searchResults = results);
+    }
   }
 
-  Future<void> _perform(Future<void> Function() action) async {
-    setState(() => _busy = true);
-    try {
-      await action();
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$error')));
+  Future<void> _searchAndSet(String name, {required bool isStart}) async {
+    if (name.trim().isEmpty) return;
+    final results = await _geocoder.searchPlaces(name);
+    if (results.isNotEmpty) {
+      final chosen = results.first;
+      setState(() {
+        if (isStart) {
+          _startCoord = chosen.point;
+          _start.text = chosen.name;
+        } else {
+          _destCoord = chosen.point;
+          _destination.text = chosen.name;
+          _historyFrequencies[chosen.name] =
+              (_historyFrequencies[chosen.name] ?? 0) + 1;
+        }
+        _searchResults = [];
+      });
+      if (_destCoord != null) {
+        _fetchRoutes();
       }
+    }
+  }
+
+  Color _getRouteColor(TransportMode mode) {
+    switch (mode) {
+      case TransportMode.car:
+        return const Color(0xFF2563EB); // Royal Blue
+      case TransportMode.motorcycle:
+        return const Color(0xFFF59E0B); // Amber / Orange
+      case TransportMode.publicTransit:
+        return const Color(0xFF0F766E); // Teal / Green
+    }
+  }
+
+  Future<void> _startTrip() async {
+    if (_destCoord == null || _selectedRoute == null) return;
+    setState(() => _busy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      if (SupraService.instance.currentUser != null) {
+        await SupraService.instance.createTrip(
+          start: _start.text,
+          destination: _destination.text,
+          departure: DateTime.now(),
+        );
+      }
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Trip booked! ${_selectedRoute!.title} • Est. ${_selectedRoute!.formattedDuration}',
+          ),
+          backgroundColor: SupraTheme.brand,
+        ),
+      );
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('Trip started: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -243,72 +281,197 @@ class _TripScreenState extends State<TripScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Sort destination history by frequency descending
     final sortedHistory = _historyFrequencies.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
     return Scaffold(
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // ===================================================================
-          // 1. ONE MAP (Top of the screen)
-          // ===================================================================
-          if (_isPickingOnMap) ...[
-            // Picking Mode Header Banner
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: SupraTheme.brand.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: SupraTheme.brand.withValues(alpha: 0.25),
-                ),
-              ),
-              child: Row(
+      backgroundColor: const Color(0xFFF1F5F9),
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // =================================================================
+            // 1. TOP MAP (Always occupies AT LEAST half of the screen)
+            // =================================================================
+            Expanded(
+              flex: _isPickingOnMap ? 62 : 52,
+              child: Stack(
                 children: [
-                  const Icon(Icons.touch_app, size: 18, color: SupraTheme.brand),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _isPickingStart
-                          ? 'Select start location on map'
-                          : 'Select destination on map',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                        color: SupraTheme.brand,
+                  InteractiveLocationMap(
+                    key: _mapKey,
+                    height: double.infinity,
+                    borderRadius: BorderRadius.zero,
+                    selectedLocation: _isPickingOnMap
+                        ? _tempTappedPoint
+                        : (_destCoord ?? _startCoord),
+                    secondaryLocation: _isPickingOnMap
+                        ? null
+                        : (_destCoord != null ? _startCoord : null),
+                    selectedLabel: _isPickingOnMap
+                        ? (_isPickingStart ? 'S' : 'D')
+                        : (_destCoord != null ? 'D' : 'S'),
+                    secondaryLabel: _isPickingOnMap ? null : 'S',
+                    routeWaypoints: _selectedRoute?.waypoints,
+                    routeColor: _selectedRoute != null
+                        ? _getRouteColor(_selectedRoute!.mode)
+                        : null,
+                    isInteractive: _isPickingOnMap,
+                    showFooter: false,
+                    onLocationChanged: (tapCoord) {
+                      if (_isPickingOnMap) {
+                        setState(() => _tempTappedPoint = tapCoord);
+                        _updateSnapOptions(tapCoord);
+                      }
+                    },
+                  ),
+
+                  // Floating Back Button when in Map Picking Mode
+                  if (_isPickingOnMap)
+                    Positioned(
+                      top: 12,
+                      left: 12,
+                      child: Material(
+                        elevation: 3,
+                        shape: const CircleBorder(),
+                        color: Colors.white,
+                        child: IconButton(
+                          icon: const Icon(
+                            Icons.arrow_back,
+                            color: SupraTheme.onSurface,
+                          ),
+                          tooltip: 'Back',
+                          onPressed: () =>
+                              setState(() => _isPickingOnMap = false),
+                        ),
+                      ),
+                    ),
+
+                  // Floating Re-Center / GPS Target Button (Bottom-Right)
+                  Positioned(
+                    bottom: 12,
+                    right: 12,
+                    child: Material(
+                      elevation: 3,
+                      shape: const CircleBorder(),
+                      color: Colors.white,
+                      child: IconButton(
+                        icon: const Icon(
+                          Icons.my_location,
+                          color: SupraTheme.brand,
+                          size: 20,
+                        ),
+                        tooltip: 'Center on my location',
+                        onPressed: () {
+                          _mapKey.currentState?.animateToLocation(
+                            _defaultCurrentLocation,
+                          );
+                        },
                       ),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.close, size: 18),
-                    onPressed: () => setState(() => _isPickingOnMap = false),
-                    tooltip: 'Cancel',
-                    visualDensity: VisualDensity.compact,
-                  ),
+
+                  // Top Weather/PM2.5 Pill (Grab/Gojek status pill)
+                  if (_selectedRoute != null && !_isPickingOnMap)
+                    Positioned(
+                      top: 12,
+                      right: 12,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.95),
+                          borderRadius: BorderRadius.circular(20),
+                          boxShadow: const [
+                            BoxShadow(
+                              color: Color(0x14000000),
+                              blurRadius: 4,
+                              offset: Offset(0, 2),
+                            ),
+                          ],
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Text('🌤️', style: TextStyle(fontSize: 12)),
+                            const SizedBox(width: 4),
+                            Text(
+                              'PM2.5: ${_selectedRoute!.pm25UgM3.toStringAsFixed(0)} µg/m³',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: SupraTheme.onSurface,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
-            const SizedBox(height: 8),
 
-            // Interactive Map: Only in picking mode can the user tap the location
-            InteractiveLocationMap(
-              height: 250,
-              selectedLocation: _tempTappedPoint,
-              selectedLabel: _isPickingStart ? 'S' : 'D',
-              isInteractive: true,
-              showFooter: false,
-              onLocationChanged: (tapCoord) {
-                setState(() => _tempTappedPoint = tapCoord);
-                _updateSnapOptions(tapCoord);
-              },
+            // =================================================================
+            // 2. BOTTOM SHEET (Grab / Gojek signature ride-planning panel)
+            // =================================================================
+            Expanded(
+              flex: _isPickingOnMap ? 38 : 48,
+              child: Material(
+                color: Colors.white,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(22)),
+                elevation: 6,
+                shadowColor: const Color(0x33000000),
+                child: _buildBottomSheetContent(sortedHistory),
+              ),
             ),
-            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+  }
 
-            // Nearest Location Readout to the Tap
+  Widget _buildBottomSheetContent(List<MapEntry<String, int>> sortedHistory) {
+    // -------------------------------------------------------------------------
+    // Mode A: "Pilih Lewat Peta" / Pick on Map Confirmation Sheet
+    // -------------------------------------------------------------------------
+    if (_isPickingOnMap) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Drag handle pill
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFCBD5E1),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+
+            // Title
+            Text(
+              _isPickingStart
+                  ? 'Select start location on map'
+                  : 'Select destination on map',
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                fontSize: 15,
+                color: SupraTheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 6),
+
+            // Resolved tapped address card
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
               decoration: BoxDecoration(
                 color: const Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(10),
@@ -326,7 +489,7 @@ class _TripScreenState extends State<TripScreen> {
                           'Selected: $_tempTappedName',
                           style: const TextStyle(
                             fontWeight: FontWeight.w700,
-                            fontSize: 13,
+                            fontSize: 12,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -345,10 +508,9 @@ class _TripScreenState extends State<TripScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
 
-            // Nearest location options below to show the nearest location names
-            // in case the user tap is not accurate
+            // Nearest location options (tap to snap)
             const Text(
               'Nearest location options (tap to snap if tap was inaccurate):',
               style: TextStyle(
@@ -357,9 +519,10 @@ class _TripScreenState extends State<TripScreen> {
                 color: SupraTheme.textSecondary,
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
+
             SizedBox(
-              height: 36,
+              height: 34,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: _nearestSnapOptions.length,
@@ -372,7 +535,8 @@ class _TripScreenState extends State<TripScreen> {
                       opt.name,
                       style: TextStyle(
                         fontSize: 11,
-                        fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight:
+                            isCurrent ? FontWeight.w700 : FontWeight.w500,
                         color: isCurrent ? Colors.white : SupraTheme.onSurface,
                       ),
                     ),
@@ -384,362 +548,742 @@ class _TripScreenState extends State<TripScreen> {
                         _tempTappedPoint = opt.point;
                         _tempTappedName = opt.name;
                       });
+                      _mapKey.currentState?.animateToLocation(opt.point);
                     },
                   );
                 },
               ),
             ),
-            const SizedBox(height: 10),
+            const Spacer(),
 
             // Confirm Location Button
-            ElevatedButton.icon(
-              icon: const Icon(Icons.check_circle_outline),
-              label: const Text('Confirm location'),
-              onPressed: _confirmPickedLocation,
-            ),
-            const SizedBox(height: 16),
-          ] else ...[
-            // Display-only single map ("Here, the map only shows")
-            InteractiveLocationMap(
-              height: 220,
-              selectedLocation: _startCoord,
-              secondaryLocation: _destCoord,
-              selectedLabel: 'S',
-              secondaryLabel: 'D',
-              routeWaypoints: _selectedRoute?.waypoints,
-              routeColor: _selectedRoute?.mode == TransportMode.publicTransit
-                  ? const Color(0xFF2563EB)
-                  : (_selectedRoute?.mode == TransportMode.motorcycle
-                      ? const Color(0xFFD97706)
-                      : const Color(0xFF0F766E)),
-              isInteractive: false,
-              showFooter: false,
-            ),
-            const SizedBox(height: 14),
-          ],
-
-          // ===================================================================
-          // 2. WHERE DO YOU WANT TO GO? (Search Bar & Pick on Map)
-          // ===================================================================
-          if (!_isPickingOnMap) ...[
-            Text(
-              'Where do you want to go?',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w700,
+            SizedBox(
+              width: double.infinity,
+              height: 44,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.check_circle_outline, size: 18),
+                label: const Text(
+                  'Confirm location',
+                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: SupraTheme.brand,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
                   ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Search a destination, pick on the map, or tap a frequent spot.',
-              style: TextStyle(fontSize: 12, color: SupraTheme.textSecondary),
-            ),
-            const SizedBox(height: 12),
-
-            // Destination Search Bar
-            TextField(
-              controller: _destination,
-              maxLength: 100,
-              decoration: InputDecoration(
-                labelText: 'Destination',
-                hintText: 'Search place, station, or street in Jakarta…',
-                prefixIcon: const Icon(Icons.search, size: 20),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.pin_drop_outlined),
-                  tooltip: 'Select on map',
-                  onPressed: () => _startPickingMode(forStart: false),
                 ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                onPressed: _confirmPickedLocation,
               ),
-              onChanged: (text) async {
-                if (text.trim().length >= 2) {
-                  final res = await _geocoder.searchPlaces(text);
-                  if (mounted) {
-                    setState(() => _searchResults = res);
-                  }
-                } else {
-                  setState(() => _searchResults = []);
-                }
-              },
             ),
+          ],
+        ),
+      );
+    }
 
-            // Live Autocomplete Suggestions
-            if (_searchResults.isNotEmpty) ...[
-              Container(
-                constraints: const BoxConstraints(maxHeight: 160),
+    // -------------------------------------------------------------------------
+    // Mode B: Route & Transport Service Selector (Grab / Gojek Ride Booking)
+    // -------------------------------------------------------------------------
+    if (_calculatedRoutes.isNotEmpty) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Drag handle pill
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 6),
                 decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: SupraTheme.divider),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x14000000),
-                      blurRadius: 6,
-                      offset: Offset(0, 2),
-                    ),
-                  ],
-                ),
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: _searchResults.length,
-                  separatorBuilder: (context, _) => const Divider(height: 1),
-                  itemBuilder: (context, i) {
-                    final place = _searchResults[i];
-                    return ListTile(
-                      dense: true,
-                      visualDensity: VisualDensity.compact,
-                      leading: const Icon(
-                        Icons.location_on,
-                        size: 18,
-                        color: SupraTheme.brand,
-                      ),
-                      title: Text(
-                        place.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w600,
-                          fontSize: 12,
-                        ),
-                      ),
-                      subtitle: Text(
-                        place.displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: SupraTheme.textSecondary,
-                        ),
-                      ),
-                      onTap: () => _selectDestination(place.name, place.point),
-                    );
-                  },
+                  color: const Color(0xFFCBD5E1),
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              const SizedBox(height: 8),
-            ],
+            ),
 
-            // Option to Pick Destination on Map
+            // Route Header Bar (Origin ➔ Destination) with Change Button
             Row(
               children: [
                 Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.map_outlined, color: SupraTheme.brand),
-                    label: const Text('Pick on map'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF00AA13),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              _start.text,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    onPressed: () => _startPickingMode(forStart: true),
+                      const SizedBox(height: 2),
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.location_on,
+                            size: 10,
+                            color: Color(0xFFEE2737),
+                          ),
+                          const SizedBox(width: 4),
+                          Expanded(
+                            child: Text(
+                              _destination.text,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    icon: const Icon(Icons.flag_outlined, color: Color(0xFFEF4444)),
-                    label: const Text('Pick dest on map'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                    onPressed: () => _startPickingMode(forStart: false),
+                TextButton.icon(
+                  icon: const Icon(Icons.edit, size: 14),
+                  label: const Text('Change', style: TextStyle(fontSize: 12)),
+                  style: TextButton.styleFrom(
+                    visualDensity: VisualDensity.compact,
                   ),
+                  onPressed: () {
+                    setState(() {
+                      _calculatedRoutes = [];
+                      _selectedRoute = null;
+                    });
+                  },
                 ),
               ],
             ),
-            const SizedBox(height: 12),
+            const Divider(height: 12),
 
-            // Start Location Field (Defaulting to user's current location)
-            TextField(
-              controller: _start,
-              maxLength: 100,
-              decoration: InputDecoration(
-                labelText: 'Start location (defaults to Current Location)',
-                prefixIcon: const Icon(Icons.my_location, size: 20),
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.pin_drop_outlined),
-                  tooltip: 'Select on map',
-                  onPressed: () => _startPickingMode(forStart: true),
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onChanged: (_) {
-                if (_destCoord != null) _fetchRoutes();
-              },
-            ),
-            const SizedBox(height: 6),
-
-            // Quick Departure time
-            TextButton.icon(
-              icon: const Icon(Icons.access_time, size: 16),
-              onPressed: _pickDeparture,
-              label: Text(
-                _departure == null
-                    ? 'Departure: Leave now (change)'
-                    : 'Departure: $_departure',
-              ),
-            ),
-            const SizedBox(height: 12),
-
-            // =================================================================
-            // 3. ROUTE CHOICES (Embedded directly below the one map!)
-            // =================================================================
-            if (_loadingRoutes)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 20),
-                  child: CircularProgressIndicator(),
-                ),
-              )
-            else if (_calculatedRoutes.isNotEmpty && _selectedRoute != null) ...[
-              RoutePlannerView(
-                options: _calculatedRoutes,
-                selectedOption: _selectedRoute!,
-                onOptionSelected: (newOpt) {
-                  setState(() => _selectedRoute = newOpt);
+            // List of Gojek / Grab Vehicle Options (Car, Motorcycle, Transit)
+            Expanded(
+              child: ListView.separated(
+                padding: EdgeInsets.zero,
+                itemCount: _calculatedRoutes.length,
+                separatorBuilder: (context, _) => const SizedBox(height: 8),
+                itemBuilder: (context, index) {
+                  final opt = _calculatedRoutes[index];
+                  final isSelected = opt.mode == _selectedRoute?.mode;
+                  return _buildGrabVehicleCard(opt, isSelected);
                 },
-                onConfirmRoute: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Route confirmed: ${_selectedRoute!.title}'),
+              ),
+            ),
+            const SizedBox(height: 8),
+
+            // Primary Booking Action Button (Gojek / Grab CTA)
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: SupraTheme.brand,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 2,
+                ),
+                onPressed: _busy ? null : _startTrip,
+                child: _busy
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Text(
+                        'Start Trip with ${_selectedRoute!.title.split(' (').first} • ${_selectedRoute!.formattedDuration}',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 14,
+                        ),
+                      ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // Mode C: Initial Origin & Destination Search (Grab / Gojek Standard Input)
+    // -------------------------------------------------------------------------
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Drag handle pill
+          Center(
+            child: Container(
+              width: 36,
+              height: 4,
+              margin: const EdgeInsets.only(bottom: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFCBD5E1),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+
+          // Title
+          const Text(
+            'Where do you want to go?',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+              color: SupraTheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Grab/Gojek Origin & Destination Container Box
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF8FAFC),
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Column(
+              children: [
+                // Pick-up Row (Start)
+                Row(
+                  children: [
+                    Container(
+                      width: 12,
+                      height: 12,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF00AA13), // Gojek Green
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Center(
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle,
+                          ),
+                          child: SizedBox(width: 4, height: 4),
+                        ),
+                      ),
                     ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: _start,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        decoration: const InputDecoration(
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(vertical: 2),
+                          hintText: 'Pick-up location',
+                          border: InputBorder.none,
+                        ),
+                        onSubmitted: (val) => _searchAndSet(val, isStart: true),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.map_outlined,
+                        size: 18,
+                        color: SupraTheme.brand,
+                      ),
+                      tooltip: 'Select on map',
+                      onPressed: () => _startPickingMode(forStart: true),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ],
+                ),
+
+                // Connector vertical dots
+                Padding(
+                  padding: const EdgeInsets.only(left: 5),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Column(
+                      children: List.generate(
+                        2,
+                        (_) => Container(
+                          width: 2,
+                          height: 2.5,
+                          margin: const EdgeInsets.symmetric(vertical: 1),
+                          color: const Color(0xFF94A3B8),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                // Destination Row
+                Row(
+                  children: [
+                    const Icon(
+                      Icons.location_on,
+                      size: 14,
+                      color: Color(0xFFEE2737), // Gojek Red
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextField(
+                        controller: _destination,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        decoration: const InputDecoration(
+                          isDense: true,
+                          contentPadding: EdgeInsets.symmetric(vertical: 2),
+                          hintText: 'Where to? (e.g. Grand Indonesia)',
+                          border: InputBorder.none,
+                        ),
+                        onChanged: _onSearchChanged,
+                        onSubmitted: (val) =>
+                            _searchAndSet(val, isStart: false),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.map_outlined,
+                        size: 18,
+                        color: SupraTheme.brand,
+                      ),
+                      tooltip: 'Select on map',
+                      onPressed: () => _startPickingMode(forStart: false),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Loading indicator for route calculations
+          if (_loadingRoutes)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          // Live autocomplete search dropdown results
+          else if (_searchResults.isNotEmpty)
+            Expanded(
+              child: ListView.separated(
+                padding: EdgeInsets.zero,
+                itemCount: _searchResults.length,
+                separatorBuilder: (context, _) => const Divider(height: 1),
+                itemBuilder: (context, i) {
+                  final place = _searchResults[i];
+                  return ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const CircleAvatar(
+                      radius: 14,
+                      backgroundColor: Color(0xFFF1F5F9),
+                      child: Icon(
+                        Icons.location_on,
+                        size: 14,
+                        color: SupraTheme.brand,
+                      ),
+                    ),
+                    title: Text(
+                      place.name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    subtitle: Text(
+                      place.displayName,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: SupraTheme.textSecondary,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onTap: () => _selectDestination(place.name, place.point),
                   );
                 },
               ),
-              const SizedBox(height: 12),
-              ElevatedButton.icon(
-                icon: const Icon(Icons.bookmark_add_outlined),
-                label: Text(_busy ? 'Saving…' : 'Save Trip to Account'),
-                onPressed: _busy
-                    ? null
-                    : () {
-                        final messenger = ScaffoldMessenger.of(context);
-                        _perform(() async {
-                          await SupraService.instance.createTrip(
-                            start: _start.text,
-                            destination: _destination.text,
-                            departure: _departure ?? DateTime.now(),
-                          );
-                          if (mounted) {
-                            messenger.showSnackBar(
-                              const SnackBar(
-                                content: Text('Trip saved to account!'),
-                              ),
-                            );
-                          }
-                        });
-                      },
-              ),
-              const SizedBox(height: 18),
-            ],
-
-            // =================================================================
-            // 4. DESTINATION HISTORY SORTED BY FREQUENCY
-            // =================================================================
+            )
+          // Quick shortcuts & Recent Destination History
+          else ...[
+            // Quick Action Row (Home, Work, Pick on map)
             Row(
-              children: const [
-                Icon(Icons.history, size: 18, color: SupraTheme.textSecondary),
-                SizedBox(width: 6),
-                Text(
-                  'Frequent & Recent Destinations',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                    color: SupraTheme.onSurface,
+              children: [
+                _buildQuickActionChip(
+                  icon: Icons.home,
+                  label: 'Home',
+                  onTap: () => _selectDestination(
+                    'Monas (Central Jakarta)',
+                    _defaultCurrentLocation,
                   ),
+                ),
+                const SizedBox(width: 6),
+                _buildQuickActionChip(
+                  icon: Icons.work,
+                  label: 'Work',
+                  onTap: () => _selectDestination(
+                    'Sudirman CBD (SCBD)',
+                    const LatLng(latitude: -6.2268, longitude: 106.8077),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                ActionChip(
+                  avatar: const Icon(
+                    Icons.map_outlined,
+                    size: 14,
+                    color: SupraTheme.brand,
+                  ),
+                  label: const Text(
+                    'Pick on map',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: SupraTheme.brand,
+                    ),
+                  ),
+                  backgroundColor: SupraTheme.brand.withValues(alpha: 0.1),
+                  side: BorderSide(
+                    color: SupraTheme.brand.withValues(alpha: 0.3),
+                  ),
+                  onPressed: () => _startPickingMode(forStart: true),
                 ),
               ],
             ),
             const SizedBox(height: 8),
 
-            for (final entry in sortedHistory)
-              Card(
-                margin: const EdgeInsets.only(bottom: 6),
-                elevation: 0,
-                color: const Color(0xFFF8FAFC),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10),
-                  side: const BorderSide(color: Color(0xFFE2E8F0)),
-                ),
-                child: ListTile(
-                  dense: true,
-                  leading: const CircleAvatar(
-                    radius: 14,
-                    backgroundColor: Color(0xFFE0F2FE),
-                    child: Icon(Icons.place, size: 16, color: SupraTheme.brand),
-                  ),
-                  title: Text(
-                    entry.key.split(' (').first,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 13,
-                    ),
-                  ),
-                  subtitle: Text(
-                    'Visited ${entry.value} time${entry.value > 1 ? "s" : ""}',
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: SupraTheme.textSecondary,
-                    ),
-                  ),
-                  trailing: const Icon(Icons.arrow_forward_ios, size: 12),
-                  onTap: () {
-                    final matchedLm = greaterJakartaLandmarks.firstWhere(
-                      (lm) =>
-                          lm.name.toLowerCase().contains(
-                                entry.key.toLowerCase().split(' (').first,
-                              ),
-                      orElse: () => greaterJakartaLandmarks.first,
-                    );
-                    _selectDestination(entry.key, matchedLm.point);
-                  },
-                ),
+            // Recent Destinations Section
+            const Text(
+              'Recent destinations',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: SupraTheme.textSecondary,
               ),
+            ),
+            const SizedBox(height: 4),
 
-            // Saved trips section
-            if (SupraService.instance.trips.isNotEmpty) ...[
-              const Divider(height: 28),
-              const Text(
-                'Saved Account Trips',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-              ),
-              const SizedBox(height: 8),
-              for (final trip in SupraService.instance.trips)
-                ListTile(
-                  dense: true,
-                  title: Text(trip.name),
-                  subtitle: Text('${trip.plannedDeparture}'),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.alt_route, size: 18),
-                        tooltip: 'Load route',
-                        onPressed: () {
-                          _start.text = trip.startLocation;
-                          _destination.text = trip.destination;
-                          _fetchRoutes();
-                        },
+            Expanded(
+              child: ListView.separated(
+                padding: EdgeInsets.zero,
+                itemCount: sortedHistory.length,
+                separatorBuilder: (context, _) => const Divider(height: 1),
+                itemBuilder: (context, i) {
+                  final entry = sortedHistory[i];
+                  final lm = greaterJakartaLandmarks.firstWhere(
+                    (l) => l.name.startsWith(entry.key.split(' (').first),
+                    orElse: () => greaterJakartaLandmarks.first,
+                  );
+                  return ListTile(
+                    dense: true,
+                    contentPadding: EdgeInsets.zero,
+                    leading: const CircleAvatar(
+                      radius: 14,
+                      backgroundColor: Color(0xFFF1F5F9),
+                      child: Icon(
+                        Icons.history,
+                        size: 14,
+                        color: SupraTheme.textSecondary,
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 18),
-                        onPressed: _busy
-                            ? null
-                            : () => _perform(
-                                  () => SupraService.instance.deleteTrip(trip.id),
+                    ),
+                    title: Text(
+                      entry.key,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                    subtitle: Text(
+                      lm.area,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: SupraTheme.textSecondary,
+                      ),
+                    ),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        '${entry.value}x',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: SupraTheme.textSecondary,
+                        ),
+                      ),
+                    ),
+                    onTap: () => _selectDestination(entry.key, lm.point),
+                  );
+                },
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildQuickActionChip({
+    required IconData icon,
+    required String label,
+    required VoidCallback onTap,
+  }) {
+    return ActionChip(
+      avatar: Icon(icon, size: 14, color: SupraTheme.onSurface),
+      label: Text(
+        label,
+        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+      ),
+      backgroundColor: const Color(0xFFF1F5F9),
+      side: const BorderSide(color: Color(0xFFE2E8F0)),
+      onPressed: onTap,
+    );
+  }
+
+  Widget _buildGrabVehicleCard(RouteOption opt, bool isSelected) {
+    IconData icon;
+    Color iconColor;
+    String modeLabel;
+    String subtitle;
+
+    switch (opt.mode) {
+      case TransportMode.car:
+        icon = Icons.directions_car;
+        iconColor = const Color(0xFF2563EB);
+        modeLabel = 'Car (GrabCar / GoCar)';
+        subtitle = 'Protected from rain & air pollution • AC';
+        break;
+      case TransportMode.motorcycle:
+        icon = Icons.two_wheeler;
+        iconColor = const Color(0xFFF59E0B);
+        modeLabel = 'Motorcycle (GrabBike / GoRide)';
+        subtitle = 'Fastest route through traffic';
+        break;
+      case TransportMode.publicTransit:
+        icon = opt.title.contains('KRL') ? Icons.train : Icons.directions_bus;
+        iconColor = const Color(0xFF0F766E);
+        modeLabel = opt.title;
+        subtitle = 'Dedicated corridor • Zero emissions';
+        break;
+    }
+
+    return InkWell(
+      onTap: () {
+        setState(() => _selectedRoute = opt);
+      },
+      borderRadius: BorderRadius.circular(12),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? SupraTheme.brand.withValues(alpha: 0.05)
+              : Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? SupraTheme.brand : const Color(0xFFE2E8F0),
+            width: isSelected ? 2.0 : 1.0,
+          ),
+          boxShadow: isSelected
+              ? const [
+                  BoxShadow(
+                    color: Color(0x14000000),
+                    blurRadius: 4,
+                    offset: Offset(0, 2),
+                  ),
+                ]
+              : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                CircleAvatar(
+                  radius: 16,
+                  backgroundColor: iconColor.withValues(alpha: 0.12),
+                  child: Icon(icon, size: 18, color: iconColor),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              modeLabel,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          if (opt.isRecommended) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFDCFCE7),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'RECOMMENDED',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF166534),
                                 ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: SupraTheme.textSecondary,
+                        ),
                       ),
                     ],
                   ),
                 ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      opt.formattedDuration,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                        color: isSelected
+                            ? SupraTheme.brand
+                            : SupraTheme.onSurface,
+                      ),
+                    ),
+                    Text(
+                      '${opt.distanceKm.toStringAsFixed(1)} km',
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: SupraTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+            // Health & Environmental Advisory Alert (SUPRA special feature)
+            if (opt.protectiveMeasures.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: opt.mode == TransportMode.motorcycle
+                      ? const Color(0xFFFFFBEB)
+                      : const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      opt.mode == TransportMode.motorcycle
+                          ? Icons.warning_amber_rounded
+                          : Icons.verified_user_outlined,
+                      size: 14,
+                      color: opt.mode == TransportMode.motorcycle
+                          ? const Color(0xFFD97706)
+                          : const Color(0xFF16A34A),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        opt.protectiveMeasures.first,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: opt.mode == TransportMode.motorcycle
+                              ? const Color(0xFFB45309)
+                              : const Color(0xFF15803D),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+
+            // Step guidance for Public Transit
+            if (opt.mode == TransportMode.publicTransit &&
+                opt.turnSteps.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.directions_walk,
+                      size: 13,
+                      color: SupraTheme.brand,
+                    ),
+                    const SizedBox(width: 4),
+                    Expanded(
+                      child: Text(
+                        opt.turnSteps.take(2).join(' ➔ '),
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: SupraTheme.textSecondary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ],
           ],
-        ],
+        ),
       ),
     );
   }
