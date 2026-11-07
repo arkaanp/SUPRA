@@ -39,6 +39,7 @@ dependencies:
   http: ^1.2.2
   url_launcher: ^6.3.3
   supabase_flutter: ^2.18.3
+  maplibre_gl: ^0.28.0
 
 dev_dependencies:
   flutter_test:
