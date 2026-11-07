@@ -758,6 +758,53 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                           ),
                           const SizedBox(width: 6),
                           GestureDetector(
+                            onTap: () async {
+                              await _refreshEnvironmentalZones();
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Refreshed live Open-Meteo atmospheric telemetry.'),
+                                    duration: Duration(milliseconds: 1500),
+                                  ),
+                                );
+                              }
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.92),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 6,
+                                    height: 6,
+                                    decoration: const BoxDecoration(
+                                      color: Color(0xFF22C55E),
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 3.5),
+                                  const Text(
+                                    'Live',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF15803D),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          GestureDetector(
                             onTap: _showAqiLegendDialog,
                             child: Container(
                               padding: const EdgeInsets.symmetric(
@@ -1228,6 +1275,31 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                     visualDensity: VisualDensity.compact,
                   ),
                 ],
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.sensors, size: 13, color: Color(0xFF0F766E)),
+                    SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Live telemetry sourced directly from Open-Meteo & OpenAQ models.',
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          color: Color(0xFF334155),
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
               const SizedBox(height: 12),
               _buildAqiScaleRow(

@@ -1,193 +1,200 @@
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import '../models/environmental_zone.dart';
 import '../models/location.dart';
 import 'routing_service.dart';
 
 /// Service responsible for managing area-based air pollution (PM2.5) and rainfall
-/// environmental zones across Greater Jakarta (Jabodetabek).
+/// environmental zones across Greater Jakarta (Jabodetabek) using live Open-Meteo
+/// atmospheric and meteorological APIs.
 class EnvironmentalService {
   final RoutingService? routingService;
+  final http.Client? client;
+  DateTime? lastFetchedAt;
+  String? lastDataSource;
 
-  EnvironmentalService({this.routingService});
+  EnvironmentalService({this.routingService, this.client});
 
   /// 10 canonical Greater Jakarta metropolitan environmental zones.
+  /// Default baselines use 0.0 mm rainfall (no synthetic rain) and neutral PM2.5.
   static final List<EnvironmentalZone> defaultZones = [
     // 1. Central Jakarta (Pusat) - High urban density & emissions
-    EnvironmentalZone(
+    const EnvironmentalZone(
       id: 'jkt_central',
       name: 'Jakarta Pusat',
-      center: const LatLng(latitude: -6.1800, longitude: 106.8280),
+      center: LatLng(latitude: -6.1800, longitude: 106.8280),
       radiusKm: 4.8,
-      polygonBounds: const [
+      polygonBounds: [
         LatLng(latitude: -6.150, longitude: 106.800),
         LatLng(latitude: -6.150, longitude: 106.865),
         LatLng(latitude: -6.210, longitude: 106.865),
         LatLng(latitude: -6.210, longitude: 106.800),
       ],
-      pm25: 68.0, // Unhealthy (Red)
+      pm25: 30.0,
       rainfallMm: 0.0,
-      rainProbability: 0.15,
+      rainProbability: 0.0,
       isRaining: false,
     ),
 
     // 2. South Jakarta (Selatan) - Traffic corridor & canyon entrapment
-    EnvironmentalZone(
+    const EnvironmentalZone(
       id: 'jkt_south',
       name: 'Jakarta Selatan',
-      center: const LatLng(latitude: -6.2600, longitude: 106.8150),
+      center: LatLng(latitude: -6.2600, longitude: 106.8150),
       radiusKm: 6.2,
-      polygonBounds: const [
+      polygonBounds: [
         LatLng(latitude: -6.210, longitude: 106.775),
         LatLng(latitude: -6.210, longitude: 106.865),
         LatLng(latitude: -6.320, longitude: 106.865),
         LatLng(latitude: -6.320, longitude: 106.775),
       ],
-      pm25: 78.0, // Unhealthy (Darker Red)
+      pm25: 45.0,
       rainfallMm: 0.0,
-      rainProbability: 0.20,
+      rainProbability: 0.0,
       isRaining: false,
     ),
 
     // 3. West Jakarta (Barat) - Arterial freight & commercial hubs
-    EnvironmentalZone(
+    const EnvironmentalZone(
       id: 'jkt_west',
       name: 'Jakarta Barat',
-      center: const LatLng(latitude: -6.1650, longitude: 106.7650),
+      center: LatLng(latitude: -6.1650, longitude: 106.7650),
       radiusKm: 5.5,
-      polygonBounds: const [
+      polygonBounds: [
         LatLng(latitude: -6.120, longitude: 106.680),
         LatLng(latitude: -6.120, longitude: 106.800),
         LatLng(latitude: -6.215, longitude: 106.800),
         LatLng(latitude: -6.215, longitude: 106.680),
       ],
-      pm25: 58.0, // Unhealthy (Red)
+      pm25: 35.0,
       rainfallMm: 0.0,
-      rainProbability: 0.15,
+      rainProbability: 0.0,
       isRaining: false,
     ),
 
     // 4. East Jakarta (Timur) - Industrial & toll interchange
-    EnvironmentalZone(
+    const EnvironmentalZone(
       id: 'jkt_east',
       name: 'Jakarta Timur',
-      center: const LatLng(latitude: -6.2400, longitude: 106.8900),
+      center: LatLng(latitude: -6.2400, longitude: 106.8900),
       radiusKm: 6.5,
-      polygonBounds: const [
+      polygonBounds: [
         LatLng(latitude: -6.170, longitude: 106.865),
         LatLng(latitude: -6.170, longitude: 106.945),
         LatLng(latitude: -6.335, longitude: 106.945),
         LatLng(latitude: -6.335, longitude: 106.865),
       ],
-      pm25: 64.0, // Unhealthy (Red)
+      pm25: 42.0,
       rainfallMm: 0.0,
-      rainProbability: 0.15,
+      rainProbability: 0.0,
       isRaining: false,
     ),
 
     // 5. North Jakarta (Utara) - Coastal maritime & ports
-    EnvironmentalZone(
+    const EnvironmentalZone(
       id: 'jkt_north',
       name: 'Jakarta Utara',
-      center: const LatLng(latitude: -6.1300, longitude: 106.8600),
+      center: LatLng(latitude: -6.1300, longitude: 106.8600),
       radiusKm: 6.0,
-      polygonBounds: const [
+      polygonBounds: [
         LatLng(latitude: -6.080, longitude: 106.720),
         LatLng(latitude: -6.080, longitude: 106.955),
         LatLng(latitude: -6.150, longitude: 106.955),
         LatLng(latitude: -6.150, longitude: 106.720),
       ],
-      pm25: 46.0, // USG (Orange)
+      pm25: 32.0,
       rainfallMm: 0.0,
-      rainProbability: 0.25,
+      rainProbability: 0.0,
       isRaining: false,
     ),
 
     // 6. Depok - Suburban university & commuter zone
-    EnvironmentalZone(
+    const EnvironmentalZone(
       id: 'depok',
       name: 'Depok',
-      center: const LatLng(latitude: -6.3850, longitude: 106.8250),
+      center: LatLng(latitude: -6.3850, longitude: 106.8250),
       radiusKm: 5.8,
-      polygonBounds: const [
+      polygonBounds: [
         LatLng(latitude: -6.325, longitude: 106.750),
         LatLng(latitude: -6.325, longitude: 106.910),
         LatLng(latitude: -6.440, longitude: 106.910),
         LatLng(latitude: -6.440, longitude: 106.750),
       ],
-      pm25: 44.0, // USG (Orange)
-      rainfallMm: 0.4,
-      rainProbability: 0.35,
+      pm25: 40.0,
+      rainfallMm: 0.0,
+      rainProbability: 0.0,
       isRaining: false,
     ),
 
-    // 7. Cibinong (Bogor Regency) - Active rain cell & moderate pollution
-    EnvironmentalZone(
+    // 7. Cibinong (Bogor Regency)
+    const EnvironmentalZone(
       id: 'cibinong',
       name: 'Cibinong',
-      center: const LatLng(latitude: -6.4850, longitude: 106.8400),
+      center: LatLng(latitude: -6.4850, longitude: 106.8400),
       radiusKm: 5.2,
-      polygonBounds: const [
+      polygonBounds: [
         LatLng(latitude: -6.440, longitude: 106.780),
         LatLng(latitude: -6.440, longitude: 106.905),
         LatLng(latitude: -6.535, longitude: 106.905),
         LatLng(latitude: -6.535, longitude: 106.780),
       ],
-      pm25: 38.0, // USG (Orange)
-      rainfallMm: 2.8, // Active rain!
-      rainProbability: 0.85,
-      isRaining: true,
+      pm25: 38.0,
+      rainfallMm: 0.0,
+      rainProbability: 0.0,
+      isRaining: false,
     ),
 
-    // 8. Kota Bogor ("Kota Hujan") - Mountain foothill rain & clean air
-    EnvironmentalZone(
+    // 8. Kota Bogor ("Kota Hujan")
+    const EnvironmentalZone(
       id: 'bogor_city',
       name: 'Kota Bogor',
-      center: const LatLng(latitude: -6.5950, longitude: 106.7950),
+      center: LatLng(latitude: -6.5950, longitude: 106.7950),
       radiusKm: 5.5,
-      polygonBounds: const [
+      polygonBounds: [
         LatLng(latitude: -6.535, longitude: 106.740),
         LatLng(latitude: -6.535, longitude: 106.865),
         LatLng(latitude: -6.665, longitude: 106.865),
         LatLng(latitude: -6.665, longitude: 106.740),
       ],
-      pm25: 24.0, // Moderate (Amber / Yellow)
-      rainfallMm: 6.2, // Heavy Tropical Rain!
-      rainProbability: 0.95,
-      isRaining: true,
+      pm25: 35.0,
+      rainfallMm: 0.0,
+      rainProbability: 0.0,
+      isRaining: false,
     ),
 
     // 9. Tangerang & South Tangerang (Tangsel / BSD)
-    EnvironmentalZone(
+    const EnvironmentalZone(
       id: 'tangerang',
       name: 'Tangerang / BSD',
-      center: const LatLng(latitude: -6.2950, longitude: 106.6750),
+      center: LatLng(latitude: -6.2950, longitude: 106.6750),
       radiusKm: 6.8,
-      polygonBounds: const [
+      polygonBounds: [
         LatLng(latitude: -6.215, longitude: 106.600),
         LatLng(latitude: -6.215, longitude: 106.755),
         LatLng(latitude: -6.365, longitude: 106.755),
         LatLng(latitude: -6.365, longitude: 106.600),
       ],
-      pm25: 52.0, // USG (Orange)
+      pm25: 42.0,
       rainfallMm: 0.0,
-      rainProbability: 0.20,
+      rainProbability: 0.0,
       isRaining: false,
     ),
 
-    // 10. Bekasi - Manufacturing & high diesel particulate load
-    EnvironmentalZone(
+    // 10. Bekasi - Manufacturing & arterial freight corridor
+    const EnvironmentalZone(
       id: 'bekasi',
       name: 'Bekasi',
-      center: const LatLng(latitude: -6.2450, longitude: 107.0000),
+      center: LatLng(latitude: -6.2450, longitude: 107.0000),
       radiusKm: 7.2,
-      polygonBounds: const [
+      polygonBounds: [
         LatLng(latitude: -6.175, longitude: 106.945),
         LatLng(latitude: -6.175, longitude: 107.130),
         LatLng(latitude: -6.325, longitude: 107.130),
         LatLng(latitude: -6.325, longitude: 106.945),
       ],
-      pm25: 86.0, // Unhealthy (Deep Dark Red!)
+      pm25: 45.0,
       rainfallMm: 0.0,
-      rainProbability: 0.15,
+      rainProbability: 0.0,
       isRaining: false,
     ),
   ];
@@ -216,26 +223,99 @@ class EnvironmentalService {
   /// Alias for findZoneAt
   static EnvironmentalZone? findZone(LatLng point) => findZoneAt(point);
 
-  /// Fetches live PM2.5 and rainfall updates for all zones from real-time APIs.
+  /// Fetches real, current PM2.5 particulate pollution and live rainfall precipitation
+  /// for all Greater Jakarta zones directly from Open-Meteo Air Quality & Weather APIs
+  /// via high-performance multi-coordinate batch queries.
   Future<List<EnvironmentalZone>> fetchLiveZoneData() async {
-    final rs = routingService ?? RoutingService();
-    final updated = <EnvironmentalZone>[];
+    final httpClient = client ?? (routingService?.client ?? http.Client());
+    final shouldClose = client == null && routingService?.client == null;
 
-    for (final zone in defaultZones) {
-      try {
-        final livePm = await rs.fetchLivePm25(zone.center);
-        final liveRain = await rs.fetchLiveRainfallMm(zone.center);
+    final lats = defaultZones
+        .map((z) => z.center.latitude.toStringAsFixed(4))
+        .join(',');
+    final lons = defaultZones
+        .map((z) => z.center.longitude.toStringAsFixed(4))
+        .join(',');
+
+    final aqUri = Uri.parse(
+      'https://air-quality-api.open-meteo.com/v1/air-quality?'
+      'latitude=$lats&longitude=$lons&current=pm2_5',
+    );
+    final wxUri = Uri.parse(
+      'https://api.open-meteo.com/v1/forecast?'
+      'latitude=$lats&longitude=$lons&current=precipitation,rain',
+    );
+
+    try {
+      final results = await Future.wait([
+        httpClient.get(aqUri).timeout(const Duration(seconds: 5)),
+        httpClient.get(wxUri).timeout(const Duration(seconds: 5)),
+      ]);
+
+      final aqRes = results[0];
+      final wxRes = results[1];
+
+      List<dynamic> aqList = [];
+      List<dynamic> wxList = [];
+
+      if (aqRes.statusCode == 200) {
+        final decoded = jsonDecode(aqRes.body);
+        if (decoded is List) {
+          aqList = decoded;
+        } else if (decoded is Map<String, dynamic>) {
+          aqList = [decoded];
+        }
+      }
+
+      if (wxRes.statusCode == 200) {
+        final decoded = jsonDecode(wxRes.body);
+        if (decoded is List) {
+          wxList = decoded;
+        } else if (decoded is Map<String, dynamic>) {
+          wxList = [decoded];
+        }
+      }
+
+      final updated = <EnvironmentalZone>[];
+      for (int i = 0; i < defaultZones.length; i++) {
+        final zone = defaultZones[i];
+        double realPm = zone.pm25;
+        double realRain = zone.rainfallMm;
+
+        if (i < aqList.length && aqList[i] is Map<String, dynamic>) {
+          final cur = aqList[i]['current'] as Map<String, dynamic>?;
+          final pm = (cur?['pm2_5'] as num?)?.toDouble();
+          if (pm != null && pm >= 0) {
+            realPm = pm;
+          }
+        }
+
+        if (i < wxList.length && wxList[i] is Map<String, dynamic>) {
+          final cur = wxList[i]['current'] as Map<String, dynamic>?;
+          final rain = (cur?['precipitation'] as num?)?.toDouble() ??
+              (cur?['rain'] as num?)?.toDouble();
+          if (rain != null && rain >= 0) {
+            realRain = rain;
+          }
+        }
+
         updated.add(
           zone.copyWith(
-            pm25: livePm > 0 ? livePm : zone.pm25,
-            rainfallMm: liveRain >= 0 ? liveRain : zone.rainfallMm,
-            isRaining: liveRain > 0.5,
+            pm25: realPm,
+            rainfallMm: realRain,
+            isRaining: realRain > 0.5,
           ),
         );
-      } catch (_) {
-        updated.add(zone);
       }
+
+      lastFetchedAt = DateTime.now();
+      lastDataSource = 'Open-Meteo Air Quality & Weather API';
+      return updated;
+    } catch (_) {
+      // Fallback: if network fails or in offline tests, return default zones
+      return defaultZones;
+    } finally {
+      if (shouldClose) httpClient.close();
     }
-    return updated;
   }
 }

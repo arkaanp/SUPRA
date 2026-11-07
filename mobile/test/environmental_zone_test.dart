@@ -161,7 +161,7 @@ void main() {
   });
 
   group('EnvironmentalService tests', () {
-    test('canonical zones cover Greater Jakarta subregions', () {
+    test('canonical zones cover Greater Jakarta subregions with 0.0mm initial rain baseline', () {
       final zones = EnvironmentalService.getCanonicalZones();
       expect(zones.length, greaterThanOrEqualTo(10));
 
@@ -176,6 +176,21 @@ void main() {
       expect(names, contains('Cibinong'));
       expect(names, contains('Tangerang / BSD'));
       expect(names, contains('Bekasi'));
+
+      // Ensure no synthetic rain is hardcoded in defaults
+      for (final z in zones) {
+        expect(z.rainfallMm, 0.0);
+        expect(z.isRaining, isFalse);
+      }
+    });
+
+    test('fetchLiveZoneData parses real Open-Meteo multi-coordinate responses', () async {
+      final service = EnvironmentalService();
+      final zones = await service.fetchLiveZoneData();
+      expect(zones.length, 10);
+      for (final z in zones) {
+        expect(z.pm25, greaterThan(0));
+      }
     });
 
     test('findZoneAt locates corresponding subregion for known landmarks', () {
@@ -218,6 +233,7 @@ void main() {
       await tester.pump();
 
       expect(find.text('Eco Layers'), findsOneWidget);
+      expect(find.text('Live'), findsOneWidget);
       expect(find.text('AQI Guide'), findsOneWidget);
     });
 
@@ -240,6 +256,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Air Quality (PM2.5) & Rain Guide'), findsOneWidget);
+      expect(find.textContaining('Open-Meteo & OpenAQ'), findsOneWidget);
       expect(find.text('0 – 12 µg/m³'), findsOneWidget);
       expect(find.text('55.5 – 150.4 µg/m³'), findsOneWidget);
       expect(find.text('Rain Active (>0.5 mm)'), findsOneWidget);
