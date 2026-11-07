@@ -135,21 +135,32 @@ class GeocodingService {
     if (cleanQuery.isEmpty) return const [];
     final lowerQuery = cleanQuery.toLowerCase();
 
-    // 1. Local landmark matches
-    final localMatches = <GeocodedPlace>[];
+    // 1. Predictive ranking: prefix matches first, then word prefix matches, then substring matches
+    final prefixMatches = <GeocodedPlace>[];
+    final containsMatches = <GeocodedPlace>[];
+
     for (final lm in greaterJakartaLandmarks) {
-      if (lm.name.toLowerCase().contains(lowerQuery) ||
+      final nameLower = lm.name.toLowerCase();
+      final words = nameLower.split(RegExp(r'[\s\(\)\-\,\.]+'));
+      final isPrefix = nameLower.startsWith(lowerQuery) ||
+          words.any((w) => w.startsWith(lowerQuery));
+
+      final place = GeocodedPlace(
+        name: lm.name.split(' (').first,
+        displayName: '${lm.name}, ${lm.area}',
+        point: lm.point,
+        type: 'landmark',
+      );
+
+      if (isPrefix) {
+        prefixMatches.add(place);
+      } else if (nameLower.contains(lowerQuery) ||
           lm.area.toLowerCase().contains(lowerQuery)) {
-        localMatches.add(
-          GeocodedPlace(
-            name: lm.name.split(' (').first,
-            displayName: '${lm.name}, ${lm.area}',
-            point: lm.point,
-            type: 'landmark',
-          ),
-        );
+        containsMatches.add(place);
       }
     }
+
+    final localMatches = [...prefixMatches, ...containsMatches];
 
     // 2. Transit haltes and stations matching (Transjakarta & KRL)
     for (final s in TransitNetwork.stations) {

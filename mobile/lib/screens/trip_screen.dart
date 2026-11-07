@@ -5,7 +5,6 @@ import '../models/route_option.dart';
 import '../services/geocoding_service.dart';
 import '../services/routing_service.dart';
 import '../services/supra_api_service.dart';
-import '../services/transit_network.dart';
 import '../theme/app_theme.dart';
 import '../widgets/interactive_location_map.dart';
 
@@ -20,11 +19,16 @@ class NearbySnapOption {
   });
 }
 
-/// Route planning screen designed to find the optimal commute route based on
-/// live traffic congestion, weather/rainfall, and air pollution (PM2.5 / AQI).
-/// Features a persistent top map (at least 50% screen height), Grab/Gojek-style trip inputs,
-/// map-picking with live search teleportation and nearest entrance snapping,
-/// and comprehensive health protection advisories (N95 mask, raincoat, AC cabin).
+/// Route planning screen designed to show the optimal commute route based on
+/// live traffic congestion, weather (rainfall), and air pollution (PM2.5 / AQI).
+/// Features:
+/// - Persistent top map (at least half screen, always movable/zoomable even when read-only).
+/// - Location input sheet with swipeable top grey bar to expand to full screen.
+/// - Clicking a name input opens the map view with search automatically focused in typing mode.
+/// - Predictive search autocomplete matching specific venues (e.g., McDonald's, Cibinong, malls).
+/// - Vertical "Nearest Locations:" list scrolling top to bottom.
+/// - Explicit "Show Route" button to confirm both locations before route and modes are rendered.
+/// - Car & Motorcycle route options with traffic, weather, PM2.5, and health advisories (wear mask, etc.).
 class TripScreen extends StatefulWidget {
   const TripScreen({super.key});
 
@@ -36,6 +40,7 @@ class _TripScreenState extends State<TripScreen> {
   final _start = TextEditingController();
   final _destination = TextEditingController();
   final _mapSearchController = TextEditingController();
+  final _mapSearchFocusNode = FocusNode();
 
   final GeocodingService _geocoder = GeocodingService();
   final RoutingService _routingService = RoutingService();
@@ -52,6 +57,9 @@ class _TripScreenState extends State<TripScreen> {
   LatLng _startCoord = _defaultCurrentLocation;
   LatLng? _destCoord;
 
+  // Bottom box full-screen expansion state (triggered only by swiping grey bar up)
+  bool _isSheetExpanded = false;
+
   // Picking mode state ("Pilih Lewat Peta" with live search & teleport)
   bool _isPickingOnMap = false;
   bool _isPickingStart = false;
@@ -60,7 +68,7 @@ class _TripScreenState extends State<TripScreen> {
   List<NearbySnapOption> _nearestSnapOptions = [];
   List<GeocodedPlace> _mapSearchResults = [];
 
-  // Search state
+  // Search state for main screen
   List<GeocodedPlace> _searchResults = [];
 
   // Routes state evaluated against traffic, weather, and air pollution
@@ -70,14 +78,14 @@ class _TripScreenState extends State<TripScreen> {
 
   // Destination History sorted by frequency
   static final Map<String, int> _historyFrequencies = {
-    'Monas (Central Jakarta)': 5,
+    'Grand Indonesia Mall': 5,
+    'Cibinong City Mall (CCM)': 4,
     'Sudirman CBD (SCBD)': 4,
     'Bundaran HI': 4,
+    'McDonald\'s Sarinah Thamrin': 3,
     'Gelora Bung Karno (GBK)': 3,
-    'Grand Indonesia (Thamrin)': 3,
-    'Halte Transjakarta Blok M': 2,
-    'Stasiun KRL Manggarai': 2,
-    'Kemang': 1,
+    'Kemang': 2,
+    'Stasiun Gambir': 2,
   };
 
   @override
@@ -92,6 +100,7 @@ class _TripScreenState extends State<TripScreen> {
     _start.dispose();
     _destination.dispose();
     _mapSearchController.dispose();
+    _mapSearchFocusNode.dispose();
     super.dispose();
   }
 
@@ -106,20 +115,6 @@ class _TripScreenState extends State<TripScreen> {
         ),
       );
     }
-    for (final s in TransitNetwork.stations) {
-      candidates.add(
-        NearbySnapOption(
-          name: s.name
-              .replaceAll('Halte Transjakarta ', '')
-              .replaceAll('Stasiun KRL ', '')
-              .replaceAll('Stasiun MRT ', '')
-              .split(' (')
-              .first,
-          point: s.point,
-          distanceKm: tap.distanceTo(s.point),
-        ),
-      );
-    }
     candidates.sort((a, b) => a.distanceKm.compareTo(b.distanceKm));
 
     final unique = <NearbySnapOption>[];
@@ -129,7 +124,7 @@ class _TripScreenState extends State<TripScreen> {
       )) {
         unique.add(c);
       }
-      if (unique.length >= 5) break;
+      if (unique.length >= 8) break;
     }
     setState(() {
       _nearestSnapOptions = unique;
@@ -145,20 +140,26 @@ class _TripScreenState extends State<TripScreen> {
     });
   }
 
-  void _startPickingMode({required bool forStart}) {
+  void _startPickingMode({required bool forStart, bool focusSearch = false}) {
     final initial = forStart ? _startCoord : (_destCoord ?? _startCoord);
     final initialName = forStart
         ? _start.text
-        : (_destination.text.isNotEmpty ? _destination.text : 'Monas');
+        : (_destination.text.isNotEmpty ? _destination.text : '');
     setState(() {
       _isPickingOnMap = true;
       _isPickingStart = forStart;
       _tempTappedPoint = initial;
       _mapSearchController.text = initialName;
       _mapSearchResults = [];
-      _updateSnapOptions(initial);
+      _isSheetExpanded = false;
+      _updateSnapOptions(initial, customName: initialName);
     });
     _mapKey.currentState?.animateToLocation(initial);
+    if (focusSearch) {
+      Future.delayed(const Duration(milliseconds: 150), () {
+        if (mounted) _mapSearchFocusNode.requestFocus();
+      });
+    }
   }
 
   void _teleportToPoint(LatLng target, String name) {
@@ -207,11 +208,8 @@ class _TripScreenState extends State<TripScreen> {
       }
       _isPickingOnMap = false;
       _mapSearchResults = [];
+      // Do not auto-calculate route here so user can freely adjust both locations
     });
-
-    if (_destCoord != null) {
-      _fetchRoutes();
-    }
   }
 
   void _selectDestination(String name, LatLng point) {
@@ -221,11 +219,20 @@ class _TripScreenState extends State<TripScreen> {
       _historyFrequencies[name] = (_historyFrequencies[name] ?? 0) + 1;
       _searchResults = [];
     });
-    _fetchRoutes();
   }
 
+  /// Calculates and confirms the route between Start and Destination.
+  /// Only called when the user explicitly clicks "Show Route".
   Future<void> _fetchRoutes() async {
-    if (_destCoord == null) return;
+    if (_destCoord == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please select a destination first'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
     setState(() {
       _loadingRoutes = true;
     });
@@ -237,6 +244,9 @@ class _TripScreenState extends State<TripScreen> {
         startName: _start.text,
         destinationName: _destination.text,
       );
+      // Remove public transportation option for now as requested
+      routes.removeWhere((r) => r.mode == TransportMode.publicTransit);
+
       if (mounted) {
         setState(() {
           _calculatedRoutes = routes;
@@ -252,40 +262,6 @@ class _TripScreenState extends State<TripScreen> {
     }
   }
 
-  void _onSearchChanged(String query) async {
-    if (query.trim().isEmpty) {
-      setState(() => _searchResults = []);
-      return;
-    }
-    final results = await _geocoder.searchPlaces(query);
-    if (mounted) {
-      setState(() => _searchResults = results);
-    }
-  }
-
-  Future<void> _searchAndSet(String name, {required bool isStart}) async {
-    if (name.trim().isEmpty) return;
-    final results = await _geocoder.searchPlaces(name);
-    if (results.isNotEmpty) {
-      final chosen = results.first;
-      setState(() {
-        if (isStart) {
-          _startCoord = chosen.point;
-          _start.text = chosen.name;
-        } else {
-          _destCoord = chosen.point;
-          _destination.text = chosen.name;
-          _historyFrequencies[chosen.name] =
-              (_historyFrequencies[chosen.name] ?? 0) + 1;
-        }
-        _searchResults = [];
-      });
-      if (_destCoord != null) {
-        _fetchRoutes();
-      }
-    }
-  }
-
   Color _getRouteColor(TransportMode mode) {
     switch (mode) {
       case TransportMode.car:
@@ -293,7 +269,7 @@ class _TripScreenState extends State<TripScreen> {
       case TransportMode.motorcycle:
         return const Color(0xFFF59E0B); // Amber / Orange
       case TransportMode.publicTransit:
-        return const Color(0xFF0F766E); // Teal / Green
+        return const Color(0xFF0F766E); // Teal
     }
   }
 
@@ -329,6 +305,18 @@ class _TripScreenState extends State<TripScreen> {
     final sortedHistory = _historyFrequencies.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
+    // Flex layout: Map occupies at least half of the screen unless the user swipes
+    // the grey bar area to expand the bottom box to full screen.
+    final int mapFlex;
+    final int sheetFlex;
+    if (_isSheetExpanded) {
+      mapFlex = 0;
+      sheetFlex = 100;
+    } else {
+      mapFlex = 48;
+      sheetFlex = 52;
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
       body: SafeArea(
@@ -336,271 +324,340 @@ class _TripScreenState extends State<TripScreen> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // =================================================================
-            // 1. TOP MAP (Occupies AT LEAST half of the screen at all times)
+            // 1. TOP MAP (Always movable/zoomable even when read-only)
             // =================================================================
-            Expanded(
-              flex: _isPickingOnMap ? 60 : 52,
-              child: Stack(
-                children: [
-                  InteractiveLocationMap(
-                    key: _mapKey,
-                    height: double.infinity,
-                    borderRadius: BorderRadius.zero,
-                    selectedLocation: _isPickingOnMap
-                        ? _tempTappedPoint
-                        : (_destCoord ?? _startCoord),
-                    secondaryLocation: _isPickingOnMap
-                        ? null
-                        : (_destCoord != null ? _startCoord : null),
-                    selectedLabel: _isPickingOnMap
-                        ? (_isPickingStart ? 'S' : 'D')
-                        : (_destCoord != null ? 'D' : 'S'),
-                    secondaryLabel: _isPickingOnMap ? null : 'S',
-                    routeWaypoints: _selectedRoute?.waypoints,
-                    routeColor: _selectedRoute != null
-                        ? _getRouteColor(_selectedRoute!.mode)
-                        : null,
-                    isInteractive: _isPickingOnMap,
-                    showFooter: false,
-                    onLocationChanged: (tapCoord) {
-                      if (_isPickingOnMap) {
-                        setState(() => _tempTappedPoint = tapCoord);
-                        _updateSnapOptions(tapCoord);
-                      }
-                    },
-                  ),
+            if (!_isSheetExpanded)
+              Expanded(
+                flex: mapFlex,
+                child: Stack(
+                  children: [
+                    InteractiveLocationMap(
+                      key: _mapKey,
+                      height: double.infinity,
+                      borderRadius: BorderRadius.zero,
+                      selectedLocation: _isPickingOnMap
+                          ? _tempTappedPoint
+                          : (_destCoord ?? _startCoord),
+                      secondaryLocation: _isPickingOnMap
+                          ? null
+                          : (_destCoord != null ? _startCoord : null),
+                      selectedLabel: _isPickingOnMap
+                          ? (_isPickingStart ? 'S' : 'D')
+                          : (_destCoord != null ? 'D' : 'S'),
+                      secondaryLabel: _isPickingOnMap ? null : 'S',
+                      routeWaypoints: _selectedRoute?.waypoints,
+                      routeColor: _selectedRoute != null
+                          ? _getRouteColor(_selectedRoute!.mode)
+                          : null,
+                      isInteractive: _isPickingOnMap,
+                      showFooter: false,
+                      onLocationChanged: (tapCoord) {
+                        if (_isPickingOnMap) {
+                          setState(() => _tempTappedPoint = tapCoord);
+                          _updateSnapOptions(tapCoord);
+                        }
+                      },
+                    ),
 
-                  // Map-Picking Top Search & Teleport Bar
-                  if (_isPickingOnMap)
-                    Positioned(
-                      top: 10,
-                      left: 10,
-                      right: 10,
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Color(0x2E000000),
-                                  blurRadius: 8,
-                                  offset: Offset(0, 2),
-                                ),
-                              ],
-                              border: Border.all(
-                                color: const Color(0xFFE2E8F0),
+                    // Map-Picking Top Search & Teleport Bar
+                    if (_isPickingOnMap)
+                      Positioned(
+                        top: 10,
+                        left: 10,
+                        right: 10,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
                               ),
-                            ),
-                            child: Row(
-                              children: [
-                                IconButton(
-                                  icon: const Icon(
-                                    Icons.arrow_back,
-                                    color: SupraTheme.onSurface,
-                                    size: 20,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(14),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Color(0x2E000000),
+                                    blurRadius: 8,
+                                    offset: Offset(0, 2),
                                   ),
-                                  tooltip: 'Back',
-                                  onPressed: () =>
-                                      setState(() => _isPickingOnMap = false),
-                                  visualDensity: VisualDensity.compact,
+                                ],
+                                border: Border.all(
+                                  color: const Color(0xFFE2E8F0),
                                 ),
-                                const SizedBox(width: 4),
-                                Expanded(
-                                  child: TextField(
-                                    controller: _mapSearchController,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                    decoration: InputDecoration(
-                                      hintText: _isPickingStart
-                                          ? 'Type start location to teleport...'
-                                          : 'Type destination to teleport...',
-                                      border: InputBorder.none,
-                                      isDense: true,
-                                      contentPadding:
-                                          const EdgeInsets.symmetric(
-                                            vertical: 8,
-                                          ),
-                                    ),
-                                    onChanged: _onMapSearchChanged,
-                                    onSubmitted: (val) =>
-                                        _teleportToTypedPlace(val),
-                                  ),
-                                ),
-                                if (_mapSearchController.text.isNotEmpty)
+                              ),
+                              child: Row(
+                                children: [
                                   IconButton(
                                     icon: const Icon(
-                                      Icons.close,
-                                      size: 16,
-                                      color: SupraTheme.textSecondary,
-                                    ),
-                                    onPressed: () {
-                                      _mapSearchController.clear();
-                                      setState(() => _mapSearchResults = []);
-                                    },
-                                    visualDensity: VisualDensity.compact,
-                                  )
-                                else
-                                  const Padding(
-                                    padding: EdgeInsets.only(right: 6),
-                                    child: Icon(
-                                      Icons.search,
+                                      Icons.arrow_back,
+                                      color: SupraTheme.onSurface,
                                       size: 20,
-                                      color: SupraTheme.brand,
+                                    ),
+                                    tooltip: 'Back',
+                                    onPressed: () =>
+                                        setState(() => _isPickingOnMap = false),
+                                    visualDensity: VisualDensity.compact,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: TextField(
+                                      controller: _mapSearchController,
+                                      focusNode: _mapSearchFocusNode,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                      decoration: InputDecoration(
+                                        hintText: _isPickingStart
+                                            ? 'Type start location to teleport...'
+                                            : 'Type destination to teleport...',
+                                        border: InputBorder.none,
+                                        isDense: true,
+                                        contentPadding:
+                                            const EdgeInsets.symmetric(
+                                              vertical: 8,
+                                            ),
+                                      ),
+                                      onChanged: _onMapSearchChanged,
+                                      onSubmitted: (val) =>
+                                          _teleportToTypedPlace(val),
                                     ),
                                   ),
-                              ],
-                            ),
-                          ),
-
-                          // Live Autocomplete Suggestions dropdown on Map
-                          if (_mapSearchResults.isNotEmpty)
-                            Container(
-                              margin: const EdgeInsets.only(top: 6),
-                              constraints: const BoxConstraints(maxHeight: 180),
-                              child: Material(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(12),
-                                elevation: 6,
-                                shadowColor: const Color(0x33000000),
-                                child: ListView.separated(
-                                  shrinkWrap: true,
-                                  padding: EdgeInsets.zero,
-                                  itemCount: _mapSearchResults.length,
-                                  separatorBuilder: (context, _) =>
-                                      const Divider(height: 1),
-                                  itemBuilder: (context, i) {
-                                    final place = _mapSearchResults[i];
-                                    return ListTile(
-                                      dense: true,
-                                      leading: const Icon(
-                                        Icons.location_on,
-                                        color: SupraTheme.brand,
-                                        size: 18,
+                                  if (_mapSearchController.text.isNotEmpty)
+                                    IconButton(
+                                      icon: const Icon(
+                                        Icons.close,
+                                        size: 16,
+                                        color: SupraTheme.textSecondary,
                                       ),
-                                      title: Text(
-                                        place.name,
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                      subtitle: Text(
-                                        place.displayName,
-                                        style: const TextStyle(
-                                          fontSize: 10,
-                                          color: SupraTheme.textSecondary,
-                                        ),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                      onTap: () {
-                                        _teleportToPoint(
-                                          place.point,
-                                          place.name,
-                                        );
+                                      onPressed: () {
+                                        _mapSearchController.clear();
+                                        setState(() => _mapSearchResults = []);
                                       },
-                                    );
-                                  },
+                                      visualDensity: VisualDensity.compact,
+                                    )
+                                  else
+                                    const Padding(
+                                      padding: EdgeInsets.only(right: 6),
+                                      child: Icon(
+                                        Icons.search,
+                                        size: 20,
+                                        color: SupraTheme.brand,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+
+                            // Live Autocomplete Suggestions dropdown on Map
+                            if (_mapSearchResults.isNotEmpty)
+                              Container(
+                                margin: const EdgeInsets.only(top: 6),
+                                constraints: const BoxConstraints(
+                                  maxHeight: 180,
+                                ),
+                                child: Material(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  elevation: 6,
+                                  shadowColor: const Color(0x33000000),
+                                  child: ListView.separated(
+                                    shrinkWrap: true,
+                                    padding: EdgeInsets.zero,
+                                    itemCount: _mapSearchResults.length,
+                                    separatorBuilder: (context, _) =>
+                                        const Divider(height: 1),
+                                    itemBuilder: (context, i) {
+                                      final place = _mapSearchResults[i];
+                                      return ListTile(
+                                        dense: true,
+                                        leading: const Icon(
+                                          Icons.location_on,
+                                          color: SupraTheme.brand,
+                                          size: 18,
+                                        ),
+                                        title: Text(
+                                          place.name,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                        subtitle: Text(
+                                          place.displayName,
+                                          style: const TextStyle(
+                                            fontSize: 10,
+                                            color: SupraTheme.textSecondary,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        onTap: () {
+                                          _teleportToPoint(
+                                            place.point,
+                                            place.name,
+                                          );
+                                        },
+                                      );
+                                    },
+                                  ),
                                 ),
                               ),
-                            ),
-                        ],
-                      ),
-                    ),
-
-                  // Floating Re-Center / GPS Target Button (Bottom-Right)
-                  Positioned(
-                    bottom: 12,
-                    right: 12,
-                    child: Material(
-                      elevation: 3,
-                      shape: const CircleBorder(),
-                      color: Colors.white,
-                      child: IconButton(
-                        icon: const Icon(
-                          Icons.my_location,
-                          color: SupraTheme.brand,
-                          size: 20,
+                          ],
                         ),
-                        tooltip: 'Center on my location',
-                        onPressed: () {
-                          _teleportToPoint(
-                            _defaultCurrentLocation,
-                            'Monas (Central Jakarta)',
-                          );
-                        },
                       ),
-                    ),
-                  ),
 
-                  // Environmental Status Header Badge (Traffic, Weather, PM2.5)
-                  if (_selectedRoute != null && !_isPickingOnMap)
+                    // Floating Re-Center / GPS Target Button (Bottom-Right)
                     Positioned(
-                      top: 12,
+                      bottom: 12,
                       right: 12,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 10,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.95),
-                          borderRadius: BorderRadius.circular(20),
-                          boxShadow: const [
-                            BoxShadow(
-                              color: Color(0x14000000),
-                              blurRadius: 4,
-                              offset: Offset(0, 2),
-                            ),
-                          ],
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const Text('🌤️', style: TextStyle(fontSize: 12)),
-                            const SizedBox(width: 4),
-                            Text(
-                              'PM2.5: ${_selectedRoute!.pm25UgM3.toStringAsFixed(0)} µg/m³ • ${_selectedRoute!.rainfallMm > 0 ? "${_selectedRoute!.rainfallMm.toStringAsFixed(1)}mm rain" : "No rain"}',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                                color: SupraTheme.onSurface,
-                              ),
-                            ),
-                          ],
+                      child: Material(
+                        elevation: 3,
+                        shape: const CircleBorder(),
+                        color: Colors.white,
+                        child: IconButton(
+                          icon: const Icon(
+                            Icons.my_location,
+                            color: SupraTheme.brand,
+                            size: 20,
+                          ),
+                          tooltip: 'Center on my location',
+                          onPressed: () {
+                            _teleportToPoint(
+                              _defaultCurrentLocation,
+                              'Monas (Central Jakarta)',
+                            );
+                          },
                         ),
                       ),
                     ),
-                ],
+
+                    // Environmental Status Header Badge (Traffic, Weather, PM2.5)
+                    if (_selectedRoute != null && !_isPickingOnMap)
+                      Positioned(
+                        top: 12,
+                        right: 12,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.95),
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: const [
+                              BoxShadow(
+                                color: Color(0x14000000),
+                                blurRadius: 4,
+                                offset: Offset(0, 2),
+                              ),
+                            ],
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Text('🌤️', style: TextStyle(fontSize: 12)),
+                              const SizedBox(width: 4),
+                              Text(
+                                'PM2.5: ${_selectedRoute!.pm25UgM3.toStringAsFixed(0)} µg/m³ • ${_selectedRoute!.rainfallMm > 0 ? "${_selectedRoute!.rainfallMm.toStringAsFixed(1)}mm rain" : "No rain"}',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: SupraTheme.onSurface,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
 
             // =================================================================
             // 2. BOTTOM SHEET (Trip planner & Environmental Route selector)
             // =================================================================
             Expanded(
-              flex: _isPickingOnMap ? 40 : 48,
+              flex: sheetFlex,
               child: Material(
                 color: Colors.white,
-                borderRadius: const BorderRadius.vertical(
-                  top: Radius.circular(22),
-                ),
+                borderRadius: _isSheetExpanded
+                    ? BorderRadius.zero
+                    : const BorderRadius.vertical(top: Radius.circular(22)),
                 elevation: 6,
                 shadowColor: const Color(0x33000000),
-                child: _buildBottomSheetContent(sortedHistory),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Top Grey Area Swipe Handle Bar
+                    _buildSwipeableGreyBar(),
+
+                    // Sheet Body
+                    Expanded(
+                      child: _buildBottomSheetContent(sortedHistory),
+                    ),
+                  ],
+                ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Builds the top grey bar handle that only allows expanding to full screen
+  /// when explicitly swiped up, or collapsing when swiped down.
+  Widget _buildSwipeableGreyBar() {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onVerticalDragUpdate: (details) {
+        if (details.primaryDelta != null) {
+          if (details.primaryDelta! < -8 && !_isSheetExpanded) {
+            setState(() => _isSheetExpanded = true);
+          } else if (details.primaryDelta! > 8 && _isSheetExpanded) {
+            setState(() => _isSheetExpanded = false);
+          }
+        }
+      },
+      onVerticalDragEnd: (details) {
+        if (details.primaryVelocity != null) {
+          if (details.primaryVelocity! < -100 && !_isSheetExpanded) {
+            setState(() => _isSheetExpanded = true);
+          } else if (details.primaryVelocity! > 100 && _isSheetExpanded) {
+            setState(() => _isSheetExpanded = false);
+          }
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        color: Colors.transparent,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 44,
+              height: 5,
+              decoration: BoxDecoration(
+                color: const Color(0xFFCBD5E1),
+                borderRadius: BorderRadius.circular(3),
+              ),
+            ),
+            if (_isSheetExpanded) ...[
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: () => setState(() => _isSheetExpanded = false),
+                child: const Icon(
+                  Icons.keyboard_arrow_down,
+                  size: 18,
+                  color: SupraTheme.textSecondary,
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -613,23 +670,10 @@ class _TripScreenState extends State<TripScreen> {
     // -------------------------------------------------------------------------
     if (_isPickingOnMap) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Drag handle pill
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 8),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFCBD5E1),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-
             // Title
             Text(
               _isPickingStart
@@ -682,54 +726,80 @@ class _TripScreenState extends State<TripScreen> {
                 ],
               ),
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 8),
 
-            // Nearest location options (tap to snap & teleport)
+            // Nearest Locations Section Title (Only says "Nearest Locations:")
             const Text(
-              'Nearest location options (tap to snap if tap was inaccurate):',
+              'Nearest Locations:',
               style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w600,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
                 color: SupraTheme.textSecondary,
               ),
             ),
             const SizedBox(height: 4),
 
-            SizedBox(
-              height: 34,
+            // Vertical list of nearest locations scrolling from top to bottom
+            Expanded(
               child: ListView.separated(
-                scrollDirection: Axis.horizontal,
+                padding: EdgeInsets.zero,
                 itemCount: _nearestSnapOptions.length,
-                separatorBuilder: (context, _) => const SizedBox(width: 6),
+                separatorBuilder: (context, _) => const Divider(height: 1),
                 itemBuilder: (context, i) {
                   final opt = _nearestSnapOptions[i];
                   final isCurrent = _tempTappedPoint == opt.point;
-                  return ChoiceChip(
-                    label: Text(
+                  final distMeters = (opt.distanceKm * 1000).round();
+                  return ListTile(
+                    dense: true,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 0,
+                    ),
+                    leading: Icon(
+                      Icons.place,
+                      color: isCurrent
+                          ? SupraTheme.brand
+                          : SupraTheme.textSecondary,
+                      size: 18,
+                    ),
+                    title: Text(
                       opt.name,
                       style: TextStyle(
-                        fontSize: 11,
                         fontWeight:
-                            isCurrent ? FontWeight.w700 : FontWeight.w500,
-                        color: isCurrent ? Colors.white : SupraTheme.onSurface,
+                            isCurrent ? FontWeight.w800 : FontWeight.w600,
+                        fontSize: 13,
+                        color: isCurrent
+                            ? SupraTheme.brand
+                            : SupraTheme.onSurface,
                       ),
                     ),
-                    selected: isCurrent,
-                    selectedColor: SupraTheme.brand,
-                    backgroundColor: const Color(0xFFF1F5F9),
-                    onSelected: (_) {
+                    subtitle: Text(
+                      '$distMeters m away',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: SupraTheme.textSecondary,
+                      ),
+                    ),
+                    trailing: isCurrent
+                        ? const Icon(
+                            Icons.check,
+                            size: 16,
+                            color: SupraTheme.brand,
+                          )
+                        : null,
+                    onTap: () {
                       _teleportToPoint(opt.point, opt.name);
                     },
                   );
                 },
               ),
             ),
-            const Spacer(),
+            const SizedBox(height: 4),
 
             // Confirm Location Button
             SizedBox(
               width: double.infinity,
-              height: 44,
+              height: 40,
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.check_circle_outline, size: 18),
                 label: const Text(
@@ -753,26 +823,14 @@ class _TripScreenState extends State<TripScreen> {
 
     // -------------------------------------------------------------------------
     // Mode B: Environmental Route Options (Traffic, Weather, Air Pollution Evaluation)
+    // Only rendered when user explicitly clicked "Show Route"
     // -------------------------------------------------------------------------
     if (_calculatedRoutes.isNotEmpty) {
       return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Drag handle pill
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                margin: const EdgeInsets.only(bottom: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFCBD5E1),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-
             // Route Header Bar (Origin ➔ Destination) with Change Button
             Row(
               children: [
@@ -844,7 +902,7 @@ class _TripScreenState extends State<TripScreen> {
             ),
             const Divider(height: 12),
 
-            // List of Environmental Route Options (Car, Motorcycle, Public Transit)
+            // List of Environmental Route Options (Car & Motorcycle only)
             Expanded(
               child: ListView.separated(
                 padding: EdgeInsets.zero,
@@ -897,26 +955,13 @@ class _TripScreenState extends State<TripScreen> {
     }
 
     // -------------------------------------------------------------------------
-    // Mode C: Initial Origin & Destination Search (Grab / Gojek Standard Input)
+    // Mode C: Initial Origin & Destination Search (with Explicit "Show Route" button)
     // -------------------------------------------------------------------------
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Drag handle pill
-          Center(
-            child: Container(
-              width: 36,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFCBD5E1),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-
           // Title
           const Text(
             'Where do you want to go?',
@@ -928,7 +973,7 @@ class _TripScreenState extends State<TripScreen> {
           ),
           const SizedBox(height: 8),
 
-          // Grab/Gojek Origin & Destination Container Box
+          // Two-Row Location Box: Clicking name input opens map in typing mode!
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
@@ -945,7 +990,7 @@ class _TripScreenState extends State<TripScreen> {
                       width: 12,
                       height: 12,
                       decoration: const BoxDecoration(
-                        color: Color(0xFF00AA13), // Gojek Green
+                        color: Color(0xFF00AA13), // Green
                         shape: BoxShape.circle,
                       ),
                       child: const Center(
@@ -962,6 +1007,11 @@ class _TripScreenState extends State<TripScreen> {
                     Expanded(
                       child: TextField(
                         controller: _start,
+                        readOnly: true,
+                        onTap: () => _startPickingMode(
+                          forStart: true,
+                          focusSearch: true,
+                        ),
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -972,7 +1022,6 @@ class _TripScreenState extends State<TripScreen> {
                           hintText: 'Pick-up location',
                           border: InputBorder.none,
                         ),
-                        onSubmitted: (val) => _searchAndSet(val, isStart: true),
                       ),
                     ),
                     IconButton(
@@ -982,7 +1031,10 @@ class _TripScreenState extends State<TripScreen> {
                         color: SupraTheme.brand,
                       ),
                       tooltip: 'Select on map',
-                      onPressed: () => _startPickingMode(forStart: true),
+                      onPressed: () => _startPickingMode(
+                        forStart: true,
+                        focusSearch: false,
+                      ),
                       visualDensity: VisualDensity.compact,
                     ),
                   ],
@@ -1007,18 +1059,23 @@ class _TripScreenState extends State<TripScreen> {
                   ),
                 ),
 
-                // Destination Row
+                // Destination Row: Clicking name input opens map in typing mode!
                 Row(
                   children: [
                     const Icon(
                       Icons.location_on,
                       size: 14,
-                      color: Color(0xFFEE2737), // Gojek Red
+                      color: Color(0xFFEE2737), // Red
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: TextField(
                         controller: _destination,
+                        readOnly: true,
+                        onTap: () => _startPickingMode(
+                          forStart: false,
+                          focusSearch: true,
+                        ),
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
@@ -1026,12 +1083,9 @@ class _TripScreenState extends State<TripScreen> {
                         decoration: const InputDecoration(
                           isDense: true,
                           contentPadding: EdgeInsets.symmetric(vertical: 2),
-                          hintText: 'Where to? (e.g. Grand Indonesia)',
+                          hintText: 'Where to? (e.g. Cibinong City Mall)',
                           border: InputBorder.none,
                         ),
-                        onChanged: _onSearchChanged,
-                        onSubmitted: (val) =>
-                            _searchAndSet(val, isStart: false),
                       ),
                     ),
                     IconButton(
@@ -1041,7 +1095,10 @@ class _TripScreenState extends State<TripScreen> {
                         color: SupraTheme.brand,
                       ),
                       tooltip: 'Select on map',
-                      onPressed: () => _startPickingMode(forStart: false),
+                      onPressed: () => _startPickingMode(
+                        forStart: false,
+                        focusSearch: false,
+                      ),
                       visualDensity: VisualDensity.compact,
                     ),
                   ],
@@ -1051,13 +1108,37 @@ class _TripScreenState extends State<TripScreen> {
           ),
           const SizedBox(height: 8),
 
+          // Quick Action Row (Home & Work only - Removed redundant Pick on Map)
+          Row(
+            children: [
+              _buildQuickActionChip(
+                icon: Icons.home,
+                label: 'Home',
+                onTap: () => _selectDestination(
+                  'Monas (Central Jakarta)',
+                  _defaultCurrentLocation,
+                ),
+              ),
+              const SizedBox(width: 8),
+              _buildQuickActionChip(
+                icon: Icons.work,
+                label: 'Work',
+                onTap: () => _selectDestination(
+                  'Sudirman CBD (SCBD)',
+                  const LatLng(latitude: -6.2250, longitude: 106.8080),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+
           // Loading indicator for route calculations
           if (_loadingRoutes)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 16),
               child: Center(child: CircularProgressIndicator()),
             )
-          // Live autocomplete search dropdown results (Always shows suggestions based on input!)
+          // Live autocomplete search dropdown results
           else if (_searchResults.isNotEmpty)
             Expanded(
               child: ListView.separated(
@@ -1099,54 +1180,8 @@ class _TripScreenState extends State<TripScreen> {
                 },
               ),
             )
-          // Quick shortcuts & Recent Destination History
+          // Recent Destinations History
           else ...[
-            // Quick Action Row (Home, Work, Pick on map)
-            Row(
-              children: [
-                _buildQuickActionChip(
-                  icon: Icons.home,
-                  label: 'Home',
-                  onTap: () => _selectDestination(
-                    'Monas (Central Jakarta)',
-                    _defaultCurrentLocation,
-                  ),
-                ),
-                const SizedBox(width: 6),
-                _buildQuickActionChip(
-                  icon: Icons.work,
-                  label: 'Work',
-                  onTap: () => _selectDestination(
-                    'Sudirman CBD (SCBD)',
-                    const LatLng(latitude: -6.2268, longitude: 106.8077),
-                  ),
-                ),
-                const SizedBox(width: 6),
-                ActionChip(
-                  avatar: const Icon(
-                    Icons.map_outlined,
-                    size: 14,
-                    color: SupraTheme.brand,
-                  ),
-                  label: const Text(
-                    'Pick on map',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: SupraTheme.brand,
-                    ),
-                  ),
-                  backgroundColor: SupraTheme.brand.withValues(alpha: 0.1),
-                  side: BorderSide(
-                    color: SupraTheme.brand.withValues(alpha: 0.3),
-                  ),
-                  onPressed: () => _startPickingMode(forStart: true),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-
-            // Recent Destinations Section
             const Text(
               'Recent destinations',
               style: TextStyle(
@@ -1218,6 +1253,30 @@ class _TripScreenState extends State<TripScreen> {
               ),
             ),
           ],
+
+          const SizedBox(height: 4),
+
+          // Explicit "Show Route" Button: Confirms both locations before displaying route!
+          SizedBox(
+            width: double.infinity,
+            height: 40,
+            child: ElevatedButton.icon(
+              icon: const Icon(Icons.alt_route, size: 18),
+              label: const Text(
+                'Show Route',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: SupraTheme.brand,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                elevation: 2,
+              ),
+              onPressed: _destCoord == null ? null : _fetchRoutes,
+            ),
+          ),
         ],
       ),
     );
@@ -1257,17 +1316,16 @@ class _TripScreenState extends State<TripScreen> {
         icon = Icons.two_wheeler;
         iconColor = const Color(0xFFF59E0B);
         modeLabel = 'Motorcycle (Two-Wheeler)';
-        vehicleSub = 'Fastest route through traffic';
+        vehicleSub = 'Fastest commute through traffic';
         break;
       case TransportMode.publicTransit:
-        icon = opt.title.contains('KRL') ? Icons.train : Icons.directions_bus;
+        icon = Icons.directions_bus;
         iconColor = const Color(0xFF0F766E);
         modeLabel = opt.title;
-        vehicleSub = 'Dedicated transit corridor • Zero emissions';
+        vehicleSub = 'Transit';
         break;
     }
 
-    // Traffic density formatting
     String trafficDesc;
     if (opt.trafficDensity < 0.35) {
       trafficDesc = 'Smooth traffic flow';
@@ -1390,12 +1448,11 @@ class _TripScreenState extends State<TripScreen> {
             ),
             const SizedBox(height: 6),
 
-            // Environmental Signals Row (Traffic, Weather, Air Pollution)
+            // Environmental signals row (Traffic, Weather, Air Quality)
             Wrap(
               spacing: 6,
               runSpacing: 4,
               children: [
-                // Traffic density badge
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 6,
@@ -1425,8 +1482,6 @@ class _TripScreenState extends State<TripScreen> {
                     ],
                   ),
                 ),
-
-                // Rain / Weather badge
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 6,
@@ -1464,8 +1519,6 @@ class _TripScreenState extends State<TripScreen> {
                     ],
                   ),
                 ),
-
-                // PM2.5 / Air Pollution badge
                 Container(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 6,
@@ -1504,7 +1557,7 @@ class _TripScreenState extends State<TripScreen> {
               ],
             ),
 
-            // Health & Environmental Protective Advisory (Crucial app feature)
+            // Health & Safety Advisory
             if (opt.protectiveMeasures.isNotEmpty) ...[
               const SizedBox(height: 6),
               Container(
@@ -1537,40 +1590,6 @@ class _TripScreenState extends State<TripScreen> {
                               ? const Color(0xFFB45309)
                               : const Color(0xFF15803D),
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-
-            // Step guidance for Public Transit
-            if (opt.mode == TransportMode.publicTransit &&
-                opt.turnSteps.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF1F5F9),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(
-                      Icons.directions_walk,
-                      size: 13,
-                      color: SupraTheme.brand,
-                    ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        opt.turnSteps.take(2).join(' ➔ '),
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: SupraTheme.textSecondary,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                   ],

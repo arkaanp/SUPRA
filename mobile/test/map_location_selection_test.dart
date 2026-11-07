@@ -276,7 +276,7 @@ void main() {
   });
 
   group('TripScreen map integration tests', () {
-    testWidgets('Start and destination fields have map picker icons', (
+    testWidgets('Start and destination fields have map picker icons and allow selection', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -285,23 +285,23 @@ void main() {
 
       expect(find.byTooltip('Select start location on map'), findsNothing);
       expect(find.byTooltip('Select on map'), findsWidgets);
-      expect(find.text('Pick on map'), findsOneWidget);
 
-      // Tap Pick on map
-      await tester.tap(find.text('Pick on map'));
+      // Tap the first map icon (for start location)
+      await tester.tap(find.byTooltip('Select on map').first);
       await tester.pumpAndSettle();
 
       expect(find.text('Select start location on map'), findsOneWidget);
+      expect(find.text('Nearest Locations:'), findsOneWidget);
 
-      // Tap Monas chip
-      await tester.tap(find.widgetWithText(ChoiceChip, 'Monas'));
+      // Tap Monas from the nearest locations list
+      await tester.tap(find.widgetWithText(ListTile, 'Monas').first);
       await tester.pump();
 
-      // Confirm
+      // Confirm start location
       await tester.tap(find.text('Confirm location'));
       await tester.pumpAndSettle();
 
-      // Start field now contains Monas
+      // Start field now contains Monas, and Show Route button is present
       expect(
         find.byWidgetPredicate(
           (w) =>
@@ -309,17 +309,18 @@ void main() {
         ),
         findsOneWidget,
       );
+      expect(find.text('Show Route'), findsOneWidget);
     });
 
     testWidgets(
-      'Map picking mode allows typing to teleport map and always shows suggestions',
+      'Map picking mode allows typing to teleport map with predictive suggestions',
       (tester) async {
         await tester.pumpWidget(
           const MaterialApp(home: Scaffold(body: TripScreen())),
         );
 
-        // Tap Pick on map
-        await tester.tap(find.text('Pick on map'));
+        // Tap the map icon to enter picking mode
+        await tester.tap(find.byTooltip('Select on map').first);
         await tester.pumpAndSettle();
 
         // Find the map search field
@@ -330,33 +331,119 @@ void main() {
         );
         expect(searchField, findsOneWidget);
 
-        // Type a query that has no direct landmark match, e.g. "Kopi Kenangan"
-        await tester.enterText(searchField, 'Kopi Kenangan');
+        // Predictive test: Type "cibi" -> Cibinong City Mall should be predicted!
+        await tester.enterText(searchField, 'cibi');
         await tester.pumpAndSettle();
 
-        // Suggestions should STILL be shown based on input no matter what!
-        expect(find.textContaining('Kopi Kenangan'), findsWidgets);
+        expect(find.textContaining('Cibinong City Mall'), findsWidgets);
 
-        // Tap the first suggestion
-        await tester.tap(find.text('Kopi Kenangan, Central Jakarta'));
+        // Tap Cibinong City Mall suggestion
+        await tester.tap(find.textContaining('Cibinong City Mall').first);
         await tester.pumpAndSettle();
 
         // Banner should reflect the teleported place
-        expect(find.textContaining('Selected: Kopi Kenangan'), findsOneWidget);
+        expect(find.textContaining('Selected: Cibinong City Mall'), findsOneWidget);
 
         // Confirm
         await tester.tap(find.text('Confirm location'));
         await tester.pumpAndSettle();
 
-        // Start field now contains Kopi Kenangan
+        // Start field now contains Cibinong City Mall
         expect(
           find.byWidgetPredicate(
             (w) =>
                 w is TextField &&
-                (w.controller?.text.contains('Kopi Kenangan') ?? false),
+                (w.controller?.text.contains('Cibinong City Mall') ?? false),
           ),
           findsOneWidget,
         );
+      },
+    );
+
+    testWidgets(
+      'Clicking name input opens map in typing mode and Show Route calculates routes',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: TripScreen())),
+        );
+
+        // Click destination text input container
+        await tester.tap(find.byWidgetPredicate(
+          (w) => w is TextField && (w.decoration?.hintText?.contains('Cibinong') ?? false),
+        ));
+        await tester.pumpAndSettle();
+
+        // Should now be in map picking mode for destination
+        expect(find.text('Select destination on map'), findsOneWidget);
+
+        // Search field should be present
+        final searchField = find.byWidgetPredicate(
+          (w) =>
+              w is TextField &&
+              (w.decoration?.hintText?.contains('teleport') ?? false),
+        );
+        expect(searchField, findsOneWidget);
+
+        // Type "scbd"
+        await tester.enterText(searchField, 'scbd');
+        await tester.pumpAndSettle();
+
+        // Select SCBD
+        await tester.tap(find.textContaining('Sudirman CBD').first);
+        await tester.pumpAndSettle();
+
+        // Confirm destination
+        await tester.tap(find.text('Confirm location'));
+        await tester.pumpAndSettle();
+
+        // Back on main screen: routes NOT calculated yet until "Show Route" clicked
+        expect(find.text('Start Route Navigation'), findsNothing);
+        expect(find.text('Show Route'), findsOneWidget);
+
+        // Click Show Route
+        await tester.tap(find.text('Show Route'));
+        await tester.pumpAndSettle();
+
+        // Routes calculated: Car and Motorcycle shown, public transit removed
+        expect(find.textContaining('Car (Automobile)'), findsOneWidget);
+        expect(find.textContaining('Motorcycle (Two-Wheeler)'), findsOneWidget);
+        expect(find.textContaining('Transjakarta'), findsNothing);
+        expect(find.textContaining('Start Route Navigation'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'Swiping grey bar expands bottom sheet to cover screen and collapses back',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: TripScreen())),
+        );
+
+        // Initially map is visible (takes roughly half the screen)
+        expect(find.byType(InteractiveLocationMap), findsOneWidget);
+
+        // Find the swipe handle bar
+        final handleBar = find.byWidgetPredicate(
+          (w) =>
+              w is Container &&
+              w.decoration is BoxDecoration &&
+              (w.decoration as BoxDecoration).color == const Color(0xFFCBD5E1),
+        );
+        expect(handleBar, findsOneWidget);
+
+        // Swipe UP on the handle bar to expand
+        await tester.fling(handleBar, const Offset(0, -300), 1000);
+        await tester.pumpAndSettle();
+
+        // Sheet is now expanded to full screen, top map is hidden
+        expect(find.byType(InteractiveLocationMap), findsNothing);
+
+        // Tap the collapse arrow icon to collapse back to half screen
+        await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
+        await tester.pumpAndSettle();
+
+        // Map is visible again taking half the screen
+        expect(find.byType(InteractiveLocationMap), findsOneWidget);
       },
     );
   });

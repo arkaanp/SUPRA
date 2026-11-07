@@ -315,8 +315,11 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                     ),
                     onMapCreated: _onMapCreated,
                     onStyleLoadedCallback: _updateMapLibreLayers,
-                    onMapClick: (point, coordinates) =>
-                        _handleMapLibreClick(coordinates),
+                    onMapClick: (point, coordinates) {
+                      if (widget.isInteractive) {
+                        _handleMapLibreClick(coordinates);
+                      }
+                    },
                     cameraTargetBounds: ml.CameraTargetBounds(
                       ml.LatLngBounds(
                         southwest: const ml.LatLng(
@@ -335,9 +338,9 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                     ),
                     trackCameraPosition: true,
                     compassEnabled: true,
-                    rotateGesturesEnabled: widget.isInteractive,
-                    scrollGesturesEnabled: widget.isInteractive,
-                    zoomGesturesEnabled: widget.isInteractive,
+                    rotateGesturesEnabled: true,
+                    scrollGesturesEnabled: true,
+                    zoomGesturesEnabled: true,
                     gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
                       Factory<OneSequenceGestureRecognizer>(
                         () => EagerGestureRecognizer(),
