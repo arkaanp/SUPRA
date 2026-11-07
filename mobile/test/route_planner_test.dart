@@ -313,16 +313,33 @@ void main() {
       final customPoint = const LatLng(latitude: -6.3000, longitude: 106.8500);
       final addr = await service.reverseGeocode(customPoint);
       expect(addr, isNotEmpty);
-      expect(addr.contains('area') || addr.contains('Point'), isTrue);
+      expect(addr.contains(',') || addr.contains('Point'), isTrue);
     });
   });
 
   group('TransitNetwork tests', () {
-    test('findNearestStation accurately locates rapid transit stations', () {
+    test('findNearestStation accurately locates rapid transit stations by system', () {
       final bundaranHi = const LatLng(latitude: -6.1950, longitude: 106.8230);
-      final station = TransitNetwork.findNearestStation(bundaranHi);
-      expect(station.id, 'mrt_bundaran_hi');
-      expect(station.system, TransitSystem.mrt);
+      final tjStation = TransitNetwork.findNearestStation(
+        bundaranHi,
+        preferredSystem: TransitSystem.transjakarta,
+      );
+      expect(tjStation.id, 'tj_bundaran_hi');
+      expect(tjStation.system, TransitSystem.transjakarta);
+
+      final mrtStation = TransitNetwork.findNearestStation(
+        bundaranHi,
+        preferredSystem: TransitSystem.mrt,
+      );
+      expect(mrtStation.id, 'mrt_bundaran_hi');
+      expect(mrtStation.system, TransitSystem.mrt);
+
+      final krlStation = TransitNetwork.findNearestStation(
+        bundaranHi,
+        preferredSystem: TransitSystem.krl,
+      );
+      expect(krlStation.id, 'krl_sudirman');
+      expect(krlStation.system, TransitSystem.krl);
     });
 
     test('buildTransitRoute generates multi-leg itinerary with stations and walking legs', () {

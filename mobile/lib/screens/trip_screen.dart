@@ -4,6 +4,7 @@ import '../models/location.dart';
 import '../models/trip.dart';
 import '../services/geocoding_service.dart';
 import '../services/supra_api_service.dart';
+import '../theme/app_theme.dart';
 import '../widgets/interactive_location_map.dart';
 import 'map_screen.dart';
 
@@ -21,6 +22,7 @@ class _TripScreenState extends State<TripScreen> {
   LatLng? _startCoord;
   LatLng? _destCoord;
   bool _showRouteMap = false;
+  bool _pickingStart = true;
 
   @override
   void dispose() {
@@ -163,6 +165,12 @@ class _TripScreenState extends State<TripScreen> {
             onPressed: _busy ? null : () => _pickLocationOnMap(isStart: true),
           ),
           const SizedBox(width: 8),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.flag_outlined, size: 16),
+            label: const Text('Pick dest'),
+            onPressed: _busy ? null : () => _pickLocationOnMap(isStart: false),
+          ),
+          const Spacer(),
           IconButton(
             icon: Icon(
               _showRouteMap ? Icons.layers_clear : Icons.layers_outlined,
@@ -174,20 +182,67 @@ class _TripScreenState extends State<TripScreen> {
       ),
       if (_showRouteMap) ...[
         const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: ChoiceChip(
+                  label: const Center(
+                    child: Text('📍 Setting: Start Point (S)'),
+                  ),
+                  selected: _pickingStart,
+                  selectedColor: SupraTheme.brand,
+                  labelStyle: TextStyle(
+                    color: _pickingStart ? Colors.white : SupraTheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                  onSelected: (val) {
+                    if (val) setState(() => _pickingStart = true);
+                  },
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: ChoiceChip(
+                  label: const Center(
+                    child: Text('🏁 Setting: Destination (D)'),
+                  ),
+                  selected: !_pickingStart,
+                  selectedColor: const Color(0xFFEF4444),
+                  labelStyle: TextStyle(
+                    color: !_pickingStart ? Colors.white : SupraTheme.onSurface,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                  onSelected: (val) {
+                    if (val) setState(() => _pickingStart = false);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
         InteractiveLocationMap(
           height: 200,
-          selectedLocation: _startCoord,
-          secondaryLocation: _destCoord,
-          selectedLabel: 'S',
-          secondaryLabel: 'D',
+          selectedLocation: _pickingStart ? _startCoord : _destCoord,
+          secondaryLocation: _pickingStart ? _destCoord : _startCoord,
+          selectedLabel: _pickingStart ? 'S' : 'D',
+          secondaryLabel: _pickingStart ? 'D' : 'S',
+          showFooter: false,
           onLocationChanged: (loc) async {
             final geocoder = GeocodingService();
             final address = await geocoder.reverseGeocode(loc);
             if (!mounted) return;
             setState(() {
-              if (_startCoord == null || _destCoord != null) {
+              if (_pickingStart) {
                 _startCoord = loc;
-                _destCoord = null;
                 _start.text = address;
               } else {
                 _destCoord = loc;

@@ -336,10 +336,26 @@ class RoutingService {
       trafficDensity: traffic,
     );
 
+    final cleanDep = transitResult.departureStation.name
+        .replaceAll('Halte Transjakarta ', '')
+        .replaceAll('Halte ', '')
+        .replaceAll('Stasiun KRL ', '')
+        .replaceAll('Stasiun MRT ', '')
+        .replaceAll('Stasiun ', '')
+        .split(' (')
+        .first;
+    final cleanArr = transitResult.arrivalStation.name
+        .replaceAll('Halte Transjakarta ', '')
+        .replaceAll('Halte ', '')
+        .replaceAll('Stasiun KRL ', '')
+        .replaceAll('Stasiun MRT ', '')
+        .replaceAll('Stasiun ', '')
+        .split(' (')
+        .first;
+
     final transitOption = RouteOption(
       mode: TransportMode.publicTransit,
-      title:
-          '${transitResult.departureStation.system.displayName} (${transitResult.departureStation.name.split(" (").first.replaceAll("Stasiun ", "")} → ${transitResult.arrivalStation.name.split(" (").first.replaceAll("Stasiun ", "")})',
+      title: '${transitResult.departureStation.system.displayName} ($cleanDep → $cleanArr)',
       estimatedDuration: transitDuration,
       distanceKm: transitDistanceKm,
       waypoints: transitResult.transitWaypoints,

@@ -25,6 +25,7 @@ class InteractiveLocationMap extends StatefulWidget {
   final double height;
   final bool showLandmarks;
   final bool forceCanvas;
+  final bool showFooter;
 
   const InteractiveLocationMap({
     super.key,
@@ -37,6 +38,7 @@ class InteractiveLocationMap extends StatefulWidget {
     this.height = 240,
     this.showLandmarks = true,
     this.forceCanvas = false,
+    this.showFooter = true,
   });
 
   @override
@@ -61,6 +63,7 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
   // Canvas pan & zoom state
   Offset _panOffset = Offset.zero;
   double _zoomFactor = 1.0;
+  double _baseZoomFactor = 1.0;
   Offset _dragStart = Offset.zero;
   Offset _panStart = Offset.zero;
   bool _isDragging = false;
@@ -306,26 +309,32 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
                         onScaleStart: (details) {
                           _dragStart = details.localFocalPoint;
                           _panStart = _panOffset;
+                          _baseZoomFactor = _zoomFactor;
                           _isDragging = false;
                         },
                         onScaleUpdate: (details) {
                           final dist =
                               (details.localFocalPoint - _dragStart).distance;
-                          if (dist > 3.0 || details.scale != 1.0) {
+                          if (dist > 8.0 || details.scale != 1.0) {
                             _isDragging = true;
                             setState(() {
                               _panOffset =
                                   _panStart +
                                   (details.localFocalPoint - _dragStart);
                               if (details.scale != 1.0) {
-                                _zoomFactor = (_zoomFactor * details.scale)
+                                _zoomFactor = (_baseZoomFactor * details.scale)
                                     .clamp(0.6, 3.5);
                               }
                             });
                           }
                         },
                         onScaleEnd: (details) {
-                          Future.microtask(() => _isDragging = false);
+                          Future.delayed(
+                            const Duration(milliseconds: 100),
+                            () {
+                              if (mounted) _isDragging = false;
+                            },
+                          );
                         },
                         child: Stack(
                           children: [
@@ -628,7 +637,7 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
             if (isBounded) Expanded(child: mapWidget) else mapWidget,
 
             // Live location readout footer.
-            if (location != null) ...[
+            if (widget.showFooter && location != null) ...[
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.symmetric(
@@ -657,7 +666,11 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
                           Text(
                             _resolvedAddress ??
                                 (nearest != null
-                                    ? '${nearest.name} (${nearest.area})'
+                                    ? (nearest.name
+                                            .toLowerCase()
+                                            .contains(nearest.area.toLowerCase())
+                                        ? nearest.name
+                                        : '${nearest.name}, ${nearest.area}')
                                     : 'Selected Point'),
                             style: const TextStyle(
                               fontWeight: FontWeight.w700,
@@ -803,7 +816,9 @@ Future<LatLng?> showLocationPickerSheet({
         builder: (context, setSheetState) {
           void updateAddress(LatLng loc) {
             geocoder.reverseGeocode(loc).then((addr) {
-              setSheetState(() => resolvedAddress = addr);
+              if (context.mounted) {
+                setSheetState(() => resolvedAddress = addr);
+              }
             });
           }
 
@@ -988,8 +1003,10 @@ Future<LatLng?> showLocationPickerSheet({
                           selectedColor: SupraTheme.brand,
                           backgroundColor: const Color(0xFFF1F5F9),
                           onSelected: (_) {
-                            setSheetState(() => selected = landmark.point);
-                            updateAddress(landmark.point);
+                            setSheetState(() {
+                              selected = landmark.point;
+                              resolvedAddress = landmark.name;
+                            });
                             mapKey.currentState?.animateToLocation(
                               landmark.point,
                             );
@@ -1000,10 +1017,11 @@ Future<LatLng?> showLocationPickerSheet({
                   ),
                   const SizedBox(height: 8),
 
-                  // Interactive MapLibre Map.
+                  // Interactive MapLibre Map (footer disabled to avoid duplicate address card below).
                   InteractiveLocationMap(
                     key: mapKey,
                     selectedLocation: selected,
+                    showFooter: false,
                     onLocationChanged: (newLoc) {
                       setSheetState(() => selected = newLoc);
                       updateAddress(newLoc);

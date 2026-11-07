@@ -197,10 +197,11 @@ class GeocodingService {
     final lm = findNearestLandmark(location);
     if (lm != null) {
       final dist = location.distanceTo(lm.point);
-      if (dist < 1.0) {
+      final cleanName = lm.name.split(' (').first;
+      if (dist < 0.8) {
         return lm.name;
       } else {
-        return '${lm.name} area (~${dist.toStringAsFixed(1)} km)';
+        return '$cleanName, ${lm.area} (~${dist.toStringAsFixed(1)} km)';
       }
     }
     return 'Point (${location.latitude.toStringAsFixed(4)}, ${location.longitude.toStringAsFixed(4)})';
