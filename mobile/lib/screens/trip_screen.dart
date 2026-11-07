@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 
+import '../models/location.dart';
+import '../models/trip.dart';
 import '../services/supra_api_service.dart';
+import '../widgets/interactive_location_map.dart';
+import 'map_screen.dart';
 
 class TripScreen extends StatefulWidget {
   const TripScreen({super.key});
@@ -13,6 +17,9 @@ class _TripScreenState extends State<TripScreen> {
   final _destination = TextEditingController();
   DateTime? _departure;
   bool _busy = false;
+  LatLng? _startCoord;
+  LatLng? _destCoord;
+  bool _showRouteMap = false;
 
   @override
   void dispose() {
@@ -46,6 +53,82 @@ class _TripScreenState extends State<TripScreen> {
     );
   }
 
+  Future<void> _pickLocationOnMap({required bool isStart}) async {
+    final current = isStart ? _startCoord : _destCoord;
+    final fallback = isStart
+        ? const LatLng(latitude: -6.2600, longitude: 106.8150) // Kemang
+        : const LatLng(latitude: -6.2250, longitude: 106.8080); // Sudirman
+
+    final picked = await showLocationPickerSheet(
+      context: context,
+      initialLocation: current ?? fallback,
+      title: isStart ? 'Select start location on map' : 'Select destination on map',
+    );
+
+    if (picked != null && mounted) {
+      final landmark = findNearestLandmark(picked);
+      final label = landmark != null
+          ? '${landmark.name} (${picked.latitude.toStringAsFixed(4)}, ${picked.longitude.toStringAsFixed(4)})'
+          : 'Point (${picked.latitude.toStringAsFixed(4)}, ${picked.longitude.toStringAsFixed(4)})';
+
+      setState(() {
+        if (isStart) {
+          _startCoord = picked;
+          _start.text = label;
+        } else {
+          _destCoord = picked;
+          _destination.text = label;
+        }
+        _showRouteMap = true;
+      });
+    }
+  }
+
+  LatLng _resolveCoord(String text, LatLng fallback) {
+    // Attempt coordinate extraction: -6.xxx, 106.xxx
+    final regExp = RegExp(r'(-?\d+\.\d+)[,\s]+(10\d+\.\d+)');
+    final match = regExp.firstMatch(text);
+    if (match != null) {
+      final lat = double.tryParse(match.group(1)!);
+      final lon = double.tryParse(match.group(2)!);
+      if (lat != null && lon != null) {
+        return LatLng(latitude: lat, longitude: lon);
+      }
+    }
+    // Landmark name matching
+    final lower = text.toLowerCase();
+    for (final lm in greaterJakartaLandmarks) {
+      final lmName = lm.name.toLowerCase();
+      final base = lmName.split(' (').first;
+      if (lower.contains(base)) {
+        return lm.point;
+      }
+    }
+    return fallback;
+  }
+
+  void _viewTripOnMap(Trip trip) {
+    final sPoint = _resolveCoord(
+      trip.startLocation,
+      const LatLng(latitude: -6.2600, longitude: 106.8150),
+    );
+    final dPoint = _resolveCoord(
+      trip.destination,
+      const LatLng(latitude: -6.2250, longitude: 106.8080),
+    );
+
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => MapScreen(
+          start: sPoint,
+          destination: dPoint,
+          startName: trip.startLocation,
+          destinationName: trip.destination,
+        ),
+      ),
+    );
+  }
+
   Future<void> _perform(Future<void> Function() action) async {
     setState(() => _busy = true);
     try {
@@ -66,19 +149,77 @@ class _TripScreenState extends State<TripScreen> {
     children: [
       Text('Plan a trip', style: Theme.of(context).textTheme.headlineSmall),
       const Text(
-        'Trips are saved to your account. Route generation, forecasts '
-        'and map overlays are not available yet.',
+        'Trips are saved to your account. Select endpoints manually or through the interactive Greater Jakarta map.',
       ),
-      const SizedBox(height: 16),
+      const SizedBox(height: 12),
+      Row(
+        children: [
+          OutlinedButton.icon(
+            icon: const Icon(Icons.add_location_alt_outlined, size: 16),
+            label: const Text('Pick on map'),
+            onPressed: _busy ? null : () => _pickLocationOnMap(isStart: true),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: Icon(_showRouteMap ? Icons.layers_clear : Icons.layers_outlined),
+            tooltip: _showRouteMap ? 'Hide map' : 'Show map',
+            onPressed: () => setState(() => _showRouteMap = !_showRouteMap),
+          ),
+        ],
+      ),
+      if (_showRouteMap) ...[
+        const SizedBox(height: 8),
+        InteractiveLocationMap(
+          height: 200,
+          selectedLocation: _startCoord,
+          secondaryLocation: _destCoord,
+          selectedLabel: 'S',
+          secondaryLabel: 'D',
+          onLocationChanged: (loc) {
+            setState(() {
+              if (_startCoord == null || _destCoord != null) {
+                _startCoord = loc;
+                _destCoord = null;
+                final lm = findNearestLandmark(loc);
+                _start.text = lm != null
+                    ? '${lm.name} (${loc.latitude.toStringAsFixed(4)}, ${loc.longitude.toStringAsFixed(4)})'
+                    : 'Point (${loc.latitude.toStringAsFixed(4)}, ${loc.longitude.toStringAsFixed(4)})';
+              } else {
+                _destCoord = loc;
+                final lm = findNearestLandmark(loc);
+                _destination.text = lm != null
+                    ? '${lm.name} (${loc.latitude.toStringAsFixed(4)}, ${loc.longitude.toStringAsFixed(4)})'
+                    : 'Point (${loc.latitude.toStringAsFixed(4)}, ${loc.longitude.toStringAsFixed(4)})';
+              }
+            });
+          },
+        ),
+        const SizedBox(height: 8),
+      ],
+      const SizedBox(height: 8),
       TextField(
         controller: _start,
         maxLength: 100,
-        decoration: const InputDecoration(labelText: 'Start location'),
+        decoration: InputDecoration(
+          labelText: 'Start location',
+          suffixIcon: IconButton(
+            icon: const Icon(Icons.pin_drop_outlined),
+            tooltip: 'Select on map',
+            onPressed: _busy ? null : () => _pickLocationOnMap(isStart: true),
+          ),
+        ),
       ),
       TextField(
         controller: _destination,
         maxLength: 100,
-        decoration: const InputDecoration(labelText: 'Destination'),
+        decoration: InputDecoration(
+          labelText: 'Destination',
+          suffixIcon: IconButton(
+            icon: const Icon(Icons.pin_drop_outlined),
+            tooltip: 'Select on map',
+            onPressed: _busy ? null : () => _pickLocationOnMap(isStart: false),
+          ),
+        ),
       ),
       TextButton(
         onPressed: _busy ? null : _pickDeparture,
@@ -103,6 +244,10 @@ class _TripScreenState extends State<TripScreen> {
                 );
                 _start.clear();
                 _destination.clear();
+                setState(() {
+                  _startCoord = null;
+                  _destCoord = null;
+                });
               }),
         child: Text(_busy ? 'Saving…' : 'Save trip'),
       ),
@@ -111,13 +256,23 @@ class _TripScreenState extends State<TripScreen> {
         ListTile(
           title: Text(trip.name),
           subtitle: Text('${trip.plannedDeparture}'),
-          trailing: IconButton(
-            icon: const Icon(Icons.delete_outline),
-            tooltip: 'Delete trip',
-            onPressed: _busy
-                ? null
-                : () =>
-                      _perform(() => SupraService.instance.deleteTrip(trip.id)),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.map_outlined),
+                tooltip: 'View route on map',
+                onPressed: () => _viewTripOnMap(trip),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete_outline),
+                tooltip: 'Delete trip',
+                onPressed: _busy
+                    ? null
+                    : () => _perform(
+                        () => SupraService.instance.deleteTrip(trip.id)),
+              ),
+            ],
           ),
         ),
     ],
