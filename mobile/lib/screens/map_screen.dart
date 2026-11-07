@@ -193,6 +193,30 @@ class _MapScreenState extends State<MapScreen> {
           lineOpacity: 0.9,
         ),
       );
+
+      if (points.length >= 2) {
+        double minLat = 90.0, maxLat = -90.0, minLon = 180.0, maxLon = -180.0;
+        for (final p in points) {
+          if (p.latitude < minLat) minLat = p.latitude;
+          if (p.latitude > maxLat) maxLat = p.latitude;
+          if (p.longitude < minLon) minLon = p.longitude;
+          if (p.longitude > maxLon) maxLon = p.longitude;
+        }
+        try {
+          await controller.animateCamera(
+            ml.CameraUpdate.newLatLngBounds(
+              ml.LatLngBounds(
+                southwest: ml.LatLng(minLat, minLon),
+                northeast: ml.LatLng(maxLat, maxLon),
+              ),
+              left: 48.0,
+              top: 48.0,
+              right: 48.0,
+              bottom: 48.0,
+            ),
+          );
+        } catch (_) {}
+      }
     } catch (_) {
       // Discard during teardown.
     }

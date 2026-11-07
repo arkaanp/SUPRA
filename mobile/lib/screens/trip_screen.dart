@@ -309,6 +309,12 @@ class _TripScreenState extends State<TripScreen> {
           );
           _loadingRoutes = false;
         });
+
+        // When show route is finished, center and zoom in/out the view such that it shows the whole route
+        final points = _selectedRoute?.waypoints ?? [_startCoord, _destCoord!];
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _mapKey.currentState?.fitToRoute(points);
+        });
       }
     } catch (_) {
       if (mounted) setState(() => _loadingRoutes = false);
@@ -1387,6 +1393,11 @@ class _TripScreenState extends State<TripScreen> {
     return InkWell(
       onTap: () {
         setState(() => _selectedRoute = opt);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (opt.waypoints.isNotEmpty) {
+            _mapKey.currentState?.fitToRoute(opt.waypoints);
+          }
+        });
       },
       borderRadius: BorderRadius.circular(12),
       child: AnimatedContainer(

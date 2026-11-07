@@ -33,6 +33,7 @@ class InteractiveLocationMap extends StatefulWidget {
   final BorderRadius? borderRadius;
   final bool showEnvironmentalOverlays;
   final List<EnvironmentalZone>? environmentalZones;
+  final bool autoFitRoute;
 
   const InteractiveLocationMap({
     super.key,
@@ -51,6 +52,7 @@ class InteractiveLocationMap extends StatefulWidget {
     this.borderRadius,
     this.showEnvironmentalOverlays = true,
     this.environmentalZones,
+    this.autoFitRoute = true,
   });
 
   @override
@@ -102,6 +104,13 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
     if (_currentLocation != null) {
       _resolveAddress(_currentLocation!);
     }
+    if (widget.routeWaypoints != null &&
+        widget.routeWaypoints!.length >= 2 &&
+        widget.autoFitRoute) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) fitToRoute(widget.routeWaypoints!);
+      });
+    }
   }
 
   Future<void> _refreshEnvironmentalZones() async {
@@ -140,6 +149,14 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
         widget.routeColor != oldWidget.routeColor) {
       if (_useMapLibre) {
         _updateMapLibreLayers();
+      }
+      if (widget.routeWaypoints != oldWidget.routeWaypoints &&
+          widget.routeWaypoints != null &&
+          widget.routeWaypoints!.length >= 2 &&
+          widget.autoFitRoute) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) fitToRoute(widget.routeWaypoints!);
+        });
       }
     }
   }
@@ -292,6 +309,122 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
           13.5,
         ),
       );
+      _updateMapLibreLayers();
+    }
+  }
+
+  /// Centers and zooms in/out the view such that the whole route is visible within the viewport.
+  void fitToRoute(List<LatLng> points, {Size? mapSize, double padding = 48.0}) {
+    if (points.isEmpty) return;
+
+    double routeMinLat = 90.0;
+    double routeMaxLat = -90.0;
+    double routeMinLon = 180.0;
+    double routeMaxLon = -180.0;
+
+    for (final pt in points) {
+      if (pt.latitude < routeMinLat) routeMinLat = pt.latitude;
+      if (pt.latitude > routeMaxLat) routeMaxLat = pt.latitude;
+      if (pt.longitude < routeMinLon) routeMinLon = pt.longitude;
+      if (pt.longitude > routeMaxLon) routeMaxLon = pt.longitude;
+    }
+
+    // Include selected / secondary locations if present for complete route bounds
+    final loc = _currentLocation ?? widget.selectedLocation;
+    if (loc != null) {
+      if (loc.latitude < routeMinLat) routeMinLat = loc.latitude;
+      if (loc.latitude > routeMaxLat) routeMaxLat = loc.latitude;
+      if (loc.longitude < routeMinLon) routeMinLon = loc.longitude;
+      if (loc.longitude > routeMaxLon) routeMaxLon = loc.longitude;
+    }
+    final sec = widget.secondaryLocation;
+    if (sec != null) {
+      if (sec.latitude < routeMinLat) routeMinLat = sec.latitude;
+      if (sec.latitude > routeMaxLat) routeMaxLat = sec.latitude;
+      if (sec.longitude < routeMinLon) routeMinLon = sec.longitude;
+      if (sec.longitude > routeMaxLon) routeMaxLon = sec.longitude;
+    }
+
+    final centerLat = (routeMinLat + routeMaxLat) / 2.0;
+    final centerLon = (routeMinLon + routeMaxLon) / 2.0;
+    final spanLat = (routeMaxLat - routeMinLat).abs();
+    final spanLon = (routeMaxLon - routeMinLon).abs();
+
+    // 1. Vector Map Canvas calculation:
+    final size = mapSize ?? _lastCanvasSize ?? const Size(400, 300);
+    const pad = 18.0;
+    final usableW = max(1.0, size.width - 2 * pad);
+    final usableH = max(1.0, size.height - 2 * pad);
+
+    // Unzoomed pixel span of the route bounding box:
+    final routeWidthPx = max(24.0, (spanLon / (maxLon - minLon)) * usableW);
+    final routeHeightPx = max(24.0, (spanLat / (maxLat - minLat)) * usableH);
+
+    // Viewport space available for route with padding
+    final availW = max(50.0, size.width - (padding * 2));
+    final availH = max(50.0, size.height - (padding * 2));
+
+    final zoomX = availW / routeWidthPx;
+    final zoomY = availH / routeHeightPx;
+    // Optimal zoom factor clamped between 0.75 (zoomed out full region) and 3.2 (close-up)
+    final targetZoom = min(zoomX, zoomY).clamp(0.75, 3.2);
+
+    // Center offset calculation
+    final normCenterX =
+        ((centerLon - minLon) / (maxLon - minLon)).clamp(0.0, 1.0);
+    final normCenterY =
+        ((maxLat - centerLat) / (maxLat - minLat)).clamp(0.0, 1.0);
+    final baseCenterX = pad + normCenterX * usableW;
+    final baseCenterY = pad + normCenterY * usableH;
+
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+    final targetPan = Offset(
+      -(baseCenterX - centerX) * targetZoom,
+      -(baseCenterY - centerY) * targetZoom,
+    );
+
+    setState(() {
+      _zoomFactor = targetZoom;
+      _panOffset = targetPan;
+    });
+
+    // 2. MapLibre GL camera animation:
+    if (_useMapLibre && _mapController != null) {
+      try {
+        _mapController!.animateCamera(
+          ml.CameraUpdate.newLatLngBounds(
+            ml.LatLngBounds(
+              southwest: ml.LatLng(routeMinLat, routeMinLon),
+              northeast: ml.LatLng(routeMaxLat, routeMaxLon),
+            ),
+            left: padding,
+            top: padding,
+            right: padding,
+            bottom: padding,
+          ),
+        );
+      } catch (_) {
+        final maxSpan = max(spanLat, spanLon);
+        double zoom = 11.5;
+        if (maxSpan > 0.45) {
+          zoom = 9.8;
+        } else if (maxSpan > 0.25) {
+          zoom = 10.8;
+        } else if (maxSpan > 0.12) {
+          zoom = 12.0;
+        } else if (maxSpan > 0.05) {
+          zoom = 13.2;
+        } else {
+          zoom = 14.5;
+        }
+        _mapController!.animateCamera(
+          ml.CameraUpdate.newLatLngZoom(
+            ml.LatLng(centerLat, centerLon),
+            zoom,
+          ),
+        );
+      }
       _updateMapLibreLayers();
     }
   }
@@ -610,8 +743,13 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                             minHeight: 32,
                           ),
                           padding: EdgeInsets.zero,
-                          tooltip: 'Center on selected location',
+                          tooltip: 'Center on route or location',
                           onPressed: () {
+                            if (widget.routeWaypoints != null &&
+                                widget.routeWaypoints!.length >= 2) {
+                              fitToRoute(widget.routeWaypoints!);
+                              return;
+                            }
                             final target =
                                 _currentLocation ?? widget.selectedLocation;
                             if (target != null) {

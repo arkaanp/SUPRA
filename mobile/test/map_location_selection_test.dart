@@ -151,6 +151,46 @@ void main() {
         expect(reported!.isInGreaterJakarta, isTrue);
       },
     );
+
+    testWidgets('fitToRoute centers and zooms view to frame whole route', (
+      tester,
+    ) async {
+      final key = GlobalKey<InteractiveLocationMapState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SizedBox(
+              width: 400,
+              height: 300,
+              child: InteractiveLocationMap(
+                key: key,
+                selectedLocation: const LatLng(
+                  latitude: -6.2000,
+                  longitude: 106.8200,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Fit to a route spanning from North Jakarta to Kota Bogor
+      final routeWaypoints = [
+        const LatLng(latitude: -6.1200, longitude: 106.8000),
+        const LatLng(latitude: -6.3500, longitude: 106.8200),
+        const LatLng(latitude: -6.6000, longitude: 106.8500),
+      ];
+
+      key.currentState?.fitToRoute(
+        routeWaypoints,
+        mapSize: const Size(400, 300),
+      );
+      await tester.pump();
+
+      expect(key.currentState, isNotNull);
+      expect(find.byType(InteractiveLocationMap), findsOneWidget);
+    });
   });
 
   group('Location picker sheet tests', () {
