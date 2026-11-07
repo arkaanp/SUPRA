@@ -44,10 +44,8 @@ class LatLng {
           (longitude - other.longitude).abs() < 1e-6;
 
   @override
-  int get hashCode => Object.hash(
-        (latitude * 100000).round(),
-        (longitude * 100000).round(),
-      );
+  int get hashCode =>
+      Object.hash((latitude * 100000).round(), (longitude * 100000).round());
 
   @override
   String toString() =>
@@ -142,7 +140,10 @@ const List<NamedLocation> greaterJakartaLandmarks = [
 ];
 
 /// Finds the nearest landmark to the given coordinate.
-NamedLocation? findNearestLandmark(LatLng point, {double maxDistanceKm = 20.0}) {
+NamedLocation? findNearestLandmark(
+  LatLng point, {
+  double maxDistanceKm = 20.0,
+}) {
   NamedLocation? closest;
   double minDistance = maxDistanceKm;
 

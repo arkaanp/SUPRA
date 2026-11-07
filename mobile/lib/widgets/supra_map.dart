@@ -102,7 +102,8 @@ class SupraMap extends StatelessWidget {
         return GestureDetector(
           behavior: HitTestBehavior.opaque,
           onTapUp: onTapLocation != null
-              ? (details) => onTapLocation!(_pxToLatLng(details.localPosition, size))
+              ? (details) =>
+                    onTapLocation!(_pxToLatLng(details.localPosition, size))
               : null,
           child: Stack(
             children: [
@@ -135,7 +136,8 @@ class SupraMap extends StatelessWidget {
                   toPx: (LatLng p) {
                     final x =
                         0.08 + (p.longitude - start.longitude) / 0.06 * 0.84;
-                    final y = 0.92 - (p.latitude - start.latitude) / 0.06 * 0.72;
+                    final y =
+                        0.92 - (p.latitude - start.latitude) / 0.06 * 0.72;
                     return Offset(x * size.width, y * size.height);
                   },
                   trafficAt: _trafficAt,

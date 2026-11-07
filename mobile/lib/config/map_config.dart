@@ -1,3 +1,5 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
@@ -12,8 +14,7 @@ abstract final class MapConfig {
       'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
 
   /// MapLibre official demo tiles.
-  static const String demoTiles =
-      'https://demotiles.maplibre.org/style.json';
+  static const String demoTiles = 'https://demotiles.maplibre.org/style.json';
 
   /// Default basemap style for SUPRA.
   static const String defaultStyle = cartoPositron;
@@ -28,13 +29,17 @@ abstract final class MapConfig {
     if (kIsWeb) return true;
     if (defaultTargetPlatform == TargetPlatform.android ||
         defaultTargetPlatform == TargetPlatform.iOS) {
-      return !_isTestEnvironment();
+      return !isTestEnvironment;
     }
     return false;
   }
 
-  static bool _isTestEnvironment() {
+  /// Returns true if running within a widget or unit test runner.
+  static bool get isTestEnvironment {
     try {
+      if (!kIsWeb && Platform.environment.containsKey('FLUTTER_TEST')) {
+        return true;
+      }
       final bindingName = WidgetsBinding.instance.runtimeType.toString();
       return bindingName.contains('Test');
     } catch (_) {
@@ -42,4 +47,3 @@ abstract final class MapConfig {
     }
   }
 }
-

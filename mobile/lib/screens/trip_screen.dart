@@ -62,7 +62,9 @@ class _TripScreenState extends State<TripScreen> {
     final picked = await showLocationPickerSheet(
       context: context,
       initialLocation: current ?? fallback,
-      title: isStart ? 'Select start location on map' : 'Select destination on map',
+      title: isStart
+          ? 'Select start location on map'
+          : 'Select destination on map',
     );
 
     if (picked != null && mounted) {
@@ -161,7 +163,9 @@ class _TripScreenState extends State<TripScreen> {
           ),
           const SizedBox(width: 8),
           IconButton(
-            icon: Icon(_showRouteMap ? Icons.layers_clear : Icons.layers_outlined),
+            icon: Icon(
+              _showRouteMap ? Icons.layers_clear : Icons.layers_outlined,
+            ),
             tooltip: _showRouteMap ? 'Hide map' : 'Show map',
             onPressed: () => setState(() => _showRouteMap = !_showRouteMap),
           ),
@@ -229,27 +233,81 @@ class _TripScreenState extends State<TripScreen> {
               : 'Departure: $_departure',
         ),
       ),
-      ElevatedButton(
-        onPressed: _busy
-            ? null
-            : () => _perform(() async {
-                if (_start.text.trim().isEmpty ||
-                    _destination.text.trim().isEmpty) {
-                  throw StateError('Enter start and destination.');
-                }
-                await SupraService.instance.createTrip(
-                  start: _start.text.trim(),
-                  destination: _destination.text.trim(),
-                  departure: _departure ?? DateTime.now(),
-                );
-                _start.clear();
-                _destination.clear();
-                setState(() {
-                  _startCoord = null;
-                  _destCoord = null;
-                });
-              }),
-        child: Text(_busy ? 'Saving…' : 'Save trip'),
+      Row(
+        children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              icon: const Icon(Icons.alt_route, size: 18),
+              label: const Text('Find best route'),
+              onPressed: _busy
+                  ? null
+                  : () {
+                      if (_start.text.trim().isEmpty ||
+                          _destination.text.trim().isEmpty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Enter start and destination first.'),
+                          ),
+                        );
+                        return;
+                      }
+                      final sPoint =
+                          _startCoord ??
+                          _resolveCoord(
+                            _start.text.trim(),
+                            const LatLng(
+                              latitude: -6.2600,
+                              longitude: 106.8150,
+                            ),
+                          );
+                      final dPoint =
+                          _destCoord ??
+                          _resolveCoord(
+                            _destination.text.trim(),
+                            const LatLng(
+                              latitude: -6.2250,
+                              longitude: 106.8080,
+                            ),
+                          );
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => MapScreen(
+                            start: sPoint,
+                            destination: dPoint,
+                            startName: _start.text.trim(),
+                            destinationName: _destination.text.trim(),
+                          ),
+                        ),
+                      );
+                    },
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: ElevatedButton(
+              onPressed: _busy
+                  ? null
+                  : () => _perform(() async {
+                      if (_start.text.trim().isEmpty ||
+                          _destination.text.trim().isEmpty) {
+                        throw StateError('Enter start and destination.');
+                      }
+                      await SupraService.instance.createTrip(
+                        start: _start.text.trim(),
+                        destination: _destination.text.trim(),
+                        departure: _departure ?? DateTime.now(),
+                      );
+                      _start.clear();
+                      _destination.clear();
+                      setState(() {
+                        _startCoord = null;
+                        _destCoord = null;
+                      });
+                    }),
+              child: Text(_busy ? 'Saving…' : 'Save trip'),
+            ),
+          ),
+        ],
       ),
       const Divider(),
       for (final trip in SupraService.instance.trips)
@@ -270,7 +328,8 @@ class _TripScreenState extends State<TripScreen> {
                 onPressed: _busy
                     ? null
                     : () => _perform(
-                        () => SupraService.instance.deleteTrip(trip.id)),
+                        () => SupraService.instance.deleteTrip(trip.id),
+                      ),
               ),
             ],
           ),

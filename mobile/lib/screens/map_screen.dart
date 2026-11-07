@@ -5,11 +5,15 @@ import '../config/map_config.dart';
 import '../models/location.dart';
 import '../models/prediction.dart';
 import '../models/route.dart';
+import '../models/route_option.dart';
+import '../services/routing_service.dart';
 import '../theme/app_theme.dart';
+import '../widgets/route_planner_view.dart';
 import '../widgets/supra_map.dart';
 
-/// Full-screen route map with rain/traffic overlays (UML: "Display Map with
-/// Rain/Traffic Highlights") powered by MapLibre GL vector basemaps.
+/// Full-screen route map with road-accurate routing, multi-modal transport options
+/// (Car, Motorcycle, Public Transit), weather/air quality exposure evaluation,
+/// and contextual health & safety advisories (e.g. N95 mask recommendations).
 class MapScreen extends StatefulWidget {
   final LatLng start;
   final LatLng destination;
@@ -18,6 +22,10 @@ class MapScreen extends StatefulWidget {
   final Route? route;
   final List<Prediction> predictions;
   final bool forceCanvas;
+  final double? initialPm25;
+  final double? initialRainMm;
+  final RoutingService? routingService;
+  final List<RouteOption>? initialRouteOptions;
 
   const MapScreen({
     super.key,
@@ -28,6 +36,10 @@ class MapScreen extends StatefulWidget {
     this.route,
     this.predictions = const [],
     this.forceCanvas = false,
+    this.initialPm25,
+    this.initialRainMm,
+    this.routingService,
+    this.initialRouteOptions,
   });
 
   @override
@@ -35,16 +47,63 @@ class MapScreen extends StatefulWidget {
 }
 
 class _MapScreenState extends State<MapScreen> {
+  late final RoutingService _routingService;
   bool _showTraffic = true;
   bool _showRain = true;
   LatLng? _inspectedLocation;
   late bool _useMapLibre;
   ml.MapLibreMapController? _mapController;
 
+  List<RouteOption> _routeOptions = [];
+  RouteOption? _selectedOption;
+  bool _loadingRoutes = false;
+
   @override
   void initState() {
     super.initState();
-    _useMapLibre = !widget.forceCanvas && MapConfig.isMapLibreSupported;
+    _routingService = widget.routingService ?? RoutingService();
+    _useMapLibre =
+        !widget.forceCanvas &&
+        !MapConfig.isTestEnvironment &&
+        MapConfig.isMapLibreSupported;
+    if (widget.initialRouteOptions != null &&
+        widget.initialRouteOptions!.isNotEmpty) {
+      _routeOptions = widget.initialRouteOptions!;
+      _selectedOption = widget.initialRouteOptions!.firstWhere(
+        (o) => o.isRecommended,
+        orElse: () => widget.initialRouteOptions!.first,
+      );
+      _loadingRoutes = false;
+    } else {
+      _loadingRoutes = true;
+      _loadRoutes();
+    }
+  }
+
+  Future<void> _loadRoutes() async {
+    try {
+      final options = await _routingService.calculateRoutes(
+        start: widget.start,
+        destination: widget.destination,
+        pm25UgM3: widget.initialPm25,
+        rainfallMm: widget.initialRainMm,
+      );
+      if (mounted) {
+        setState(() {
+          _routeOptions = options;
+          _selectedOption = options.firstWhere(
+            (o) => o.isRecommended,
+            orElse: () => options.first,
+          );
+          _loadingRoutes = false;
+        });
+        if (_useMapLibre) {
+          _drawMapLibreRoute();
+        }
+      }
+    } catch (_) {
+      if (mounted) setState(() => _loadingRoutes = false);
+    }
   }
 
   void _onMapCreated(ml.MapLibreMapController controller) {
@@ -85,26 +144,29 @@ class _MapScreenState extends State<MapScreen> {
         ),
       );
 
-      // Route polyline.
-      final points = widget.route?.waypoints ??
-          [
-            widget.start,
-            LatLng(
-              latitude: (widget.start.latitude + widget.destination.latitude) / 2 +
-                  0.001,
-              longitude: (widget.start.longitude + widget.destination.longitude) /
-                      2 -
-                  0.002,
-            ),
-            widget.destination,
-          ];
+      // Road-accurate waypoints from the active route option.
+      final points =
+          _selectedOption?.waypoints ??
+          widget.route?.waypoints ??
+          [widget.start, widget.destination];
+
+      String lineColor = '#0F766E';
+      if (_selectedOption != null) {
+        if (_selectedOption!.mode == TransportMode.motorcycle) {
+          lineColor = _selectedOption!.pm25UgM3 >= 35.0 ? '#D97706' : '#0F766E';
+        } else if (_selectedOption!.mode == TransportMode.car) {
+          lineColor = _showTraffic ? '#E11D48' : '#0F766E';
+        } else {
+          lineColor = '#2563EB'; // Blue for rail / transit
+        }
+      }
 
       await controller.addLine(
         ml.LineOptions(
           geometry: points
               .map((p) => ml.LatLng(p.latitude, p.longitude))
               .toList(),
-          lineColor: _showTraffic ? '#F59E0B' : '#0F766E',
+          lineColor: lineColor,
           lineWidth: 5.0,
           lineOpacity: 0.9,
         ),
@@ -114,9 +176,18 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  void _onSelectOption(RouteOption opt) {
+    setState(() => _selectedOption = opt);
+    if (_useMapLibre) {
+      _drawMapLibreRoute();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final distance = widget.start.distanceTo(widget.destination);
+    final distance =
+        _selectedOption?.distanceKm ??
+        widget.start.distanceTo(widget.destination);
     final sName = widget.startName ?? 'Kemang';
     final dName = widget.destinationName ?? 'Sudirman CBD';
     final nearest = _inspectedLocation != null
@@ -128,13 +199,19 @@ class _MapScreenState extends State<MapScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Route map'),
+        title: Text(
+          _selectedOption != null
+              ? '${_selectedOption!.mode.iconEmoji} ${_selectedOption!.mode.displayName} (${_selectedOption!.formattedDuration})'
+              : 'Route map',
+        ),
         actions: [
           if (MapConfig.isMapLibreSupported && !widget.forceCanvas)
             IconButton(
               icon: Icon(_useMapLibre ? Icons.public : Icons.map_outlined),
               onPressed: () => setState(() => _useMapLibre = !_useMapLibre),
-              tooltip: _useMapLibre ? 'Switch to schematic map' : 'Switch to MapLibre',
+              tooltip: _useMapLibre
+                  ? 'Switch to schematic map'
+                  : 'Switch to MapLibre',
             ),
           IconButton(
             icon: Icon(_showTraffic ? Icons.traffic : Icons.traffic_outlined),
@@ -153,6 +230,7 @@ class _MapScreenState extends State<MapScreen> {
       ),
       body: Column(
         children: [
+          // 1. Map View (Road-Accurate MapLibre GL or Vector Canvas)
           Expanded(
             child: Stack(
               children: [
@@ -169,9 +247,11 @@ class _MapScreenState extends State<MapScreen> {
                       setState(() {
                         _inspectedLocation = LatLng(
                           latitude: double.parse(
-                              coordinates.latitude.toStringAsFixed(4)),
+                            coordinates.latitude.toStringAsFixed(4),
+                          ),
                           longitude: double.parse(
-                              coordinates.longitude.toStringAsFixed(4)),
+                            coordinates.longitude.toStringAsFixed(4),
+                          ),
                         );
                       });
                     },
@@ -182,13 +262,22 @@ class _MapScreenState extends State<MapScreen> {
                   SupraMap(
                     start: widget.start,
                     destination: widget.destination,
-                    route: widget.route,
+                    route: Route(
+                      id: 'active_route',
+                      tripId: 'active_trip',
+                      waypoints:
+                          _selectedOption?.waypoints ??
+                          widget.route?.waypoints ??
+                          const [],
+                      totalDistanceKm: distance,
+                    ),
                     predictions: widget.predictions,
                     onTapLocation: (tapped) {
                       setState(() => _inspectedLocation = tapped);
                     },
                   ),
 
+                // Top inspected location card
                 if (_inspectedLocation != null)
                   Positioned(
                     top: 12,
@@ -254,60 +343,126 @@ class _MapScreenState extends State<MapScreen> {
                       ),
                     ),
                   ),
+
+                // Loading overlay while calculating road geometry
+                if (_loadingRoutes)
+                  Positioned(
+                    top: 16,
+                    left: 16,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.9),
+                        borderRadius: BorderRadius.circular(20),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x14000000),
+                            blurRadius: 4,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Snapping to road network…',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.all(16),
+
+          // 2. Google-Maps-Style Multi-Modal Route & Health Advisory Drawer
+          Material(
+            elevation: 8,
             color: Colors.white,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
-                      Icons.directions,
-                      size: 18,
-                      color: Color(0xFF64748B),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '$sName → $dName · ${distance.toStringAsFixed(1)} km',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
+                    // Origin -> Destination readout
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.directions,
+                          size: 18,
+                          color: Color(0xFF64748B),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '$sName → $dName',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13,
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '${distance.toStringAsFixed(1)} km',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: SupraTheme.textSecondary,
+                          ),
+                        ),
+                      ],
                     ),
+                    const SizedBox(height: 10),
+
+                    // Route Planner with Mode Options & Health Advisories
+                    if (_routeOptions.isNotEmpty && _selectedOption != null)
+                      RoutePlannerView(
+                        options: _routeOptions,
+                        selectedOption: _selectedOption!,
+                        onOptionSelected: _onSelectOption,
+                        onConfirmRoute: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Selected ${_selectedOption!.mode.displayName} route (${_selectedOption!.formattedDuration}).',
+                              ),
+                            ),
+                          );
+                        },
+                      )
+                    else if (_loadingRoutes)
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(24.0),
+                          child: CircularProgressIndicator(),
+                        ),
+                      )
+                    else
+                      const Center(child: Text('Could not load road routes.')),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    _toggleChip('Traffic', Icons.traffic, _showTraffic),
-                    const SizedBox(width: 10),
-                    _toggleChip('Rain', Icons.wb_cloudy, _showRain),
-                  ],
-                ),
-              ],
+              ),
             ),
           ),
         ],
       ),
     );
   }
-
-  Widget _toggleChip(String label, IconData icon, bool active) => FilterChip(
-    avatar: Icon(icon, size: 16, color: active ? SupraTheme.brand : null),
-    label: Text(label),
-    selected: active,
-    onSelected: (v) {
-      if (label == 'Traffic') {
-        setState(() => _showTraffic = v);
-        if (_useMapLibre) _drawMapLibreRoute();
-      }
-      if (label == 'Rain') setState(() => _showRain = v);
-    },
-  );
 }

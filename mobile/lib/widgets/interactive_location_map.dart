@@ -224,11 +224,20 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
                         _handleMapLibreClick(coordinates),
                     cameraTargetBounds: ml.CameraTargetBounds(
                       ml.LatLngBounds(
-                        southwest: const ml.LatLng(minLat - 0.05, minLon - 0.05),
-                        northeast: const ml.LatLng(maxLat + 0.05, maxLon + 0.05),
+                        southwest: const ml.LatLng(
+                          minLat - 0.05,
+                          minLon - 0.05,
+                        ),
+                        northeast: const ml.LatLng(
+                          maxLat + 0.05,
+                          maxLon + 0.05,
+                        ),
                       ),
                     ),
-                    minMaxZoomPreference: const ml.MinMaxZoomPreference(9.0, 18.0),
+                    minMaxZoomPreference: const ml.MinMaxZoomPreference(
+                      9.0,
+                      18.0,
+                    ),
                     trackCameraPosition: true,
                     compassEnabled: true,
                     rotateGesturesEnabled: widget.isInteractive,
@@ -343,8 +352,9 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
                             decoration: BoxDecoration(
                               color: Colors.white.withValues(alpha: 0.92),
                               shape: BoxShape.circle,
-                              border:
-                                  Border.all(color: const Color(0xFFE2E8F0)),
+                              border: Border.all(
+                                color: const Color(0xFFE2E8F0),
+                              ),
                             ),
                             child: const Icon(
                               Icons.layers_outlined,
@@ -418,10 +428,7 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (isBounded)
-              Expanded(child: mapWidget)
-            else
-              mapWidget,
+            if (isBounded) Expanded(child: mapWidget) else mapWidget,
 
             // Live location readout footer.
             if (location != null) ...[
@@ -556,10 +563,7 @@ class _InteractiveLocationMapState extends State<InteractiveLocationMap> {
                 ),
               ),
             ),
-            CustomPaint(
-              size: const Size(8, 6),
-              painter: _PinTipPainter(color),
-            ),
+            CustomPaint(size: const Size(8, 6), painter: _PinTipPainter(color)),
           ],
         ),
       ),
@@ -666,7 +670,9 @@ Future<LatLng?> showLocationPickerSheet({
                           backgroundColor: const Color(0xFFF1F5F9),
                           onSelected: (_) {
                             setSheetState(() => selected = landmark.point);
-                            mapKey.currentState?.animateToLocation(landmark.point);
+                            mapKey.currentState?.animateToLocation(
+                              landmark.point,
+                            );
                           },
                         );
                       },
@@ -836,16 +842,46 @@ class _JakartaCanvasPainter extends CustomPainter {
     canvas.drawOval(jorrRect, jorrPaint);
 
     // 6. District Labels (Subtle).
-    _drawText(canvas, 'JAKARTA', _toPx(-6.20, 106.82, size), 11,
-        const Color(0xFF94A3B8), true);
-    _drawText(canvas, 'TANGERANG', _toPx(-6.21, 106.64, size), 9,
-        const Color(0xFF94A3B8), false);
-    _drawText(canvas, 'BEKASI', _toPx(-6.24, 107.01, size), 9,
-        const Color(0xFF94A3B8), false);
-    _drawText(canvas, 'DEPOK', _toPx(-6.40, 106.82, size), 9,
-        const Color(0xFF94A3B8), false);
-    _drawText(canvas, 'BOGOR', _toPx(-6.60, 106.79, size), 10,
-        const Color(0xFF94A3B8), true);
+    _drawText(
+      canvas,
+      'JAKARTA',
+      _toPx(-6.20, 106.82, size),
+      11,
+      const Color(0xFF94A3B8),
+      true,
+    );
+    _drawText(
+      canvas,
+      'TANGERANG',
+      _toPx(-6.21, 106.64, size),
+      9,
+      const Color(0xFF94A3B8),
+      false,
+    );
+    _drawText(
+      canvas,
+      'BEKASI',
+      _toPx(-6.24, 107.01, size),
+      9,
+      const Color(0xFF94A3B8),
+      false,
+    );
+    _drawText(
+      canvas,
+      'DEPOK',
+      _toPx(-6.40, 106.82, size),
+      9,
+      const Color(0xFF94A3B8),
+      false,
+    );
+    _drawText(
+      canvas,
+      'BOGOR',
+      _toPx(-6.60, 106.79, size),
+      10,
+      const Color(0xFF94A3B8),
+      true,
+    );
 
     // 7. Reference Landmark dots.
     if (showLandmarks) {

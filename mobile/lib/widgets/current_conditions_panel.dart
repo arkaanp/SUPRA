@@ -74,8 +74,7 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
         lon < 106.3 ||
         lon > 107.3) {
       setState(
-        () => _error =
-            'Enter coordinates in Greater Jakarta (latitude -6.9 to -5.8, longitude 106.3 to 107.3).',
+        () => _error = 'Enter coordinates in Greater Jakarta (latitude -6.9 to -5.8, longitude 106.3 to 107.3).',
       );
       return;
     }
@@ -161,7 +160,8 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
 
     final curLat = double.tryParse(_lat.text.trim());
     final curLon = double.tryParse(_lon.text.trim());
-    final currentLoc = (curLat != null &&
+    final currentLoc =
+        (curLat != null &&
             curLon != null &&
             curLat.isFinite &&
             curLon.isFinite &&
