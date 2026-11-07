@@ -184,6 +184,8 @@ class _TripScreenState extends State<TripScreen> {
       _mapSearchController.text = initialName;
       _mapSearchResults = [];
       _isSheetExpanded = false;
+      _selectedRoute = null;
+      _calculatedRoutes = [];
       _updateSnapOptions(initial, customName: initialName);
     });
     _mapKey.currentState?.animateToLocation(initial);

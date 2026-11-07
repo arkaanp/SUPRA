@@ -406,6 +406,43 @@ void main() {
     );
 
     testWidgets(
+      'Map is only tappable to pick location after user picks start or end location',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: TripScreen())),
+        );
+
+        // On idle main screen: tapping the map does NOT enter picking mode (map is read-only for picking)
+        await tester.tap(find.byType(InteractiveLocationMap));
+        await tester.pumpAndSettle();
+        expect(find.text('Select destination on map'), findsNothing);
+        expect(find.text('Where do you want to go?'), findsOneWidget);
+
+        // User picks destination by clicking the destination input field
+        await tester.tap(find.byWidgetPredicate(
+          (w) => w is TextField && (w.decoration?.hintText?.contains('Cibinong') ?? false),
+        ));
+        await tester.pumpAndSettle();
+
+        // Now picking mode is active for destination!
+        expect(find.text('Select destination on map'), findsOneWidget);
+        expect(find.textContaining('Nearest Locations:'), findsOneWidget);
+
+        // Map IS now tappable to designate destination!
+        await tester.tap(find.byType(InteractiveLocationMap));
+        await tester.pumpAndSettle();
+
+        // Pin is designated and user can confirm location
+        expect(find.text('Confirm location'), findsOneWidget);
+        await tester.tap(find.text('Confirm location'));
+        await tester.pumpAndSettle();
+
+        // Back on main screen with destination set and Show Route available
+        expect(find.text('Show Route'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
       'Clicking name input opens map in typing mode and Show Route calculates routes',
       (tester) async {
         await tester.pumpWidget(

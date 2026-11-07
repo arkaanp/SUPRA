@@ -87,6 +87,8 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
   Offset _panStart = Offset.zero;
   bool _isDragging = false;
   Size? _lastCanvasSize;
+  Offset? _tapCandidatePos;
+  DateTime? _lastTapTime;
 
   @override
   void initState() {
@@ -163,6 +165,27 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
 
   void _onMapCreated(ml.MapLibreMapController controller) {
     _mapController = controller;
+    controller.onFillTapped.add((fill) {
+      if (widget.isInteractive) {
+        final coords = fill.options.geometry?.first;
+        if (coords != null && coords.isNotEmpty) {
+          double avgLat = 0;
+          double avgLon = 0;
+          for (final c in coords) {
+            avgLat += c.latitude;
+            avgLon += c.longitude;
+          }
+          _handleMapLibreClick(
+            ml.LatLng(avgLat / coords.length, avgLon / coords.length),
+          );
+        }
+      }
+    });
+    controller.onCircleTapped.add((circle) {
+      if (widget.isInteractive && circle.options.geometry != null) {
+        _handleMapLibreClick(circle.options.geometry!);
+      }
+    });
     _updateMapLibreLayers();
   }
 
@@ -206,11 +229,13 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
 
       final loc = _currentLocation ?? widget.selectedLocation;
       if (loc != null) {
+        final isStart = widget.selectedLabel == 'S';
+        final pinColor = isStart ? '#00AA13' : '#EF4444';
         // Outer glow halo.
         await controller.addCircle(
           ml.CircleOptions(
             geometry: ml.LatLng(loc.latitude, loc.longitude),
-            circleColor: '#0F766E',
+            circleColor: pinColor,
             circleOpacity: 0.22,
             circleRadius: 18.0,
           ),
@@ -219,7 +244,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
         await controller.addCircle(
           ml.CircleOptions(
             geometry: ml.LatLng(loc.latitude, loc.longitude),
-            circleColor: '#0F766E',
+            circleColor: pinColor,
             circleRadius: 8.0,
             circleStrokeColor: '#FFFFFF',
             circleStrokeWidth: 2.5,
@@ -229,10 +254,12 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
 
       final sec = widget.secondaryLocation;
       if (sec != null) {
+        final isStartSec = widget.secondaryLabel == 'S';
+        final secPinColor = isStartSec ? '#00AA13' : '#EF4444';
         await controller.addCircle(
           ml.CircleOptions(
             geometry: ml.LatLng(sec.latitude, sec.longitude),
-            circleColor: '#EF4444',
+            circleColor: secPinColor,
             circleRadius: 8.0,
             circleStrokeColor: '#FFFFFF',
             circleStrokeWidth: 2.5,
@@ -263,6 +290,12 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
 
   void _handleMapLibreClick(ml.LatLng coordinates) {
     if (!widget.isInteractive) return;
+    final now = DateTime.now();
+    if (_lastTapTime != null &&
+        now.difference(_lastTapTime!).inMilliseconds < 250) {
+      return;
+    }
+    _lastTapTime = now;
     final lat = coordinates.latitude.clamp(minLat, maxLat);
     final lon = coordinates.longitude.clamp(minLon, maxLon);
     final location = LatLng(
@@ -453,6 +486,12 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
 
   void _handleCanvasTap(Offset localPos, Size size) {
     if (!widget.isInteractive) return;
+    final now = DateTime.now();
+    if (_lastTapTime != null &&
+        now.difference(_lastTapTime!).inMilliseconds < 250) {
+      return;
+    }
+    _lastTapTime = now;
     final location = _pixelToLatLng(localPos, size);
     setState(() => _currentLocation = location);
     _resolveAddress(location);
@@ -520,6 +559,11 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                     rotateGesturesEnabled: true,
                     scrollGesturesEnabled: true,
                     zoomGesturesEnabled: true,
+                    featureTapsTriggersMapClick: true,
+                    annotationConsumeTapEvents: const [
+                      ml.AnnotationType.circle,
+                      ml.AnnotationType.symbol,
+                    ],
                     gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
                       Factory<OneSequenceGestureRecognizer>(
                         () => EagerGestureRecognizer(),
@@ -533,6 +577,9 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                       _lastCanvasSize = size;
                       return GestureDetector(
                         behavior: HitTestBehavior.opaque,
+                        onTapDown: (details) {
+                          _tapCandidatePos = details.localPosition;
+                        },
                         onTapUp: (details) {
                           if (!_isDragging) {
                             _handleCanvasTap(details.localPosition, size);
@@ -543,11 +590,12 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                           _panStart = _panOffset;
                           _baseZoomFactor = _zoomFactor;
                           _isDragging = false;
+                          _tapCandidatePos = details.localFocalPoint;
                         },
                         onScaleUpdate: (details) {
                           final dist =
                               (details.localFocalPoint - _dragStart).distance;
-                          if (dist > 8.0 || details.scale != 1.0) {
+                          if (dist > 6.0 || details.scale != 1.0) {
                             _isDragging = true;
                             setState(() {
                               _panOffset =
@@ -561,6 +609,9 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                           }
                         },
                         onScaleEnd: (details) {
+                          if (!_isDragging && _tapCandidatePos != null) {
+                            _handleCanvasTap(_tapCandidatePos!, size);
+                          }
                           Future.delayed(
                             const Duration(milliseconds: 100),
                             () {
