@@ -6,7 +6,9 @@ import 'package:flutter/material.dart';
 import 'package:maplibre_gl/maplibre_gl.dart' as ml;
 
 import '../config/map_config.dart';
+import '../models/environmental_zone.dart';
 import '../models/location.dart';
+import '../services/environmental_service.dart';
 import '../services/geocoding_service.dart';
 import '../theme/app_theme.dart';
 
@@ -29,6 +31,8 @@ class InteractiveLocationMap extends StatefulWidget {
   final List<LatLng>? routeWaypoints;
   final Color? routeColor;
   final BorderRadius? borderRadius;
+  final bool showEnvironmentalOverlays;
+  final List<EnvironmentalZone>? environmentalZones;
 
   const InteractiveLocationMap({
     super.key,
@@ -45,6 +49,8 @@ class InteractiveLocationMap extends StatefulWidget {
     this.routeWaypoints,
     this.routeColor,
     this.borderRadius,
+    this.showEnvironmentalOverlays = true,
+    this.environmentalZones,
   });
 
   @override
@@ -66,6 +72,11 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
   final GeocodingService _geocodingService = GeocodingService();
   String? _resolvedAddress;
 
+  late List<EnvironmentalZone> _environmentalZones;
+  EnvironmentalOverlayMode _overlayMode = EnvironmentalOverlayMode.all;
+  EnvironmentalZone? _inspectedZone;
+  final EnvironmentalService _environmentalService = EnvironmentalService();
+
   // Canvas pan & zoom state
   Offset _panOffset = Offset.zero;
   double _zoomFactor = 1.0;
@@ -83,9 +94,26 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
         !widget.forceCanvas &&
         !MapConfig.isTestEnvironment &&
         MapConfig.isMapLibreSupported;
+    _environmentalZones =
+        widget.environmentalZones ?? EnvironmentalService.defaultZones;
+    if (widget.showEnvironmentalOverlays) {
+      _refreshEnvironmentalZones();
+    }
     if (_currentLocation != null) {
       _resolveAddress(_currentLocation!);
     }
+  }
+
+  Future<void> _refreshEnvironmentalZones() async {
+    try {
+      final updated = await _environmentalService.fetchLiveZoneData();
+      if (mounted) {
+        setState(() => _environmentalZones = updated);
+        if (_useMapLibre && _mapController != null) {
+          _updateMapLibreLayers();
+        }
+      }
+    } catch (_) {}
   }
 
   Future<void> _resolveAddress(LatLng loc) async {
@@ -128,6 +156,38 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
     try {
       await controller.clearCircles();
       await controller.clearLines();
+      await controller.clearFills();
+
+      if (widget.showEnvironmentalOverlays) {
+        for (final zone in _environmentalZones) {
+          Color areaColor;
+          if (_overlayMode == EnvironmentalOverlayMode.airQuality) {
+            areaColor = zone.pm25Color;
+          } else if (_overlayMode == EnvironmentalOverlayMode.rain) {
+            areaColor = zone.isRaining ? zone.rainColor : Colors.transparent;
+          } else {
+            areaColor = zone.compositeAreaColor;
+          }
+          if (areaColor == Colors.transparent) continue;
+
+          final colorHex =
+              '#${(areaColor.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+          final borderHex =
+              '#${(zone.solidAqiColor.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+          await controller.addFill(
+            ml.FillOptions(
+              geometry: [
+                zone.polygonBounds
+                    .map((p) => ml.LatLng(p.latitude, p.longitude))
+                    .toList(),
+              ],
+              fillColor: colorHex,
+              fillOpacity: areaColor.a,
+              fillOutlineColor: borderHex,
+            ),
+          );
+        }
+      }
 
       final loc = _currentLocation ?? widget.selectedLocation;
       if (loc != null) {
@@ -397,11 +457,20 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                       minLon: minLon,
                                       maxLon: maxLon,
                                       showLandmarks: widget.showLandmarks,
+                                      showEnvironmentalOverlays:
+                                          widget.showEnvironmentalOverlays,
+                                      environmentalZones: _environmentalZones,
+                                      overlayMode: _overlayMode,
                                     ),
                                   ),
                                 ),
                               ),
                             ),
+
+                            // Environmental zone descriptive badges!
+                            if (widget.showEnvironmentalOverlays)
+                              for (final zone in _environmentalZones)
+                                _buildZoneBadge(zone, size),
 
                             // Connecting route line: ONLY when routeWaypoints is provided and has >= 2 points!
                             if (widget.routeWaypoints != null &&
@@ -450,6 +519,10 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                 label: widget.selectedLabel ?? '📍',
                                 isMain: true,
                               ),
+
+                            // Floating detailed inspection card when an area is tapped
+                            if (_inspectedZone != null)
+                              _buildInspectedZoneCard(),
                           ],
                         ),
                       );
@@ -561,83 +634,212 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                   top: 10,
                   left: 10,
                   right: 10,
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.92),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _useMapLibre ? Icons.public : Icons.map_outlined,
+                                size: 13,
+                                color: SupraTheme.brand,
+                              ),
+                              const SizedBox(width: 4),
+                              Text(
+                                _useMapLibre ? 'MapLibre GL' : 'Vector Map',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: SupraTheme.onSurface,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.92),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              _useMapLibre ? Icons.public : Icons.map_outlined,
-                              size: 13,
-                              color: SupraTheme.brand,
+                        if (widget.showEnvironmentalOverlays) ...[
+                          const SizedBox(width: 6),
+                          PopupMenuButton<EnvironmentalOverlayMode>(
+                            tooltip: 'Environmental Overlay Mode',
+                            initialValue: _overlayMode,
+                            onSelected: (mode) {
+                              setState(() => _overlayMode = mode);
+                              if (_useMapLibre && _mapController != null) {
+                                _updateMapLibreLayers();
+                              }
+                            },
+                            itemBuilder: (context) => [
+                              const PopupMenuItem(
+                                value: EnvironmentalOverlayMode.all,
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.layers, size: 16, color: SupraTheme.brand),
+                                    SizedBox(width: 8),
+                                    Text('All Overlays (Air + Rain)'),
+                                  ],
+                                ),
+                              ),
+                              const PopupMenuItem(
+                                value: EnvironmentalOverlayMode.airQuality,
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.air, size: 16, color: Color(0xFFEF4444)),
+                                    SizedBox(width: 8),
+                                    Text('Air Pollution (PM2.5)'),
+                                  ],
+                                ),
+                              ),
+                              const PopupMenuItem(
+                                value: EnvironmentalOverlayMode.rain,
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.water_drop, size: 16, color: Color(0xFF2563EB)),
+                                    SizedBox(width: 8),
+                                    Text('Rain (Precipitation)'),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.92),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    _overlayMode == EnvironmentalOverlayMode.rain
+                                        ? Icons.water_drop
+                                        : _overlayMode == EnvironmentalOverlayMode.airQuality
+                                            ? Icons.air
+                                            : Icons.cloud_outlined,
+                                    size: 13,
+                                    color: _overlayMode == EnvironmentalOverlayMode.rain
+                                        ? const Color(0xFF2563EB)
+                                        : _overlayMode == EnvironmentalOverlayMode.airQuality
+                                            ? const Color(0xFFEF4444)
+                                            : SupraTheme.brand,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    _overlayMode == EnvironmentalOverlayMode.rain
+                                        ? 'Rain'
+                                        : _overlayMode == EnvironmentalOverlayMode.airQuality
+                                            ? 'PM2.5'
+                                            : 'Eco Layers',
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: SupraTheme.onSurface,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                            const SizedBox(width: 4),
-                            Text(
-                              _useMapLibre ? 'MapLibre GL' : 'Vector Map',
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
+                          ),
+                          const SizedBox(width: 6),
+                          GestureDetector(
+                            onTap: _showAqiLegendDialog,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.92),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  _buildLegendDot(const Color(0xFF22C55E)),
+                                  const SizedBox(width: 2.5),
+                                  _buildLegendDot(const Color(0xFFEAB308)),
+                                  const SizedBox(width: 2.5),
+                                  _buildLegendDot(const Color(0xFFEF4444)),
+                                  const SizedBox(width: 2.5),
+                                  _buildLegendDot(const Color(0xFF2563EB)),
+                                  const SizedBox(width: 4),
+                                  const Text(
+                                    'AQI Guide',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: SupraTheme.onSurface,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                        if (MapConfig.isMapLibreSupported && !widget.forceCanvas) ...[
+                          const SizedBox(width: 6),
+                          PopupMenuButton<String>(
+                            icon: Container(
+                              padding: const EdgeInsets.all(5),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.92),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: const Color(0xFFE2E8F0),
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.layers_outlined,
+                                size: 16,
                                 color: SupraTheme.onSurface,
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                      const Spacer(),
-                      if (MapConfig.isMapLibreSupported && !widget.forceCanvas)
-                        PopupMenuButton<String>(
-                          icon: Container(
-                            padding: const EdgeInsets.all(5),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.92),
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: const Color(0xFFE2E8F0),
+                            tooltip: 'Map style',
+                            onSelected: (style) {
+                              setState(() {
+                                if (style == 'canvas') {
+                                  _useMapLibre = false;
+                                } else {
+                                  _useMapLibre = true;
+                                  _mapStyle = style;
+                                }
+                              });
+                            },
+                            itemBuilder: (context) => [
+                              const PopupMenuItem(
+                                value: MapConfig.cartoPositron,
+                                child: Text('MapLibre (Positron Light)'),
                               ),
-                            ),
-                            child: const Icon(
-                              Icons.layers_outlined,
-                              size: 16,
-                              color: SupraTheme.onSurface,
-                            ),
+                              const PopupMenuItem(
+                                value: MapConfig.cartoVoyager,
+                                child: Text('MapLibre (Voyager Color)'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'canvas',
+                                child: Text('Vector Overview'),
+                              ),
+                            ],
                           ),
-                          tooltip: 'Map style',
-                          onSelected: (style) {
-                            setState(() {
-                              if (style == 'canvas') {
-                                _useMapLibre = false;
-                              } else {
-                                _useMapLibre = true;
-                                _mapStyle = style;
-                              }
-                            });
-                          },
-                          itemBuilder: (context) => [
-                            const PopupMenuItem(
-                              value: MapConfig.cartoPositron,
-                              child: Text('MapLibre (Positron Light)'),
-                            ),
-                            const PopupMenuItem(
-                              value: MapConfig.cartoVoyager,
-                              child: Text('MapLibre (Voyager Color)'),
-                            ),
-                            const PopupMenuItem(
-                              value: 'canvas',
-                              child: Text('Vector Overview'),
-                            ),
-                          ],
-                        ),
-                    ],
+                        ],
+                      ],
+                    ),
                   ),
                 ),
 
@@ -760,6 +962,374 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
           ],
         );
       },
+    );
+  }
+
+  Widget _buildLegendDot(Color color, [String? label]) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 7,
+          height: 7,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        if (label != null) ...[
+          const SizedBox(width: 2.5),
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 9,
+              fontWeight: FontWeight.w600,
+              color: SupraTheme.onSurface,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildZoneBadge(EnvironmentalZone zone, Size size) {
+    const pad = 18.0;
+    final usableW = max(1.0, size.width - 2 * pad);
+    final usableH = max(1.0, size.height - 2 * pad);
+
+    final normX = ((zone.center.longitude - minLon) / (maxLon - minLon)).clamp(
+      0.0,
+      1.0,
+    );
+    final normY = ((maxLat - zone.center.latitude) / (maxLat - minLat)).clamp(
+      0.0,
+      1.0,
+    );
+
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+    final baseX = pad + normX * usableW;
+    final baseY = pad + normY * usableH;
+    final px = (baseX - centerX) * _zoomFactor + centerX + _panOffset.dx;
+    final py = (baseY - centerY) * _zoomFactor + centerY + _panOffset.dy;
+
+    if (px < -70 || px > size.width + 70 || py < -30 || py > size.height + 30) {
+      return const SizedBox.shrink();
+    }
+
+    final isSelected = _inspectedZone?.id == zone.id;
+
+    return Positioned(
+      left: px - 65,
+      top: py - 14,
+      child: IgnorePointer(
+        ignoring: widget.isInteractive,
+        child: GestureDetector(
+          onTap: () {
+            setState(() {
+              _inspectedZone = isSelected ? null : zone;
+            });
+          },
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            constraints: const BoxConstraints(maxWidth: 135),
+            decoration: BoxDecoration(
+              color: zone.solidAqiColor.withValues(alpha: 0.92),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: isSelected
+                    ? Colors.white
+                    : Colors.white.withValues(alpha: 0.75),
+                width: isSelected ? 2.0 : 1.0,
+              ),
+              boxShadow: const [
+                BoxShadow(
+                  color: Color(0x33000000),
+                  blurRadius: 3,
+                  offset: Offset(0, 1.5),
+                ),
+              ],
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (zone.isRaining)
+                  const Padding(
+                    padding: EdgeInsets.only(right: 3),
+                    child: Text('🌧️', style: TextStyle(fontSize: 10)),
+                  ),
+                Flexible(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        zone.name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 9.5,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      Text(
+                        zone.isRaining
+                            ? '${zone.rainfallMm.toStringAsFixed(1)}mm · PM ${zone.pm25.toStringAsFixed(0)}'
+                            : 'PM2.5: ${zone.pm25.toStringAsFixed(0)} (${zone.aqiCategory})',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                          fontSize: 8.0,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildInspectedZoneCard() {
+    final zone = _inspectedZone!;
+    return Positioned(
+      left: 12,
+      right: 12,
+      bottom: widget.showFooter ? 60 : 12,
+      child: Card(
+        elevation: 6,
+        color: Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: zone.solidAqiColor, width: 1.5),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: zone.solidAqiColor.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  zone.isRaining ? Icons.water_drop : Icons.air,
+                  color: zone.solidAqiColor,
+                  size: 20,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          zone.name,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 5,
+                            vertical: 1.5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: zone.solidAqiColor,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            zone.aqiCategory,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      zone.descriptiveLabel,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: zone.solidAqiColor,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      zone.healthAdvisory,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: SupraTheme.textSecondary,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close, size: 16),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () => setState(() => _inspectedZone = null),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showAqiLegendDialog() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(
+                    Icons.info_outline,
+                    color: SupraTheme.brand,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  const Text(
+                    'Air Quality (PM2.5) & Rain Guide',
+                    style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+                  ),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    onPressed: () => Navigator.pop(context),
+                    visualDensity: VisualDensity.compact,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _buildAqiScaleRow(
+                const Color(0xFF22C55E),
+                '0 – 12 µg/m³',
+                'Good',
+                'Air quality is satisfactory with little to no risk.',
+              ),
+              _buildAqiScaleRow(
+                const Color(0xFFEAB308),
+                '12.1 – 35.4 µg/m³',
+                'Moderate',
+                'Acceptable; sensitive individuals may experience slight irritation.',
+              ),
+              _buildAqiScaleRow(
+                const Color(0xFFF97316),
+                '35.5 – 55.4 µg/m³',
+                'Unhealthy for Sensitive',
+                'Sensitive groups should reduce prolonged outdoor exertion.',
+              ),
+              _buildAqiScaleRow(
+                const Color(0xFFEF4444),
+                '55.5 – 150.4 µg/m³',
+                'Unhealthy (Dark Red)',
+                'General public affected. Wear N95 mask. Color darkens as PM2.5 rises.',
+              ),
+              _buildAqiScaleRow(
+                const Color(0xFF8B5CF6),
+                '150.5 – 250.4 µg/m³',
+                'Very Unhealthy (Purple)',
+                'Health alert: significant health risk for all commuters.',
+              ),
+              _buildAqiScaleRow(
+                const Color(0xFF2563EB),
+                'Rain Active (>0.5 mm)',
+                'Precipitation Radar',
+                'Blue shaded areas indicate active rainfall with wet pavement.',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAqiScaleRow(
+    Color color,
+    String range,
+    String title,
+    String desc,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 14,
+            height: 14,
+            margin: const EdgeInsets.only(top: 2, right: 8),
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(3),
+            ),
+          ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 12,
+                        color: color,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      range,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: SupraTheme.textSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+                Text(
+                  desc,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: SupraTheme.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1137,13 +1707,16 @@ Future<LatLng?> showLocationPickerSheet({
 }
 
 /// Draws the Greater Jakarta map: landmass, Java Sea coast, Ciliwung river,
-/// arterial tollways, and reference cities/landmarks.
+/// arterial tollways, reference cities/landmarks, and environmental areas.
 class _JakartaCanvasPainter extends CustomPainter {
   final double minLat;
   final double maxLat;
   final double minLon;
   final double maxLon;
   final bool showLandmarks;
+  final bool showEnvironmentalOverlays;
+  final List<EnvironmentalZone> environmentalZones;
+  final EnvironmentalOverlayMode overlayMode;
 
   _JakartaCanvasPainter({
     required this.minLat,
@@ -1151,6 +1724,9 @@ class _JakartaCanvasPainter extends CustomPainter {
     required this.minLon,
     required this.maxLon,
     required this.showLandmarks,
+    this.showEnvironmentalOverlays = true,
+    this.environmentalZones = const [],
+    this.overlayMode = EnvironmentalOverlayMode.all,
   });
 
   Offset _toPx(double lat, double lon, Size size) {
@@ -1200,6 +1776,57 @@ class _JakartaCanvasPainter extends CustomPainter {
       ..moveTo(pStart.dx, pStart.dy)
       ..cubicTo(c1.dx, c1.dy, c2.dx, c2.dy, pEnd.dx, pEnd.dy);
     canvas.drawPath(coastLine, coastPaint);
+
+    // 2.5 Environmental Area Fills (Air Pollution & Rain)
+    if (showEnvironmentalOverlays) {
+      for (final zone in environmentalZones) {
+        if (zone.polygonBounds.isEmpty) continue;
+        final path = Path();
+        for (int i = 0; i < zone.polygonBounds.length; i++) {
+          final pt = _toPx(
+            zone.polygonBounds[i].latitude,
+            zone.polygonBounds[i].longitude,
+            size,
+          );
+          if (i == 0) {
+            path.moveTo(pt.dx, pt.dy);
+          } else {
+            path.lineTo(pt.dx, pt.dy);
+          }
+        }
+        path.close();
+
+        // Area color: darker the more bad PM2.5 is; rain blue if raining
+        Color areaColor;
+        if (overlayMode == EnvironmentalOverlayMode.airQuality) {
+          areaColor = zone.pm25Color;
+        } else if (overlayMode == EnvironmentalOverlayMode.rain) {
+          areaColor = zone.isRaining ? zone.rainColor : Colors.transparent;
+        } else {
+          areaColor = zone.compositeAreaColor;
+        }
+
+        if (areaColor != Colors.transparent) {
+          canvas.drawPath(path, Paint()..color = areaColor);
+        }
+
+        // Zone perimeter border
+        canvas.drawPath(
+          path,
+          Paint()
+            ..color = zone.solidAqiColor.withValues(alpha: 0.35)
+            ..strokeWidth = 1.0
+            ..style = PaintingStyle.stroke,
+        );
+
+        // Active rain streaks pattern if raining
+        if ((overlayMode == EnvironmentalOverlayMode.all ||
+                overlayMode == EnvironmentalOverlayMode.rain) &&
+            zone.isRaining) {
+          _drawRainStreaks(canvas, path, size);
+        }
+      }
+    }
 
     // 3. Grid lines (lat / lon reference).
     final gridPaint = Paint()
@@ -1345,8 +1972,40 @@ class _JakartaCanvasPainter extends CustomPainter {
     tp.paint(canvas, Offset(pos.dx - tp.width / 2, pos.dy - tp.height / 2));
   }
 
+  void _drawRainStreaks(Canvas canvas, Path clipPath, Size size) {
+    canvas.save();
+    canvas.clipPath(clipPath);
+
+    final rainPaint = Paint()
+      ..color = const Color(0xFF60A5FA).withValues(alpha: 0.40)
+      ..strokeWidth = 1.2
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+
+    final bounds = clipPath.getBounds();
+    const spacing = 16.0;
+    const streakLen = 8.0;
+    const angleX = 3.5;
+
+    for (double y = bounds.top - 10; y <= bounds.bottom + 10; y += spacing) {
+      for (double x = bounds.left - 10; x <= bounds.right + 10; x += spacing) {
+        canvas.drawLine(
+          Offset(x, y),
+          Offset(x + angleX, y + streakLen),
+          rainPaint,
+        );
+      }
+    }
+
+    canvas.restore();
+  }
+
   @override
-  bool shouldRepaint(covariant _JakartaCanvasPainter old) => false;
+  bool shouldRepaint(covariant _JakartaCanvasPainter old) =>
+      old.showLandmarks != showLandmarks ||
+      old.showEnvironmentalOverlays != showEnvironmentalOverlays ||
+      old.environmentalZones != environmentalZones ||
+      old.overlayMode != overlayMode;
 }
 
 /// Draws a route line (either multi-point waypoints or direct segment) between coordinates.
