@@ -212,8 +212,6 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
 
           final colorHex =
               '#${(areaColor.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
-          final borderHex =
-              '#${(zone.solidAqiColor.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
           await controller.addFill(
             ml.FillOptions(
               geometry: [
@@ -223,7 +221,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
               ],
               fillColor: colorHex,
               fillOpacity: areaColor.a,
-              fillOutlineColor: borderHex,
+              fillOutlineColor: colorHex,
             ),
           );
         }
@@ -2080,12 +2078,12 @@ class _JakartaCanvasPainter extends CustomPainter {
           canvas.drawPath(path, Paint()..color = areaColor);
         }
 
-        // Zone perimeter border
+        // Zone perimeter border (whisper-thin, barely visible)
         canvas.drawPath(
           path,
           Paint()
-            ..color = zone.solidAqiColor.withValues(alpha: 0.35)
-            ..strokeWidth = 1.0
+            ..color = zone.solidAqiColor.withValues(alpha: 0.035)
+            ..strokeWidth = 0.5
             ..style = PaintingStyle.stroke,
         );
 
@@ -2247,8 +2245,8 @@ class _JakartaCanvasPainter extends CustomPainter {
     canvas.clipPath(clipPath);
 
     final rainPaint = Paint()
-      ..color = const Color(0xFF60A5FA).withValues(alpha: 0.35)
-      ..strokeWidth = 1.0
+      ..color = const Color(0xFF60A5FA).withValues(alpha: 0.05)
+      ..strokeWidth = 0.6
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
 

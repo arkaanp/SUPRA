@@ -293,7 +293,7 @@ void main() {
       await tester.tap(find.text('Confirm'));
       await tester.pumpAndSettle();
 
-      // SnackBar confirmation is shown and live tracking indicator appears
+      // Top notification confirmation is shown on top without blocking the bottom
       expect(find.textContaining('Trip confirmed & saved'), findsOneWidget);
       expect(find.textContaining('Live tracking active'), findsOneWidget);
 
@@ -301,12 +301,25 @@ void main() {
       expect(find.text('Confirm'), findsNothing);
       expect(find.text('Cancel Tracking'), findsOneWidget);
 
-      // Dismiss the confirmation snackbar so the button can be tapped directly without hit-test obstruction
-      ScaffoldMessenger.of(tripKey.currentContext!).clearSnackBars();
+      // Tap Cancel Tracking button -> presents confirmation dialog in case user accidentally touched
+      await tester.tap(find.text('Cancel Tracking'));
       await tester.pumpAndSettle();
 
-      // Tap Cancel Tracking button
+      // Verify confirmation dialog prevents accidental cancellation
+      expect(find.text('Cancel Trip Tracking?'), findsOneWidget);
+      expect(find.text('Keep Tracking'), findsOneWidget);
+      expect(find.text('Stop Tracking'), findsOneWidget);
+
+      // Tap "Keep Tracking" -> tracking remains active
+      await tester.tap(find.text('Keep Tracking'));
+      await tester.pumpAndSettle();
+      expect(find.text('Cancel Tracking'), findsOneWidget);
+      expect(find.text('Confirm'), findsNothing);
+
+      // Tap Cancel Tracking again and confirm cancellation
       await tester.tap(find.text('Cancel Tracking'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Stop Tracking'));
       await tester.pumpAndSettle();
 
       // Tracking cancelled: Cancel Tracking is replaced back by "Confirm"

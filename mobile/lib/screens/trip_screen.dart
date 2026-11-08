@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/location.dart';
@@ -129,6 +131,7 @@ class TripScreenState extends State<TripScreen> {
   @override
   void dispose() {
     TripHistoryStore.instance.removeListener(_onTripHistoryStoreChanged);
+    _topNotificationTimer?.cancel();
     _start.dispose();
     _destination.dispose();
     _mapSearchController.dispose();
@@ -531,6 +534,42 @@ class TripScreenState extends State<TripScreen> {
 
   bool _isTrackingActive = false;
 
+  // Floating top notification popup state (never blocks the bottom sheet/buttons)
+  String? _topNotificationMessage;
+  IconData? _topNotificationIcon;
+  Color _topNotificationColor = SupraTheme.brand;
+  Timer? _topNotificationTimer;
+
+  void _showTopNotification({
+    required String message,
+    IconData icon = Icons.navigation_rounded,
+    Color color = SupraTheme.brand,
+    Duration duration = const Duration(seconds: 4),
+  }) {
+    _topNotificationTimer?.cancel();
+    setState(() {
+      _topNotificationMessage = message;
+      _topNotificationIcon = icon;
+      _topNotificationColor = color;
+    });
+    _topNotificationTimer = Timer(duration, () {
+      if (mounted) {
+        setState(() {
+          _topNotificationMessage = null;
+        });
+      }
+    });
+  }
+
+  void _dismissTopNotification() {
+    _topNotificationTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _topNotificationMessage = null;
+      });
+    }
+  }
+
   /// Confirms the trip: saves to TripHistoryStore and backend, focuses map
   /// camera on the start location, and begins tracking user location towards destination.
   Future<void> _confirmTripAndStartTracking() async {
@@ -539,7 +578,6 @@ class TripScreenState extends State<TripScreen> {
       _busy = true;
       _isTrackingActive = true;
     });
-    final messenger = ScaffoldMessenger.of(context);
     final startName = _start.text;
     final destName = _destination.text;
     try {
@@ -565,30 +603,99 @@ class TripScreenState extends State<TripScreen> {
         _mapKey.currentState?.animateToLocation(_startCoord);
       });
 
-      // 4. Confirmation notification
-      messenger.showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.navigation_rounded, color: Colors.white, size: 20),
-              const SizedBox(width: 8),
+      // 4. Confirmation notification displayed on top (not blocking the bottom buttons)
+      if (mounted) {
+        _showTopNotification(
+          message:
+              'Trip confirmed & saved (${saved.frequency}x)! Tracking location from $startName to $destName',
+          icon: Icons.navigation_rounded,
+          color: SupraTheme.brand,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showTopNotification(
+          message: 'Trip tracking error: $e',
+          icon: Icons.error_outline,
+          color: const Color(0xFFEF4444),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Prompts a confirmation dialog before cancelling live trip tracking to prevent accidental touches.
+  Future<void> _promptCancelTrackingConfirmation() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: const [
+              Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 24),
+              SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Trip confirmed & saved (${saved.frequency}x)! Tracking location from $startName to $destName',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
+                  'Cancel Trip Tracking?',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: SupraTheme.onSurface,
+                  ),
                 ),
               ),
             ],
           ),
-          backgroundColor: SupraTheme.brand,
-          duration: const Duration(seconds: 3),
-        ),
-      );
-    } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('Trip tracking error: $e')));
-    } finally {
-      if (mounted) setState(() => _busy = false);
+          content: Text(
+            'Are you sure you want to stop tracking this trip to ${_destination.text}? Your saved route will remain in Trip History.',
+            style: const TextStyle(
+              fontSize: 13,
+              color: SupraTheme.textSecondary,
+              height: 1.4,
+            ),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text(
+                'Keep Tracking',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: SupraTheme.textSecondary,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                elevation: 0,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text(
+                'Stop Tracking',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true && mounted) {
+      _cancelTracking();
     }
   }
 
@@ -602,10 +709,70 @@ class TripScreenState extends State<TripScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _mapKey.currentState?.fitToRoute(routeWaypoints);
     });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Trip tracking cancelled'),
-        duration: Duration(seconds: 2),
+    _showTopNotification(
+      message: 'Trip tracking cancelled',
+      icon: Icons.info_outline,
+      color: const Color(0xFF475569),
+    );
+  }
+
+  /// Builds a floating top notification popup that displays confirmations
+  /// without obstructing or blocking the bottom sheet and action buttons.
+  Widget _buildTopNotificationPopup() {
+    if (_topNotificationMessage == null) return const SizedBox.shrink();
+
+    return Positioned(
+      top: 10,
+      left: 12,
+      right: 12,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: _topNotificationColor,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x33000000),
+                blurRadius: 10,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              if (_topNotificationIcon != null) ...[
+                Icon(_topNotificationIcon, color: Colors.white, size: 20),
+                const SizedBox(width: 10),
+              ],
+              Expanded(
+                child: Text(
+                  _topNotificationMessage!,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12.5,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: _dismissTopNotification,
+                child: const Padding(
+                  padding: EdgeInsets.all(2),
+                  child: Icon(
+                    Icons.close,
+                    color: Colors.white70,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -629,12 +796,14 @@ class TripScreenState extends State<TripScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
       body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: Stack(
           children: [
-            // =================================================================
-            // 1. TOP MAP (Always movable/zoomable even when read-only)
-            // =================================================================
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // =================================================================
+                // 1. TOP MAP (Always movable/zoomable even when read-only)
+                // =================================================================
             if (!_isSheetExpanded)
               Expanded(
                 flex: mapFlex,
@@ -911,8 +1080,12 @@ class TripScreenState extends State<TripScreen> {
             ),
           ],
         ),
-      ),
-    );
+        // Floating top notification popup (does not block the bottom)
+        _buildTopNotificationPopup(),
+      ],
+    ),
+  ),
+);
   }
 
   /// Builds the top grey bar handle that only allows expanding to full screen
@@ -1275,7 +1448,7 @@ class TripScreenState extends State<TripScreen> {
                         ),
                         elevation: 2,
                       ),
-                      onPressed: _busy ? null : _cancelTracking,
+                      onPressed: _busy ? null : _promptCancelTrackingConfirmation,
                     )
                   : ElevatedButton.icon(
                       icon: _busy

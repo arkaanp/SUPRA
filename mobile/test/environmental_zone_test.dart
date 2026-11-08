@@ -127,7 +127,7 @@ void main() {
       expect(rainingZone.descriptiveLabel, contains('🌧️ 4.5 mm'));
     });
 
-    test('pm25Color and rainColor provide clearly noticeable overlays', () {
+    test('pm25Color and rainColor maintain ultra-low opacity to be barely visible', () {
       const goodZone = EnvironmentalZone(
         id: 'g',
         name: 'G',
@@ -165,12 +165,13 @@ void main() {
         isRaining: true,
       );
 
-      // Verify opacity is clearly visible and noticeable
-      expect(goodZone.pm25Color.a, greaterThanOrEqualTo(0.20));
-      expect(modZone.pm25Color.a, greaterThanOrEqualTo(0.25));
-      expect(unhZone.pm25Color.a, greaterThanOrEqualTo(0.40));
-      expect(hazZone.pm25Color.a, greaterThanOrEqualTo(0.65));
-      expect(rainZone.rainColor.a, greaterThanOrEqualTo(0.35));
+      // Verify opacity is barely visible (all single <= 0.08, composite <= 0.12)
+      expect(goodZone.pm25Color.a, lessThanOrEqualTo(0.03));
+      expect(modZone.pm25Color.a, lessThanOrEqualTo(0.04));
+      expect(unhZone.pm25Color.a, lessThanOrEqualTo(0.06));
+      expect(hazZone.pm25Color.a, lessThanOrEqualTo(0.08));
+      expect(rainZone.rainColor.a, lessThanOrEqualTo(0.06));
+      expect(rainZone.compositeAreaColor.a, lessThanOrEqualTo(0.12));
     });
 
     test('contains correctly checks polygon boundaries', () {

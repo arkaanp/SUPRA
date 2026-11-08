@@ -55,24 +55,25 @@ class EnvironmentalZone {
 
   /// Calculates the area fill color for air pollution.
   /// Rule: "and the color should get darker the more bad it is."
-  /// Visible, translucent overlay so conditions are clear while streets stay discernible.
+  /// Opacity is tuned to be ultra-low and barely visible (0.015 – 0.065)
+  /// so underlying streets, geography, and basemap features stay completely crisp.
   Color get pm25Color {
     if (pm25 <= 12.0) {
-      // Good: Green (clean, subtle green)
-      return const Color(0xFF22C55E).withValues(alpha: 0.22);
+      // Good: Green (lightest barely visible tint)
+      return const Color(0xFF22C55E).withValues(alpha: 0.015);
     } else if (pm25 <= 35.4) {
       // Moderate: Amber / Yellow
-      return const Color(0xFFEAB308).withValues(alpha: 0.30);
+      return const Color(0xFFEAB308).withValues(alpha: 0.020);
     } else if (pm25 <= 55.4) {
       // Unhealthy for Sensitive Groups: Deep Orange
-      return const Color(0xFFF97316).withValues(alpha: 0.40);
+      return const Color(0xFFF97316).withValues(alpha: 0.028);
     } else if (pm25 <= 150.4) {
       // Unhealthy: Red (progressively darker red as PM2.5 climbs from 55 to 150)
       final factor = ((pm25 - 55.4) / 95.0).clamp(0.0, 1.0);
       final r = (239 - (factor * 75)).round(); // 239 -> 164 (dark ruby red)
       final g = (68 - (factor * 42)).round();   // 68 -> 26
       final b = (68 - (factor * 42)).round();   // 68 -> 26
-      final alpha = (0.42 * 255 + factor * 0.20 * 255).round(); // ~0.42 to 0.62
+      final alpha = (0.035 * 255 + factor * 0.015 * 255).round(); // ~0.035 to 0.050
       return Color.fromARGB(alpha, r, g, b);
     } else if (pm25 <= 250.4) {
       // Very Unhealthy: Deep Dark Purple
@@ -80,10 +81,11 @@ class EnvironmentalZone {
       final r = (107 - (factor * 40)).round(); // 107 -> 67
       final g = (33 - (factor * 20)).round();   // 33 -> 13
       final b = (168 - (factor * 60)).round();  // 168 -> 108
-      return Color.fromARGB(160, r, g, b);
+      final alpha = (0.045 * 255 + factor * 0.015 * 255).round(); // ~0.045 to 0.060
+      return Color.fromARGB(alpha, r, g, b);
     } else {
       // Hazardous: Deep Dark Maroon
-      return const Color(0xFF4C0519).withValues(alpha: 0.70);
+      return const Color(0xFF4C0519).withValues(alpha: 0.065);
     }
   }
 
@@ -106,13 +108,14 @@ class EnvironmentalZone {
   }
 
   /// Atmospheric translucent blue for rain areas, getting darker with rainfall rate.
+  /// Opacity is kept barely visible (0.025 – 0.050) so roads remain visible underneath.
   Color get rainColor {
     if (!isRaining && rainfallMm <= 0.2) return Colors.transparent;
     final intensity = (rainfallMm / 10.0).clamp(0.0, 1.0);
     final r = (37 - (intensity * 20)).round();
     final g = (99 - (intensity * 40)).round();
     final b = (235 - (intensity * 45)).round();
-    final alpha = (0.35 * 255 + intensity * 0.25 * 255).round(); // ~0.35 to 0.60
+    final alpha = (0.025 * 255 + intensity * 0.025 * 255).round(); // ~0.025 to 0.050
     return Color.fromARGB(alpha, r, g, b);
   }
 
