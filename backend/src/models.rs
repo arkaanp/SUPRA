@@ -13,6 +13,7 @@ pub struct User {
     pub id: Uuid,
     pub full_name: String,
     pub email: String,
+    pub avatar_url: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -26,6 +27,7 @@ pub struct CreateUser {
 #[serde(deny_unknown_fields)]
 pub struct UpdateUser {
     pub full_name: Option<String>,
+    pub avatar_url: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
