@@ -17,6 +17,7 @@ class SupraMap extends StatelessWidget {
   final List<Prediction> predictions;
   final LatLng start;
   final LatLng destination;
+  final ValueChanged<LatLng>? onTapLocation;
 
   const SupraMap({
     super.key,
@@ -24,6 +25,7 @@ class SupraMap extends StatelessWidget {
     this.predictions = const [],
     required this.start,
     required this.destination,
+    this.onTapLocation,
   });
 
   List<LatLng> get _polyline => route?.waypoints ?? _mockPolyline();
@@ -60,8 +62,9 @@ class SupraMap extends StatelessWidget {
 
   /// Where to draw rain bubbles along the route.
   List<Offset> _rainPoints(Size size) {
+    if (predictions.isEmpty) return const [];
     final List<Offset> out = [];
-    final rainThreshold = 0.5;
+    const rainThreshold = 0.5;
     Offset toPx(LatLng p) {
       // Simple equirectangular projection into the widget bounds.
       final x = 0.08 + (p.longitude - start.longitude) / 0.06 * 0.84;
@@ -70,17 +73,25 @@ class SupraMap extends StatelessWidget {
     }
 
     for (int i = 0; i < _polyline.length; i++) {
-      if (_trafficAt(i) > 0 || predictions.isNotEmpty) {
-        // Use rainfall probability of the nearest prediction hour.
-        final predIdx = (i / (_polyline.length / max(predictions.length, 1)))
-            .round()
-            .clamp(0, predictions.length - 1);
-        if (predictions[predIdx].predictedRainfallProbability > rainThreshold) {
-          out.add(toPx(_polyline[i]));
-        }
+      final predIdx = (i / (_polyline.length / max(predictions.length, 1)))
+          .round()
+          .clamp(0, predictions.length - 1);
+      if (predictions[predIdx].predictedRainfallProbability > rainThreshold) {
+        out.add(toPx(_polyline[i]));
       }
     }
     return out;
+  }
+
+  LatLng _pxToLatLng(Offset pos, Size size) {
+    final normX = (pos.dx / size.width - 0.08) / 0.84;
+    final normY = (0.92 - pos.dy / size.height) / 0.72;
+    final lon = start.longitude + normX * 0.06;
+    final lat = start.latitude + normY * 0.06;
+    return LatLng(
+      latitude: double.parse(lat.toStringAsFixed(4)),
+      longitude: double.parse(lon.toStringAsFixed(4)),
+    );
   }
 
   @override
@@ -88,57 +99,65 @@ class SupraMap extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final size = constraints.biggest;
-        return Stack(
-          children: [
-            // Map canvas: subtle street grid + land.
-            CustomPaint(
-              size: size,
-              painter: _MapCanvasPainter(start, destination, size),
-            ),
-            // Rain bubbles.
-            ..._rainPoints(size).map(
-              (p) => Positioned(
-                left: p.dx - 14,
-                top: p.dy - 14,
-                child: Container(
-                  width: 28,
-                  height: 28,
-                  decoration: BoxDecoration(
-                    color: SupraTheme.rain.withValues(alpha: 0.35),
-                    shape: BoxShape.circle,
-                    border: Border.all(color: SupraTheme.rain, width: 1.5),
+        return GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTapUp: onTapLocation != null
+              ? (details) =>
+                    onTapLocation!(_pxToLatLng(details.localPosition, size))
+              : null,
+          child: Stack(
+            children: [
+              // Map canvas: subtle street grid + land.
+              CustomPaint(
+                size: size,
+                painter: _MapCanvasPainter(start, destination, size),
+              ),
+              // Rain bubbles.
+              ..._rainPoints(size).map(
+                (p) => Positioned(
+                  left: p.dx - 14,
+                  top: p.dy - 14,
+                  child: Container(
+                    width: 28,
+                    height: 28,
+                    decoration: BoxDecoration(
+                      color: SupraTheme.rain.withValues(alpha: 0.35),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: SupraTheme.rain, width: 1.5),
+                    ),
                   ),
                 ),
               ),
-            ),
-            // Route polyline with traffic-colored segments.
-            CustomPaint(
-              size: size,
-              painter: _RoutePolylinePainter(
-                polyline: _polyline,
-                toPx: (LatLng p) {
-                  final x =
-                      0.08 + (p.longitude - start.longitude) / 0.06 * 0.84;
-                  final y = 0.92 - (p.latitude - start.latitude) / 0.06 * 0.72;
-                  return Offset(x * size.width, y * size.height);
-                },
-                trafficAt: _trafficAt,
+              // Route polyline with traffic-colored segments.
+              CustomPaint(
+                size: size,
+                painter: _RoutePolylinePainter(
+                  polyline: _polyline,
+                  toPx: (LatLng p) {
+                    final x =
+                        0.08 + (p.longitude - start.longitude) / 0.06 * 0.84;
+                    final y =
+                        0.92 - (p.latitude - start.latitude) / 0.06 * 0.72;
+                    return Offset(x * size.width, y * size.height);
+                  },
+                  trafficAt: _trafficAt,
+                ),
               ),
-            ),
-            // Start / destination pins.
-            Positioned(
-              left: _toPx(start, size).dx - 10,
-              top: _toPx(start, size).dy - 26,
-              child: _pin(SupraTheme.aqiGood, 'S'),
-            ),
-            Positioned(
-              left: _toPx(destination, size).dx - 10,
-              top: _toPx(destination, size).dy - 26,
-              child: _pin(SupraTheme.aqiUnhealthy, 'D'),
-            ),
-            // Legend.
-            Positioned(left: 12, bottom: 12, child: _legend),
-          ],
+              // Start / destination pins.
+              Positioned(
+                left: _toPx(start, size).dx - 10,
+                top: _toPx(start, size).dy - 26,
+                child: _pin(SupraTheme.aqiGood, 'S'),
+              ),
+              Positioned(
+                left: _toPx(destination, size).dx - 10,
+                top: _toPx(destination, size).dy - 26,
+                child: _pin(SupraTheme.aqiUnhealthy, 'D'),
+              ),
+              // Legend.
+              Positioned(left: 12, bottom: 12, child: _legend),
+            ],
+          ),
         );
       },
     );

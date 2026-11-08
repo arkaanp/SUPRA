@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../models/current_conditions.dart';
+import '../models/location.dart';
 import '../services/supra_api_service.dart';
+import 'interactive_location_map.dart';
 
 /// Explicit lookups only: do not poll paid providers on every rebuild/tab change.
 class CurrentConditionsPanel extends StatefulWidget {
@@ -24,6 +26,7 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
   CurrentConditions? _result;
   bool _loading = false;
   String? _error;
+  bool _showInlineMap = false;
 
   @override
   void dispose() {
@@ -31,6 +34,32 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
     _lon.dispose();
     _adm4.dispose();
     super.dispose();
+  }
+
+  Future<void> _pickOnMap() async {
+    final curLat = double.tryParse(_lat.text.trim()) ?? -6.2;
+    final curLon = double.tryParse(_lon.text.trim()) ?? 106.82;
+    final initial = LatLng(latitude: curLat, longitude: curLon);
+
+    final picked = await showLocationPickerSheet(
+      context: context,
+      initialLocation: initial.isInGreaterJakarta
+          ? initial
+          : const LatLng(latitude: -6.2, longitude: 106.82),
+      title: 'Select location in Greater Jakarta',
+    );
+
+    if (picked != null && mounted) {
+      setState(() {
+        _lat.text = picked.latitude.toStringAsFixed(4);
+        _lon.text = picked.longitude.toStringAsFixed(4);
+        final nearest = findNearestLandmark(picked);
+        if (nearest?.adm4 != null && picked.distanceTo(nearest!.point) < 2.0) {
+          _adm4.text = nearest.adm4!;
+        }
+        _error = null;
+      });
+    }
   }
 
   Future<void> _lookup() async {
@@ -128,6 +157,21 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
     final weather = result?.weather.data;
     final air = result?.airQuality.data;
     final traffic = result?.traffic.data;
+
+    final curLat = double.tryParse(_lat.text.trim());
+    final curLon = double.tryParse(_lon.text.trim());
+    final currentLoc =
+        (curLat != null &&
+            curLon != null &&
+            curLat.isFinite &&
+            curLon.isFinite &&
+            curLat >= -6.9 &&
+            curLat <= -5.8 &&
+            curLon >= 106.3 &&
+            curLon <= 107.3)
+        ? LatLng(latitude: curLat, longitude: curLon)
+        : null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -140,6 +184,7 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
         ),
         Wrap(
           spacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             TextButton(
               onPressed: _loading
@@ -165,8 +210,40 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
                     }),
               child: const Text('Bogor'),
             ),
+            TextButton.icon(
+              icon: const Icon(Icons.map_outlined, size: 16),
+              label: const Text('Pick on map'),
+              onPressed: _loading ? null : _pickOnMap,
+            ),
+            IconButton(
+              icon: Icon(
+                _showInlineMap ? Icons.layers_clear : Icons.layers_outlined,
+                size: 20,
+              ),
+              tooltip: _showInlineMap ? 'Hide map' : 'Show map',
+              onPressed: () => setState(() => _showInlineMap = !_showInlineMap),
+            ),
           ],
         ),
+        if (_showInlineMap) ...[
+          InteractiveLocationMap(
+            height: 220,
+            selectedLocation: currentLoc,
+            onLocationChanged: (location) {
+              setState(() {
+                _lat.text = location.latitude.toStringAsFixed(4);
+                _lon.text = location.longitude.toStringAsFixed(4);
+                final nearest = findNearestLandmark(location);
+                if (nearest?.adm4 != null &&
+                    location.distanceTo(nearest!.point) < 2.0) {
+                  _adm4.text = nearest.adm4!;
+                }
+                _error = null;
+              });
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
         TextField(
           controller: _lat,
           enabled: !_loading,
@@ -174,7 +251,14 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
             decimal: true,
             signed: true,
           ),
-          decoration: const InputDecoration(labelText: 'Latitude'),
+          decoration: InputDecoration(
+            labelText: 'Latitude',
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.pin_drop_outlined),
+              tooltip: 'Select on map',
+              onPressed: _loading ? null : _pickOnMap,
+            ),
+          ),
         ),
         TextField(
           controller: _lon,
@@ -183,7 +267,14 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
             decimal: true,
             signed: true,
           ),
-          decoration: const InputDecoration(labelText: 'Longitude'),
+          decoration: InputDecoration(
+            labelText: 'Longitude',
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.pin_drop_outlined),
+              tooltip: 'Select on map',
+              onPressed: _loading ? null : _pickOnMap,
+            ),
+          ),
         ),
         TextField(
           controller: _adm4,

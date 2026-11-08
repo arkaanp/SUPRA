@@ -12,6 +12,12 @@
 @import app_links;
 #endif
 
+#if __has_include(<maplibre_gl/MapLibreMapsPlugin.h>)
+#import <maplibre_gl/MapLibreMapsPlugin.h>
+#else
+@import maplibre_gl;
+#endif
+
 #if __has_include(<shared_preferences_foundation/SharedPreferencesPlugin.h>)
 #import <shared_preferences_foundation/SharedPreferencesPlugin.h>
 #else
@@ -28,6 +34,7 @@
 
 + (void)registerWithRegistry:(NSObject<FlutterPluginRegistry>*)registry {
   [AppLinksIosPlugin registerWithRegistrar:[registry registrarForPlugin:@"AppLinksIosPlugin"]];
+  [MapLibreMapsPlugin registerWithRegistrar:[registry registrarForPlugin:@"MapLibreMapsPlugin"]];
   [SharedPreferencesPlugin registerWithRegistrar:[registry registrarForPlugin:@"SharedPreferencesPlugin"]];
   [URLLauncherPlugin registerWithRegistrar:[registry registrarForPlugin:@"URLLauncherPlugin"]];
 }
