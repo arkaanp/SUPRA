@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'location.dart';
 import 'trip.dart';
@@ -106,6 +108,7 @@ class SavedTrip {
 
   Map<String, dynamic> toJson() => {
         'id': id,
+        if (name != null) 'name': name,
         'start': start,
         'destination': destination,
         'start_lat': startPoint.latitude,
@@ -115,15 +118,36 @@ class SavedTrip {
         'last_used': lastUsed.toIso8601String(),
         'frequency': frequency,
       };
+
+  factory SavedTrip.fromJson(Map<String, dynamic> json) => SavedTrip(
+        id: json['id'] as String? ?? 'trip_${DateTime.now().millisecondsSinceEpoch}',
+        name: json['name'] as String?,
+        start: json['start'] as String? ?? '',
+        destination: json['destination'] as String? ?? '',
+        startPoint: LatLng(
+          latitude: (json['start_lat'] as num?)?.toDouble() ?? -6.2,
+          longitude: (json['start_lng'] as num?)?.toDouble() ?? 106.8,
+        ),
+        destPoint: LatLng(
+          latitude: (json['dest_lat'] as num?)?.toDouble() ?? -6.2,
+          longitude: (json['dest_lng'] as num?)?.toDouble() ?? 106.8,
+        ),
+        lastUsed: json['last_used'] != null
+            ? (DateTime.tryParse(json['last_used'] as String) ?? DateTime.now())
+            : DateTime.now(),
+        frequency: (json['frequency'] as num?)?.toInt() ?? 1,
+      );
 }
 
 /// Central store for saved trips and commute history.
 /// Notifies listeners when trips are added, updated, frequency-reduced, or deleted.
 class TripHistoryStore extends ChangeNotifier {
   static final TripHistoryStore instance = TripHistoryStore._internal();
+  static const String _storageKey = 'supra_saved_trips_v1';
 
   TripHistoryStore._internal() {
     _initDefaultTrips();
+    _loadFromStorage();
   }
 
   final List<SavedTrip> _trips = [];
@@ -131,6 +155,48 @@ class TripHistoryStore extends ChangeNotifier {
   List<SavedTrip> get trips => List.unmodifiable(_trips);
 
   int get totalTripCount => _trips.fold(0, (sum, t) => sum + t.frequency);
+
+  /// Loads persisted trips from local device storage across app sessions.
+  Future<void> loadFromStorage() async {
+    await _loadFromStorage();
+  }
+
+  /// Persists current trips and counters to local device storage.
+  Future<void> persistToStorage() async {
+    await _persistToStorage();
+  }
+
+  /// Loads persisted trips from local device storage across app sessions.
+  Future<void> _loadFromStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_storageKey);
+      if (raw != null && raw.isNotEmpty) {
+        final decoded = jsonDecode(raw) as List<dynamic>;
+        final loaded = decoded
+            .map((item) => SavedTrip.fromJson(item as Map<String, dynamic>))
+            .toList();
+        if (loaded.isNotEmpty) {
+          _trips.clear();
+          _trips.addAll(loaded);
+          notifyListeners();
+        }
+      }
+    } catch (_) {
+      // Gracefully retain initial default trips if storage is unavailable
+    }
+  }
+
+  /// Persists current trips and counters to local device storage.
+  Future<void> _persistToStorage() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final serialized = jsonEncode(_trips.map((t) => t.toJson()).toList());
+      await prefs.setString(_storageKey, serialized);
+    } catch (_) {
+      // Silently ignore storage persistence errors
+    }
+  }
 
   /// Commute pattern: Routes traveled 3 or more times, representing established daily commute habits
   List<SavedTrip> get frequentCommutes =>
@@ -186,7 +252,10 @@ class TripHistoryStore extends ChangeNotifier {
         changed = true;
       }
     }
-    if (changed) notifyListeners();
+    if (changed) {
+      notifyListeners();
+      _persistToStorage();
+    }
   }
 
   void _initDefaultTrips() {
@@ -270,6 +339,7 @@ class TripHistoryStore extends ChangeNotifier {
       );
       _trips[existingIndex] = updated;
       notifyListeners();
+      _persistToStorage();
       return updated;
     } else {
       final newTrip = SavedTrip(
@@ -283,6 +353,7 @@ class TripHistoryStore extends ChangeNotifier {
       );
       _trips.insert(0, newTrip);
       notifyListeners();
+      _persistToStorage();
       return newTrip;
     }
   }
@@ -295,6 +366,7 @@ class TripHistoryStore extends ChangeNotifier {
       _trips.add(trip);
     }
     notifyListeners();
+    _persistToStorage();
   }
 
   /// Reduces frequency of a trip by 1. If frequency drops to 0 or below, removes it.
@@ -307,10 +379,12 @@ class TripHistoryStore extends ChangeNotifier {
       final updated = trip.copyWith(frequency: trip.frequency - 1);
       _trips[index] = updated;
       notifyListeners();
+      _persistToStorage();
       return updated; // Still exists with reduced frequency
     } else {
       _trips.removeAt(index);
       notifyListeners();
+      _persistToStorage();
       return null; // Removed completely
     }
   }
@@ -321,16 +395,22 @@ class TripHistoryStore extends ChangeNotifier {
     if (index < 0) return null;
     final removed = _trips.removeAt(index);
     notifyListeners();
+    _persistToStorage();
     return removed;
   }
 
   @visibleForTesting
-  void resetForTesting([List<SavedTrip>? customTrips]) {
+  void resetForTesting([List<SavedTrip>? customTrips, bool clearStorage = true]) {
     _trips.clear();
     if (customTrips != null) {
       _trips.addAll(customTrips);
     } else {
       _initDefaultTrips();
+    }
+    if (clearStorage) {
+      SharedPreferences.getInstance()
+          .then((p) => p.remove(_storageKey))
+          .catchError((_) => false);
     }
     notifyListeners();
   }

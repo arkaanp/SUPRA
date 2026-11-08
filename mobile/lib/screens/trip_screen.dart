@@ -1671,11 +1671,37 @@ class TripScreenState extends State<TripScreen> {
           ),
           const SizedBox(height: 8),
 
-          // Loading indicator for route calculations
+          // Loading indicator for route calculations: Expanded to fill the sheet area smoothly
           if (_loadingRoutes)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Center(child: CircularProgressIndicator()),
+            const Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(
+                      color: SupraTheme.brand,
+                      strokeWidth: 3,
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      'Calculating optimal eco-routes...',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: SupraTheme.onSurface,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Analyzing air quality, weather & live traffic',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: SupraTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             )
           // Live autocomplete search dropdown results
           else if (_searchResults.isNotEmpty)
@@ -1730,27 +1756,28 @@ class TripScreenState extends State<TripScreen> {
 
           const SizedBox(height: 4),
 
-          // Explicit "Show Route" Button: Confirms both locations before displaying route!
-          SizedBox(
-            width: double.infinity,
-            height: 40,
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.alt_route, size: 18),
-              label: const Text(
-                'Show Route',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: SupraTheme.brand,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+          // Explicit "Show Route" Button: Erased while loading so it never appears in the middle
+          if (!_loadingRoutes)
+            SizedBox(
+              width: double.infinity,
+              height: 40,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.alt_route, size: 18),
+                label: const Text(
+                  'Show Route',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
                 ),
-                elevation: 2,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: SupraTheme.brand,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 2,
+                ),
+                onPressed: _destCoord == null ? null : _fetchRoutes,
               ),
-              onPressed: _destCoord == null ? null : _fetchRoutes,
             ),
-          ),
         ],
       ),
     );

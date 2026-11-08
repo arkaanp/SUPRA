@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supra_mobile_ui/models/environmental_zone.dart';
 import 'package:supra_mobile_ui/models/location.dart';
 import 'package:supra_mobile_ui/models/saved_trip.dart';
@@ -106,6 +107,35 @@ void main() {
       );
       expect(newTrip.frequency, 1);
       expect(store.trips.length, initialCount + 1);
+    });
+
+    test('TripHistoryStore persists updated trips and frequencies to SharedPreferences', () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = TripHistoryStore.instance;
+
+      store.saveTrip(
+        start: 'Monas (Central Jakarta)',
+        destination: 'Grand Indonesia Mall',
+        startPoint: const LatLng(latitude: -6.1754, longitude: 106.8272),
+        destPoint: const LatLng(latitude: -6.1950, longitude: 106.8200),
+      );
+      await store.persistToStorage();
+
+      final prefs = await SharedPreferences.getInstance();
+      final storedRaw = prefs.getString('supra_saved_trips_v1');
+      expect(storedRaw, isNotNull);
+      expect(storedRaw, contains('Grand Indonesia Mall'));
+      expect(storedRaw, contains('"frequency":6'));
+
+      // Test loading from storage across app restarts
+      store.resetForTesting([], false);
+      expect(store.trips, isEmpty);
+      await store.loadFromStorage();
+      expect(store.trips, isNotEmpty);
+      expect(
+        store.trips.any((t) => t.destination == 'Grand Indonesia Mall' && t.frequency == 6),
+        isTrue,
+      );
     });
 
     test('reduceFrequency decrements count by 1 and removes when count reaches 0', () {
