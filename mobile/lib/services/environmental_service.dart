@@ -52,6 +52,9 @@ class EnvironmentalService {
       rainfallMm: 0.0,
       rainProbability: 0.0,
       isRaining: false,
+      isCloudy: true,
+      windDirectionDegrees: 75.0,
+      windSpeedKmh: 14.0,
     ),
 
     // 3. West Jakarta (Barat) - Arterial freight & commercial hubs
@@ -160,6 +163,9 @@ class EnvironmentalService {
       rainfallMm: 0.0,
       rainProbability: 0.0,
       isRaining: false,
+      isCloudy: true,
+      windDirectionDegrees: 120.0,
+      windSpeedKmh: 10.0,
     ),
 
     // 9. Tangerang & South Tangerang (Tangsel / BSD)
@@ -196,6 +202,9 @@ class EnvironmentalService {
       rainfallMm: 0.0,
       rainProbability: 0.0,
       isRaining: false,
+      isCloudy: true,
+      windDirectionDegrees: 75.0,
+      windSpeedKmh: 14.0,
     ),
   ];
 
@@ -243,7 +252,7 @@ class EnvironmentalService {
     );
     final wxUri = Uri.parse(
       'https://api.open-meteo.com/v1/forecast?'
-      'latitude=$lats&longitude=$lons&current=precipitation,rain',
+      'latitude=$lats&longitude=$lons&current=precipitation,rain,cloud_cover,wind_speed_10m,wind_direction_10m',
     );
 
     try {
@@ -281,6 +290,9 @@ class EnvironmentalService {
         final zone = defaultZones[i];
         double realPm = zone.pm25;
         double realRain = zone.rainfallMm;
+        double realWindDir = zone.windDirectionDegrees;
+        double realWindSpd = zone.windSpeedKmh;
+        bool realCloudy = zone.isCloudy;
 
         if (i < aqList.length && aqList[i] is Map<String, dynamic>) {
           final cur = aqList[i]['current'] as Map<String, dynamic>?;
@@ -297,6 +309,18 @@ class EnvironmentalService {
           if (rain != null && rain >= 0) {
             realRain = rain;
           }
+          final windDeg = (cur?['wind_direction_10m'] as num?)?.toDouble();
+          if (windDeg != null && windDeg >= 0) {
+            realWindDir = windDeg;
+          }
+          final windSpd = (cur?['wind_speed_10m'] as num?)?.toDouble();
+          if (windSpd != null && windSpd >= 0) {
+            realWindSpd = windSpd;
+          }
+          final cloud = (cur?['cloud_cover'] as num?)?.toDouble();
+          if (cloud != null) {
+            realCloudy = cloud >= 50.0;
+          }
         }
 
         updated.add(
@@ -304,6 +328,9 @@ class EnvironmentalService {
             pm25: realPm,
             rainfallMm: realRain,
             isRaining: realRain > 0.5,
+            isCloudy: realCloudy,
+            windDirectionDegrees: realWindDir,
+            windSpeedKmh: realWindSpd,
           ),
         );
       }

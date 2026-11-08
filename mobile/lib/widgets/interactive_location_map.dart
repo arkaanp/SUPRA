@@ -224,6 +224,29 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
               fillOutlineColor: colorHex,
             ),
           );
+
+          if (zone.isRaining || zone.isCloudy || zone.rainfallMm > 0.5) {
+            final rad = (zone.windDirectionDegrees - 90.0) * (pi / 180.0);
+            final dLat = sin(rad) * 0.012;
+            final dLon = cos(rad) * 0.012;
+            final windColor = zone.isRaining ? '#1D4ED8' : '#475569';
+            await controller.addLine(
+              ml.LineOptions(
+                geometry: [
+                  ml.LatLng(
+                    zone.center.latitude - dLat,
+                    zone.center.longitude - dLon,
+                  ),
+                  ml.LatLng(
+                    zone.center.latitude + dLat,
+                    zone.center.longitude + dLon,
+                  ),
+                ],
+                lineColor: windColor,
+                lineWidth: 2.5,
+              ),
+            );
+          }
         }
       }
 
@@ -2093,6 +2116,12 @@ class _JakartaCanvasPainter extends CustomPainter {
             zone.isRaining) {
           _drawRainStreaks(canvas, path, size);
         }
+
+        // Draw wind direction arrow on rain/cloudy areas
+        if (showEnvironmentalOverlays &&
+            (zone.isRaining || zone.isCloudy || zone.rainfallMm > 0.5)) {
+          _drawWindDirectionArrow(canvas, zone, size);
+        }
       }
     }
 
@@ -2266,6 +2295,105 @@ class _JakartaCanvasPainter extends CustomPainter {
     }
 
     canvas.restore();
+  }
+
+  void _drawWindDirectionArrow(
+    Canvas canvas,
+    EnvironmentalZone zone,
+    Size size,
+  ) {
+    final center = _toPx(zone.center.latitude, zone.center.longitude, size);
+    if (center.dx < -50 ||
+        center.dx > size.width + 50 ||
+        center.dy < -50 ||
+        center.dy > size.height + 50) {
+      return;
+    }
+
+    final deg = zone.windDirectionDegrees;
+    final rad = (deg - 90.0) * (pi / 180.0);
+
+    final bool isRain = zone.isRaining || zone.rainfallMm > 0.5;
+    final arrowColor = isRain
+        ? const Color(0xFF1D4ED8)
+        : const Color(0xFF475569);
+
+    final badgeWidth = 46.0;
+    final badgeHeight = 36.0;
+    final badgeRect = Rect.fromCenter(
+      center: center,
+      width: badgeWidth,
+      height: badgeHeight,
+    );
+
+    final bgPaint = Paint()
+      ..color = Colors.white.withValues(alpha: 0.84)
+      ..style = PaintingStyle.fill;
+    final borderPaint = Paint()
+      ..color = arrowColor.withValues(alpha: 0.28)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 0.8;
+
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(badgeRect, const Radius.circular(8)),
+      bgPaint,
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(badgeRect, const Radius.circular(8)),
+      borderPaint,
+    );
+
+    final weatherSym = isRain ? '🌧️' : '☁️';
+    final labelSpan = TextSpan(
+      text: '$weatherSym ${zone.windSpeedKmh.toStringAsFixed(0)}k',
+      style: TextStyle(
+        fontSize: 8.5,
+        fontWeight: FontWeight.bold,
+        color: arrowColor,
+      ),
+    );
+    final tp = TextPainter(
+      text: labelSpan,
+      textAlign: TextAlign.center,
+      textDirection: TextDirection.ltr,
+    )..layout();
+    tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy - 13));
+
+    final arrowCenter = Offset(center.dx, center.dy + 6);
+    const shaftLen = 14.0;
+    final pStart = Offset(
+      arrowCenter.dx - cos(rad) * (shaftLen / 2),
+      arrowCenter.dy - sin(rad) * (shaftLen / 2),
+    );
+    final pEnd = Offset(
+      arrowCenter.dx + cos(rad) * (shaftLen / 2),
+      arrowCenter.dy + sin(rad) * (shaftLen / 2),
+    );
+
+    final shaftPaint = Paint()
+      ..color = arrowColor
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+
+    canvas.drawLine(pStart, pEnd, shaftPaint);
+
+    const headLen = 4.5;
+    const headAngle = 28.0 * (pi / 180.0);
+    final h1 = Offset(
+      pEnd.dx - headLen * cos(rad - headAngle),
+      pEnd.dy - headLen * sin(rad - headAngle),
+    );
+    final h2 = Offset(
+      pEnd.dx - headLen * cos(rad + headAngle),
+      pEnd.dy - headLen * sin(rad + headAngle),
+    );
+
+    final headPath = Path()
+      ..moveTo(h1.dx, h1.dy)
+      ..lineTo(pEnd.dx, pEnd.dy)
+      ..lineTo(h2.dx, h2.dy);
+    canvas.drawPath(headPath, shaftPaint);
   }
 
   @override

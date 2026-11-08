@@ -22,6 +22,10 @@ class EnvironmentalZone {
   final double rainfallMm;
   final double rainProbability;
   final bool isRaining;
+  final bool isCloudy;
+  final double windDirectionDegrees; // Meteorological angle: 0 = N, 90 = E, 180 = S, 270 = W
+  final double windSpeedKmh;
+  final String? weatherDescription;
 
   const EnvironmentalZone({
     required this.id,
@@ -33,6 +37,10 @@ class EnvironmentalZone {
     required this.rainfallMm,
     this.rainProbability = 0.0,
     this.isRaining = false,
+    this.isCloudy = false,
+    this.windDirectionDegrees = 90.0,
+    this.windSpeedKmh = 12.0,
+    this.weatherDescription,
   });
 
   /// AQI category based on US EPA / Indonesian ISPU standards.
@@ -119,11 +127,37 @@ class EnvironmentalZone {
     return pm25Color;
   }
 
-  /// Human-readable descriptive text showing what PM2.5 and rain it is.
+  /// Returns human-readable 8-point compass cardinal direction (e.g. N, NE, E, SE, S, SW, W, NW).
+  String get cardinalWindDirection {
+    final deg = (windDirectionDegrees % 360 + 360) % 360;
+    if (deg >= 337.5 || deg < 22.5) return 'N';
+    if (deg < 67.5) return 'NE';
+    if (deg < 112.5) return 'E';
+    if (deg < 157.5) return 'SE';
+    if (deg < 202.5) return 'S';
+    if (deg < 247.5) return 'SW';
+    if (deg < 292.5) return 'W';
+    return 'NW';
+  }
+
+  /// Concise weather description (Rainy, Cloudy, or Sunny).
+  String get weatherSummary {
+    if (weatherDescription != null && weatherDescription!.isNotEmpty) {
+      return weatherDescription!;
+    }
+    if (isRaining || rainfallMm > 0.5) return 'Rainy';
+    if (isCloudy) return 'Cloudy';
+    return 'Sunny';
+  }
+
+  /// Human-readable descriptive text showing weather condition, wind, PM2.5 and rain.
   String get descriptiveLabel {
     final hasRain = isRaining || rainfallMm > 0.5;
-    final rainText = hasRain ? '🌧️ ${rainfallMm.toStringAsFixed(1)} mm · ' : '';
-    return '$name · $rainText${pm25.toStringAsFixed(0)} µg/m³ ($aqiCategory)';
+    final weatherText = hasRain
+        ? '🌧️ ${rainfallMm.toStringAsFixed(1)} mm'
+        : (isCloudy ? '☁️ Cloudy' : '☀️ Sunny');
+    final windText = '💨 $cardinalWindDirection ${windSpeedKmh.toStringAsFixed(0)} km/h';
+    return '$name · $weatherText · $windText · ${pm25.toStringAsFixed(0)} µg/m³ ($aqiCategory)';
   }
 
   /// Contextual health and protection advisory for this region.
@@ -164,6 +198,10 @@ class EnvironmentalZone {
     double? rainfallMm,
     double? rainProbability,
     bool? isRaining,
+    bool? isCloudy,
+    double? windDirectionDegrees,
+    double? windSpeedKmh,
+    String? weatherDescription,
   }) {
     return EnvironmentalZone(
       id: id,
@@ -175,6 +213,10 @@ class EnvironmentalZone {
       rainfallMm: rainfallMm ?? this.rainfallMm,
       rainProbability: rainProbability ?? this.rainProbability,
       isRaining: isRaining ?? this.isRaining,
+      isCloudy: isCloudy ?? this.isCloudy,
+      windDirectionDegrees: windDirectionDegrees ?? this.windDirectionDegrees,
+      windSpeedKmh: windSpeedKmh ?? this.windSpeedKmh,
+      weatherDescription: weatherDescription ?? this.weatherDescription,
     );
   }
 }
