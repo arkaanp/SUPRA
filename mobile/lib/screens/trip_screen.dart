@@ -631,8 +631,9 @@ class TripScreenState extends State<TripScreen> {
       context: context,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(18),
           ),
           title: Row(
             children: const [
@@ -658,16 +659,22 @@ class TripScreenState extends State<TripScreen> {
               height: 1.4,
             ),
           ),
-          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
           actions: [
             TextButton(
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
               onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text(
                 'Keep Tracking',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   color: SupraTheme.textSecondary,
-                  fontSize: 14,
+                  fontSize: 13,
                 ),
               ),
             ),
@@ -675,6 +682,8 @@ class TripScreenState extends State<TripScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFDC2626),
                 foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                minimumSize: const Size(128, 42),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
@@ -685,7 +694,7 @@ class TripScreenState extends State<TripScreen> {
                 'Stop Tracking',
                 style: TextStyle(
                   fontWeight: FontWeight.w800,
-                  fontSize: 14,
+                  fontSize: 13,
                 ),
               ),
             ),
