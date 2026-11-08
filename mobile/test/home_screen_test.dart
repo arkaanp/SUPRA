@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:supra_mobile_ui/models/trip.dart';
 import 'package:supra_mobile_ui/screens/home_screen.dart';
+import 'package:supra_mobile_ui/services/supra_api_service.dart';
 
 void main() {
   Widget buildTestableWidget({
-    VoidCallback? onNavigateToTrip,
+    void Function(Trip? trip)? onNavigateToTrip,
     VoidCallback? onNavigateToAlerts,
   }) {
     return MaterialApp(
@@ -60,7 +62,7 @@ void main() {
       expect(find.text('Monas (Central Jakarta)'), findsOneWidget);
     });
 
-    testWidgets('Level 2: Today\'s Air Quality curved card displays all required metrics', (tester) async {
+    testWidgets('Level 2: Today\'s Air Quality curved card displays all required metrics and (?) guides', (tester) async {
       await tester.pumpWidget(buildTestableWidget());
       await tester.pumpAndSettle();
 
@@ -96,22 +98,48 @@ void main() {
       expect(find.byIcon(Icons.air_rounded), findsOneWidget);
       expect(find.text('Wind'), findsOneWidget);
       expect(find.text('8 km/h'), findsOneWidget);
+
+      // Verify question mark (?) icons exist for Air Quality and Rain
+      expect(find.byIcon(Icons.question_mark_rounded), findsNWidgets(2));
+
+      // Tap the first question mark (?) for Air Quality explanation
+      await tester.tap(find.byIcon(Icons.question_mark_rounded).first);
+      await tester.pumpAndSettle();
+      expect(find.text('Understanding Air Quality (AQI)'), findsOneWidget);
+      expect(find.text('AQI Severity Bands & Health Advisory'), findsOneWidget);
+
+      // Dismiss explanation sheet
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+
+      // Tap the second question mark (?) for Rain explanation
+      await tester.tap(find.byIcon(Icons.question_mark_rounded).last);
+      await tester.pumpAndSettle();
+      expect(find.text('Understanding Rain & Commute Risk'), findsOneWidget);
+      expect(find.text('Rainfall Rates & Commuter Precautions'), findsOneWidget);
+
+      // Dismiss rain sheet
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
     });
 
-    testWidgets('Level 3: Next few hours displays combined local forecast with hour boxes', (tester) async {
+    testWidgets('Level 3: Always shows 12-hour forecast without 2h/4h/6h toggle', (tester) async {
       await tester.pumpWidget(buildTestableWidget());
       await tester.pumpAndSettle();
 
-      // Titles
-      expect(find.text('Next few hours'), findsOneWidget);
-      expect(find.text('Combined local forecast'), findsOneWidget);
+      // New descriptive titles matching 12 hours
+      expect(find.text('Next 12 Hours Forecast'), findsOneWidget);
+      expect(
+        find.text('Combined local weather, air quality & temperature predictions'),
+        findsOneWidget,
+      );
 
-      // Filter chips: 2 hr, 4 hr, 6 hr
-      expect(find.text('2 hr'), findsOneWidget);
-      expect(find.text('4 hr'), findsOneWidget);
-      expect(find.text('6 hr'), findsOneWidget);
+      // Ensure 2h 4h 6h toggle option is removed
+      expect(find.text('2 hr'), findsNothing);
+      expect(find.text('4 hr'), findsNothing);
+      expect(find.text('6 hr'), findsNothing);
 
-      // Current hour box
+      // Current hour box is present
       expect(find.text('Now'), findsOneWidget);
 
       // Temperature indicators (e.g. 29°, 31°, 32°)
@@ -119,37 +147,60 @@ void main() {
 
       // AQI prediction badge
       expect(find.textContaining('AQI'), findsWidgets);
-
-      // Switch hours filter to 2 hr
-      await tester.tap(find.text('2 hr'));
-      await tester.pumpAndSettle();
-      expect(find.text('Now'), findsOneWidget);
     });
 
-    testWidgets('Level 4: Plan your commute section navigates to trip planner', (tester) async {
-      bool tripNavigated = false;
+    testWidgets('Level 4: Plan your commute is removed and tapping saved trip navigates to Trip', (tester) async {
+      Trip? selectedTrip;
       await tester.pumpWidget(
-        buildTestableWidget(onNavigateToTrip: () => tripNavigated = true),
+        buildTestableWidget(onNavigateToTrip: (trip) => selectedTrip = trip),
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Plan your commute'), findsOneWidget);
-      expect(find.text('Senayan · 8.4 km away'), findsOneWidget);
+      // Ensure "Plan your commute" section is completely removed
+      expect(find.text('Plan your commute'), findsNothing);
+      expect(find.text('Slow traffic'), findsNothing);
 
-      final planTripFinder = find.text('Plan trip');
-      await tester.ensureVisible(planTripFinder);
+      // Drag vertical scroll to reveal Recent trips
+      final mainScrollable = find.byType(Scrollable).first;
+      await tester.scrollUntilVisible(
+        find.text('Recent trips'),
+        200,
+        scrollable: mainScrollable,
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Recent trips'), findsOneWidget);
+
+      // Add a test trip and rebuild
+      final testTrip = Trip(
+        id: 'test_trip_1',
+        userId: 'u1',
+        name: 'Office Commute',
+        startLocation: 'Kuningan, Jakarta',
+        destination: 'Bundaran HI',
+        plannedDeparture: DateTime.now(),
+      );
+      SupraService.instance.setTripsForTesting([testTrip]);
+
+      await tester.pumpWidget(
+        buildTestableWidget(onNavigateToTrip: (trip) => selectedTrip = trip),
+      );
       await tester.pumpAndSettle();
 
-      expect(planTripFinder, findsOneWidget);
-      expect(find.text('Slow traffic'), findsOneWidget);
-      expect(find.text('Transit'), findsOneWidget);
-      expect(find.text('Car'), findsOneWidget);
-      expect(find.text('Bike'), findsOneWidget);
+      final tripFinder = find.text('Office Commute');
+      await tester.scrollUntilVisible(
+        tripFinder,
+        100,
+        scrollable: mainScrollable,
+      );
+      await tester.pumpAndSettle();
+      expect(tripFinder, findsOneWidget);
 
-      // Tap 'Plan trip'
-      await tester.tap(planTripFinder);
+      await tester.tap(tripFinder);
       await tester.pump();
-      expect(tripNavigated, isTrue);
+
+      expect(selectedTrip, isNotNull);
+      expect(selectedTrip!.name, 'Office Commute');
+      expect(selectedTrip!.destination, 'Bundaran HI');
     });
   });
 }

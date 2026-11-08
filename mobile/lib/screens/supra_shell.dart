@@ -21,6 +21,7 @@ class _SupraShellState extends State<SupraShell> {
   int _index = 0;
   bool _loading = true;
   String? _error;
+  final GlobalKey<TripScreenState> _tripKey = GlobalKey<TripScreenState>();
 
   @override
   void initState() {
@@ -44,10 +45,20 @@ class _SupraShellState extends State<SupraShell> {
 
   List<Widget> get _pages => [
     HomeScreen(
-      onNavigateToTrip: () => setState(() => _index = 1),
+      onNavigateToTrip: (trip) {
+        setState(() => _index = 1);
+        if (trip != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _tripKey.currentState?.loadAndShowRoute(
+              start: trip.startLocation,
+              destination: trip.destination,
+            );
+          });
+        }
+      },
       onNavigateToAlerts: () => setState(() => _index = 3),
     ),
-    TripScreen(),
+    TripScreen(key: _tripKey),
     ChatScreen(),
     NotificationsScreen(),
     SettingsScreen(),

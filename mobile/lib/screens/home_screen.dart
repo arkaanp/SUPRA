@@ -4,12 +4,13 @@ import 'package:flutter/material.dart';
 import '../models/current_conditions.dart';
 import '../models/environmental_zone.dart';
 import '../models/location.dart';
+import '../models/trip.dart';
 import '../services/environmental_service.dart';
 import '../services/supra_api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/interactive_location_map.dart';
 
-/// Hourly forecast data point for the "Next few hours" combined local forecast.
+/// Hourly forecast data point for the 12-hour combined local forecast.
 class HourlyForecast {
   final String time;
   final IconData weatherIcon;
@@ -37,11 +38,12 @@ class HourlyForecast {
 /// Home screen dashboard implementing the GUI specifications from Part 3.6 of the
 /// SWE Project Report:
 /// 1. Top Header: Logo + SUPRA wordmark graphic, interactive location selector with 'v' arrow, and notification bell.
-/// 2. Today's Air Quality Card: Curved-corner card with AQI number, category badge, source, health advisory, and 3 horizontal metrics (Rain, Traffic, Wind).
-/// 3. Next Few Hours: Combined local forecast with horizontal prediction boxes (Time, Weather Symbol, Temperature, AQI).
-/// 4. Plan Your Commute: Quick commute shortcut with route summary and travel modes.
+/// 2. Today's Air Quality Card: Curved-corner card with AQI number, category badge, source, health advisory,
+///    interactive (?) explainability guides for air quality & rain, and 3 horizontal metrics (Rain, Traffic, Wind).
+/// 3. Next 12 Hours Forecast: Combined local forecast with 12-hour horizontal prediction boxes (Time, Weather Symbol, Temperature, AQI).
+/// 4. Recent Trips: Displays saved routes with direct tap-to-inspect in the Trip planner.
 class HomeScreen extends StatefulWidget {
-  final VoidCallback? onNavigateToTrip;
+  final void Function(Trip? trip)? onNavigateToTrip;
   final VoidCallback? onNavigateToAlerts;
 
   const HomeScreen({
@@ -59,8 +61,6 @@ class _HomeScreenState extends State<HomeScreen> {
   String _selectedLocationName = 'Kuningan, Jakarta';
   LatLng _selectedLocation = const LatLng(latitude: -6.2297, longitude: 106.8295);
   String? _selectedAdm4 = '31.74.02.1001';
-
-  int _forecastHoursFilter = 4; // 2, 4, or 6 hours filter from Figma design
 
   bool _loading = false;
   CurrentConditions? _liveConditions;
@@ -165,7 +165,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Generates progressive hourly forecasts for the "Next few hours" section.
+  /// Generates progressive hourly forecasts for the next 12 hours.
   List<HourlyForecast> _generateHourlyForecasts(int currentAqi, int count) {
     final now = DateTime.now();
     final forecasts = <HourlyForecast>[];
@@ -213,9 +213,8 @@ class _HomeScreenState extends State<HomeScreen> {
       // Atmospheric AQI curve based on rush hour traffic accumulation
       int hourlyAqi = currentAqi;
       if (i > 0) {
-        // Slight natural drift (+4 to +15 depending on hour)
         final drift = ((sin((hourNum - 8) / 3.0) * 12).round());
-        hourlyAqi = (currentAqi + (i * 3) + drift).clamp(35, 180);
+        hourlyAqi = (currentAqi + (i * 2) + drift).clamp(35, 180);
       }
 
       final meta = _getAqiMeta(hourlyAqi);
@@ -425,6 +424,364 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Explains what the Air Quality Index (AQI) and PM2.5 values mean.
+  void _showAirQualityExplanation() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        final bands = [
+          (
+            '0 - 50',
+            'Good',
+            const Color(0xFF22C55E),
+            const Color(0xFFDCFCE7),
+            'Air quality is satisfactory. Safe for all outdoor activities and open ventilation.',
+          ),
+          (
+            '51 - 100',
+            'Moderate',
+            const Color(0xFFCA8A04),
+            const Color(0xFFFEF08A),
+            'Air is acceptable. Sensitive individuals (asthma/allergies) should limit prolonged outdoor exertion.',
+          ),
+          (
+            '101 - 150',
+            'Unhealthy for Sensitive Groups',
+            const Color(0xFFEA580C),
+            const Color(0xFFFFEDD5),
+            'Elderly, children, and people with lung disease at risk. Motorcyclists and cyclists should wear masks.',
+          ),
+          (
+            '151 - 200',
+            'Unhealthy',
+            const Color(0xFFDC2626),
+            const Color(0xFFFEE2E2),
+            'Everyone may experience health effects. Wear N95 respirator masks outdoors; keep car windows closed with AC recirculation.',
+          ),
+          (
+            '201 - 300',
+            'Very Unhealthy',
+            const Color(0xFF7C3AED),
+            const Color(0xFFF3E8FF),
+            'Health alert: serious risk for everyone. Avoid non-essential outdoor commuting.',
+          ),
+          (
+            '301+',
+            'Hazardous',
+            const Color(0xFF881337),
+            const Color(0xFFFFE4E6),
+            'Emergency conditions: entire population is likely affected. Stay indoors.',
+          ),
+        ];
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFCBD5E1),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: SupraTheme.brand.withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(Icons.air_rounded, color: SupraTheme.brand, size: 22),
+                      ),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text(
+                          'Understanding Air Quality (AQI)',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: SupraTheme.onSurface,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'The Air Quality Index (AQI) converts fine particulate matter (PM2.5) concentrations from environmental sensors into a simple 0 to 500 health scale. PM2.5 particles are small enough to penetrate deep into lungs and enter the bloodstream.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.4,
+                      color: SupraTheme.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'AQI Severity Bands & Health Advisory',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: SupraTheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  for (final b in bands)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: b.$4,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              b.$1,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: b.$3,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  b.$2,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: b.$3,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  b.$5,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    height: 1.3,
+                                    color: Color(0xFF475569),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// Explains what the rainfall accumulation (mm) and rain probability (%) mean.
+  void _showRainExplanation() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        final rainLevels = [
+          (
+            '< 0.5 mm',
+            'Drizzle / Dry',
+            const Color(0xFF64748B),
+            const Color(0xFFF1F5F9),
+            'Negligible road accumulation. Safe for standard commuting without wet gear.',
+          ),
+          (
+            '0.5 - 2.5 mm',
+            'Light Rain',
+            const Color(0xFF0284C7),
+            const Color(0xFFE0F2FE),
+            'Road paint markings, zebra crossings, and metal expansion joints become slippery. Motorcyclists should reduce cornering speed.',
+          ),
+          (
+            '2.5 - 10 mm',
+            'Moderate Rain',
+            const Color(0xFF2563EB),
+            const Color(0xFFDBEAFE),
+            'Active water spray from tires, reduced braking distance. Equip waterproof raincoat gear and headlights.',
+          ),
+          (
+            '> 10 mm',
+            'Heavy Rain / Downpour',
+            const Color(0xFF1D4ED8),
+            const Color(0xFFBFDBFE),
+            'High risk of hydroplaning, poor visibility, and water ponding / flash floods on Greater Jakarta arterial roads and underpasses.',
+          ),
+        ];
+
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFCBD5E1),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF3B82F6).withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.umbrella_rounded,
+                          color: Color(0xFF3B82F6),
+                          size: 22,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      const Expanded(
+                        child: Text(
+                          'Understanding Rain & Commute Risk',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: SupraTheme.onSurface,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(ctx),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Rain metrics show either active precipitation accumulation rate (in millimeters) or probability percentage (% chance of rain during the forecast hour).',
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.4,
+                      color: SupraTheme.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Rainfall Rates & Commuter Precautions',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 14,
+                      color: SupraTheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  for (final r in rainLevels)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: r.$4,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              r.$1,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: r.$3,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  r.$2,
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    color: r.$3,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  r.$5,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    height: 1.3,
+                                    color: Color(0xFF475569),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final service = SupraService.instance;
@@ -470,11 +827,8 @@ class _HomeScreenState extends State<HomeScreen> {
         (liveWeather?['wind_speed_kmh'] as num?)?.toDouble() ?? 8.0;
     final String windValue = '${windSpeed.toStringAsFixed(0)} km/h';
 
-    // Forecast items for horizontal list (filtered by 2hr, 4hr, 6hr)
-    final forecastItems = _generateHourlyForecasts(
-      currentAqi,
-      _forecastHoursFilter + 1,
-    );
+    // Forecast items: always next 12 hours (13 items total: Now + 12 hours ahead)
+    final forecastItems = _generateHourlyForecasts(currentAqi, 13);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -519,21 +873,14 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 28),
 
               // -------------------------------------------------------------
-              // 3. NEXT FEW HOURS (COMBINED LOCAL FORECAST)
+              // 3. NEXT 12 HOURS (COMBINED LOCAL FORECAST)
               // -------------------------------------------------------------
               _buildNextFewHoursSection(forecastItems),
 
               const SizedBox(height: 28),
 
               // -------------------------------------------------------------
-              // 4. PLAN YOUR COMMUTE (Figma Design Section)
-              // -------------------------------------------------------------
-              _buildPlanYourCommuteSection(service),
-
-              const SizedBox(height: 24),
-
-              // -------------------------------------------------------------
-              // 5. RECENT TRIPS SUMMARY
+              // 4. RECENT TRIPS SUMMARY (TAP TO SHOW IN TRIP PLANNER)
               // -------------------------------------------------------------
               _buildRecentTripsSection(service),
 
@@ -701,12 +1048,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// 2. TODAY'S AIR QUALITY Curved Card:
-  /// - Top: TODAY'S AIR QUALITY
+  /// - Top: TODAY'S AIR QUALITY + (?) help button explaining AQI and PM2.5
   /// - Number on the left
   /// - Right of number: top is category (e.g. Moderate), bottom is source (US AQI)
   /// - Below number: health description
   /// - Bottom divided into three horizontal metrics:
-  ///   Left: Umbrella symbol, Weather, value
+  ///   Left: Umbrella symbol, Weather, value, and (?) help button explaining Rain
   ///   Middle: Traffic symbol, Traffic, value
   ///   Right: Wind symbol, Wind, value
   Widget _buildTodaysAirQualityCard({
@@ -792,15 +1139,40 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header: TODAY'S AIR QUALITY
-                Text(
-                  "TODAY'S AIR QUALITY",
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.6,
-                    color: Colors.white.withValues(alpha: 0.8),
-                  ),
+                // Header: TODAY'S AIR QUALITY + (?) help icon button
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      "TODAY'S AIR QUALITY",
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.6,
+                        color: Colors.white.withValues(alpha: 0.8),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    InkWell(
+                      onTap: _showAirQualityExplanation,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.7),
+                            width: 1.2,
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.question_mark_rounded,
+                          size: 11,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
 
@@ -887,12 +1259,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 // Divided into three parts horizontally: Left (Umbrella), Middle (Traffic), Right (Wind)
                 Row(
                   children: [
-                    // LEFT: Umbrella symbol, Weather, value
+                    // LEFT: Umbrella symbol, Weather, value, and (?) help button
                     Expanded(
                       child: _buildMetricItem(
                         icon: Icons.umbrella_rounded,
                         topLabel: weatherLabel,
                         bottomValue: rainValue,
+                        onHelpTap: _showRainExplanation,
                       ),
                     ),
 
@@ -942,6 +1315,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required IconData icon,
     required String topLabel,
     required String bottomValue,
+    VoidCallback? onHelpTap,
   }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -960,20 +1334,49 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(width: 8),
 
-          // Right top is label, right bottom is value
+          // Right top is label (with optional (?) icon), right bottom is value
           Flexible(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(
-                  topLabel,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.white.withValues(alpha: 0.8),
-                  ),
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        topLabel,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500,
+                          color: Colors.white.withValues(alpha: 0.8),
+                        ),
+                      ),
+                    ),
+                    if (onHelpTap != null) ...[
+                      const SizedBox(width: 3),
+                      InkWell(
+                        onTap: onHelpTap,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.all(1.5),
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.6),
+                              width: 0.9,
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.question_mark_rounded,
+                            size: 8,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 Text(
                   bottomValue,
@@ -992,86 +1395,32 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// 3. Next Few Hours (Combined Local Forecast):
-  /// - Left: "Next few hours" on top, "Combined local forecast" below
-  /// - Right: Segmented hours chip toggle (2 hr, 4 hr, 6 hr)
-  /// - Horizontally scrolling boxes containing Time, Weather Symbol, Temperature, AQI
+  /// 3. Next 12 Hours (Combined Local Forecast):
+  /// - Left: "Next 12 Hours Forecast" on top, "Combined local weather, air quality & temperature predictions" below
+  /// - Horizontally scrolling boxes containing Time, Weather Symbol, Temperature, AQI for the full 12 hours
   Widget _buildNextFewHoursSection(List<HourlyForecast> forecastItems) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // Section Header Row
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Text(
-                  'Next few hours',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF0F172A),
-                  ),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  'Combined local forecast',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                    color: Color(0xFF64748B),
-                  ),
-                ),
-              ],
-            ),
-
-            // Segmented hours filter (2 hr | 4 hr | 6 hr)
-            Container(
-              padding: const EdgeInsets.all(3),
-              decoration: BoxDecoration(
-                color: const Color(0xFFE2E8F0),
-                borderRadius: BorderRadius.circular(16),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text(
+              'Next 12 Hours Forecast',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F172A),
               ),
-              child: Row(
-                children: [2, 4, 6].map((hours) {
-                  final isSelected = _forecastHoursFilter == hours;
-                  return GestureDetector(
-                    onTap: () => setState(() => _forecastHoursFilter = hours),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: isSelected ? Colors.white : Colors.transparent,
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: isSelected
-                            ? [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.06),
-                                  blurRadius: 4,
-                                  offset: const Offset(0, 1),
-                                ),
-                              ]
-                            : null,
-                      ),
-                      child: Text(
-                        '$hours hr',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight:
-                              isSelected ? FontWeight.bold : FontWeight.w500,
-                          color: isSelected
-                              ? const Color(0xFF0F172A)
-                              : const Color(0xFF64748B),
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
+            ),
+            SizedBox(height: 2),
+            Text(
+              'Combined local weather, air quality & temperature predictions',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF64748B),
               ),
             ),
           ],
@@ -1079,7 +1428,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
         const SizedBox(height: 14),
 
-        // Horizontal scrolling series of prediction boxes
+        // Horizontal scrolling series of prediction boxes across all 12 hours
         SizedBox(
           height: 136,
           child: ListView.separated(
@@ -1168,280 +1517,8 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// 4. Plan Your Commute Section:
-  /// Direct implementation from Figma wireframe (page 15).
-  Widget _buildPlanYourCommuteSection(SupraService service) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: const [
-                Text(
-                  'Plan your commute',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF0F172A),
-                  ),
-                ),
-                SizedBox(height: 2),
-                Text(
-                  'Senayan · 8.4 km away',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF64748B),
-                  ),
-                ),
-              ],
-            ),
-            TextButton(
-              onPressed: () {
-                if (widget.onNavigateToTrip != null) {
-                  widget.onNavigateToTrip!();
-                }
-              },
-              child: const Text(
-                'Plan trip',
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: SupraTheme.brand,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 10),
-
-        // Commute preview card
-        GestureDetector(
-          onTap: () {
-            if (widget.onNavigateToTrip != null) {
-              widget.onNavigateToTrip!();
-            }
-          },
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 10,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: Column(
-              children: [
-                // Mini Route Graphic Canvas
-                Container(
-                  height: 120,
-                  width: double.infinity,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF1F5F9),
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-                  ),
-                  child: Stack(
-                    children: [
-                      // Vector road lines simulation
-                      CustomPaint(
-                        size: const Size(double.infinity, 120),
-                        painter: _MiniRoutePainter(),
-                      ),
-                      // Slow traffic tag
-                      Positioned(
-                        top: 40,
-                        left: 140,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFFED7AA),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFFB923C), width: 0.8),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: const [
-                              Icon(Icons.warning_amber_rounded, size: 12, color: Color(0xFFC2410C)),
-                              SizedBox(width: 4),
-                              Text(
-                                'Slow traffic',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF9A3412),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-
-                // Metrics summary pill row
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    children: [
-                      // Time pill & environmental conditions
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF8FAFC),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Row(
-                          children: [
-                            RichText(
-                              text: const TextSpan(
-                                text: '36 min ',
-                                style: TextStyle(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF0F172A),
-                                ),
-                                children: [
-                                  TextSpan(
-                                    text: '+12 min traffic',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFFEA580C),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const Spacer(),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFF3B82F6),
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                const Text(
-                                  '40% rain',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Color(0xFF64748B),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Container(
-                                  width: 8,
-                                  height: 8,
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFFEAB308),
-                                    shape: BoxShape.circle,
-                                  ),
-                                ),
-                                const SizedBox(width: 4),
-                                const Text(
-                                  'AQI 78',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Color(0xFF64748B),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 12),
-
-                      // Transit Mode Selection Chips
-                      Row(
-                        children: [
-                          Expanded(
-                            child: _buildModeChip(
-                              icon: Icons.directions_transit_rounded,
-                              label: 'Transit',
-                              isSelected: true,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _buildModeChip(
-                              icon: Icons.directions_car_rounded,
-                              label: 'Car',
-                              isSelected: false,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: _buildModeChip(
-                              icon: Icons.pedal_bike_rounded,
-                              label: 'Bike',
-                              isSelected: false,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildModeChip({
-    required IconData icon,
-    required String label,
-    required bool isSelected,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      decoration: BoxDecoration(
-        color: isSelected ? SupraTheme.brand.withValues(alpha: 0.12) : const Color(0xFFF1F5F9),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: isSelected ? SupraTheme.brand : Colors.transparent,
-          width: 1.2,
-        ),
-      ),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            icon,
-            size: 16,
-            color: isSelected ? SupraTheme.brand : const Color(0xFF64748B),
-          ),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-              color: isSelected ? SupraTheme.brand : const Color(0xFF64748B),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// 5. Recent Trips Section
+  /// 4. Recent Trips Section:
+  /// Tapping any saved trip triggers navigation to TripScreen and shows the route.
   Widget _buildRecentTripsSection(SupraService service) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1509,27 +1586,30 @@ class _HomeScreenState extends State<HomeScreen> {
               return Container(
                 margin: const EdgeInsets.only(bottom: 8),
                 decoration: BoxDecoration(
-                  color: Colors.white,
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: const Color(0xFFE2E8F0)),
                 ),
-                child: ListTile(
-                  dense: true,
-                  leading: const Icon(Icons.route_outlined, color: SupraTheme.brand),
-                  title: Text(
-                    trip.name,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+                child: Material(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  child: ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.route_outlined, color: SupraTheme.brand),
+                    title: Text(
+                      trip.name,
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    subtitle: Text(
+                      '${trip.startLocation} → ${trip.destination}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: const Icon(Icons.chevron_right, size: 18),
+                    onTap: () {
+                      if (widget.onNavigateToTrip != null) {
+                        widget.onNavigateToTrip!(trip);
+                      }
+                    },
                   ),
-                  subtitle: Text(
-                    '${trip.startLocation} → ${trip.destination}',
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: const Icon(Icons.chevron_right, size: 18),
-                  onTap: () {
-                    if (widget.onNavigateToTrip != null) {
-                      widget.onNavigateToTrip!();
-                    }
-                  },
                 ),
               );
             }).toList(),
@@ -1573,55 +1653,6 @@ class _SupraLogoPainter extends CustomPainter {
     // Nodes
     canvas.drawCircle(Offset(size.width * 0.25, size.height * 0.28), 2.2, paintDot);
     canvas.drawCircle(Offset(size.width * 0.75, size.height * 0.72), 2.2, paintDot);
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-/// Mini route painter simulating the route preview map from the Figma mockup.
-class _MiniRoutePainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final bgRoadsPaint = Paint()
-      ..color = Colors.white
-      ..strokeWidth = 4.0
-      ..style = PaintingStyle.stroke;
-
-    // Background road grid
-    canvas.drawLine(Offset(0, size.height * 0.3), Offset(size.width, size.height * 0.6), bgRoadsPaint);
-    canvas.drawLine(Offset(size.width * 0.2, 0), Offset(size.width * 0.45, size.height), bgRoadsPaint);
-    canvas.drawLine(Offset(size.width * 0.7, 0), Offset(size.width * 0.85, size.height), bgRoadsPaint);
-    canvas.drawLine(Offset(0, size.height * 0.8), Offset(size.width, size.height * 0.4), bgRoadsPaint);
-
-    // Main active transit route (Teal curve)
-    final routePaint = Paint()
-      ..color = const Color(0xFF0F766E)
-      ..strokeWidth = 4.0
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    final routePath = Path();
-    routePath.moveTo(size.width * 0.15, size.height * 0.4);
-    routePath.cubicTo(
-      size.width * 0.35,
-      size.height * 0.4,
-      size.width * 0.45,
-      size.height * 0.75,
-      size.width * 0.85,
-      size.height * 0.75,
-    );
-    canvas.drawPath(routePath, routePaint);
-
-    // Start node
-    final startPaint = Paint()..color = const Color(0xFF0F766E);
-    canvas.drawCircle(Offset(size.width * 0.15, size.height * 0.4), 6, startPaint);
-    canvas.drawCircle(Offset(size.width * 0.15, size.height * 0.4), 3, Paint()..color = Colors.white);
-
-    // Destination node
-    final endPaint = Paint()..color = const Color(0xFF0F766E);
-    canvas.drawCircle(Offset(size.width * 0.85, size.height * 0.75), 8, endPaint);
-    canvas.drawCircle(Offset(size.width * 0.85, size.height * 0.75), 4, Paint()..color = Colors.white);
   }
 
   @override

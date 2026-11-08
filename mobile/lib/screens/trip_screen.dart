@@ -34,10 +34,10 @@ class TripScreen extends StatefulWidget {
   const TripScreen({super.key});
 
   @override
-  State<TripScreen> createState() => _TripScreenState();
+  State<TripScreen> createState() => TripScreenState();
 }
 
-class _TripScreenState extends State<TripScreen> {
+class TripScreenState extends State<TripScreen> {
   final _start = TextEditingController();
   final _destination = TextEditingController();
   final _mapSearchController = TextEditingController();
@@ -94,6 +94,39 @@ class _TripScreenState extends State<TripScreen> {
     super.initState();
     _start.text = 'Monas (Central Jakarta)';
     _updateSnapOptions(_defaultCurrentLocation);
+  }
+
+  /// Loads start and destination for a trip, resolves their coordinates, and shows the route.
+  Future<void> loadAndShowRoute({
+    required String start,
+    required String destination,
+    LatLng? startPoint,
+    LatLng? destPoint,
+  }) async {
+    _start.text = start;
+    _destination.text = destination;
+
+    if (startPoint != null) {
+      _startCoord = startPoint;
+    } else {
+      final startResults = await _geocoder.searchPlaces(start);
+      if (startResults.isNotEmpty) {
+        _startCoord = startResults.first.point;
+      }
+    }
+
+    if (destPoint != null) {
+      _destCoord = destPoint;
+    } else {
+      final destResults = await _geocoder.searchPlaces(destination);
+      if (destResults.isNotEmpty) {
+        _destCoord = destResults.first.point;
+      }
+    }
+
+    if (mounted && _destCoord != null) {
+      await _fetchRoutes();
+    }
   }
 
   @override
