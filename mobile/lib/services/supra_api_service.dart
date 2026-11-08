@@ -331,6 +331,14 @@ class SupraService extends ChangeNotifier {
         notifyListeners();
       });
 
+  @visibleForTesting
+  void setTripsForTesting(List<Trip> trips) {
+    _trips
+      ..clear()
+      ..addAll(trips);
+    notifyListeners();
+  }
+
   @override
   void dispose() {
     _authSubscription?.cancel();

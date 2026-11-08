@@ -2078,7 +2078,7 @@ class _JakartaCanvasPainter extends CustomPainter {
           canvas.drawPath(path, Paint()..color = areaColor);
         }
 
-        // Zone perimeter border (whisper-thin, barely noticeable)
+        // Zone perimeter border (whisper-thin, barely visible)
         canvas.drawPath(
           path,
           Paint()
