@@ -5,7 +5,7 @@ use crate::handlers::{
 };
 use axum::{
     Router,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
 };
 
 pub fn create_router(state: AppState, verifier: crate::auth::AuthVerifier) -> Router {
@@ -24,6 +24,7 @@ pub(crate) fn create_router_with_conditions(
     Router::new()
         .route("/health/live", get(health::live))
         .route("/health/ready", get(health::ready))
+        .route("/uploads/avatars/{filename}", get(users::serve_avatar))
         .merge(protected_routes(verifier))
         .fallback(|| async { crate::error::AppError::NotFound })
         .method_not_allowed_fallback(|| async { crate::error::AppError::MethodNotAllowed })
@@ -35,8 +36,14 @@ fn protected_routes(verifier: crate::auth::AuthVerifier) -> Router<AppState> {
     Router::new()
         .route("/api/conditions/current", get(crate::conditions::current))
         // ====================================================================
-        // Users
+        // Users & Profile
         // ====================================================================
+        .route(
+            "/api/profile",
+            get(users::get_profile).put(users::update_profile),
+        )
+        .route("/api/profile/avatar", post(users::upload_avatar))
+        .route("/api/account", delete(users::delete_account))
         .route(
             "/api/users",
             post(users::create_user).get(users::list_users),

@@ -67,6 +67,9 @@ class SupraService extends ChangeNotifier {
                 user.email?.split('@').first ??
                 'Supra user',
             email: user.email ?? '',
+            avatarUrl:
+                (user.userMetadata?['avatar_url'] as String?) ??
+                _currentUser?.avatarUrl,
             createdAt: DateTime.parse(user.createdAt),
           );
     if (previous != _currentUser?.id) {
@@ -112,7 +115,14 @@ class SupraService extends ChangeNotifier {
 
   Future<void> loadAccount() => _withApi((api, id) async {
     final user = _currentUser!;
-    await api.request('POST', '/api/users', {'full_name': user.fullName});
+    final profileResponse = await api.request('POST', '/api/users', {
+      'full_name': user.fullName,
+    });
+    if (profileResponse is Map<String, dynamic> &&
+        profileResponse.containsKey('id') &&
+        profileResponse.containsKey('full_name')) {
+      _currentUser = User.fromJson(profileResponse);
+    }
     final trips = (await api.request('GET', '/api/trips') as List)
         .map((v) => Trip.fromJson(v as Map<String, dynamic>))
         .toList();
@@ -137,6 +147,62 @@ class SupraService extends ChangeNotifier {
     _ready = true;
     notifyListeners();
   });
+
+  Future<User> updateProfile(String fullName) => _withApi((api, id) async {
+    final trimmed = fullName.trim();
+    if (trimmed.isEmpty) {
+      throw StateError('Name cannot be empty.');
+    }
+    final updated = User.fromJson(
+      await api.request('PUT', '/api/profile', {'full_name': trimmed})
+          as Map<String, dynamic>,
+    );
+    _requireSameUser(id);
+    _currentUser = updated;
+    notifyListeners();
+    try {
+      await _auth.updateUser(
+        supabase.UserAttributes(data: {'full_name': trimmed}),
+      );
+    } catch (_) {
+      // Best-effort sync with Supabase Auth metadata; DB is source of truth.
+    }
+    return updated;
+  });
+
+  Future<User> uploadAvatar(List<int> bytes, String fileName) =>
+      _withApi((api, id) async {
+        final updated = User.fromJson(
+          await api.uploadBytes(
+                '/api/profile/avatar',
+                bytes,
+                fileName: fileName,
+              )
+              as Map<String, dynamic>,
+        );
+        _requireSameUser(id);
+        _currentUser = updated;
+        notifyListeners();
+        try {
+          if (updated.avatarUrl != null) {
+            await _auth.updateUser(
+              supabase.UserAttributes(
+                data: {'avatar_url': updated.avatarUrl},
+              ),
+            );
+          }
+        } catch (_) {
+          // Best-effort sync with Supabase Auth metadata; DB is source of truth.
+        }
+        return updated;
+      });
+
+  Future<void> deleteAccount() async {
+    await _withApi((api, id) async {
+      await api.request('DELETE', '/api/account');
+    });
+    await logout();
+  }
 
   Future<CurrentConditions> getCurrentConditions(
     double latitude,
