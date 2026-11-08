@@ -254,6 +254,7 @@ class TripScreenState extends State<TripScreen> {
       _mapSearchController.text = place.name;
       _selectedRoute = null;
       _calculatedRoutes = [];
+      _isTrackingActive = false;
     });
     _mapKey.currentState?.animateToLocation(place.point);
   }
@@ -483,6 +484,7 @@ class TripScreenState extends State<TripScreen> {
     }
     setState(() {
       _loadingRoutes = true;
+      _isTrackingActive = false;
     });
 
     try {
@@ -588,6 +590,24 @@ class TripScreenState extends State<TripScreen> {
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Cancels active trip tracking, restoring the Confirm button and re-centering camera to full route.
+  void _cancelTracking() {
+    setState(() {
+      _isTrackingActive = false;
+    });
+    final routeWaypoints = _selectedRoute?.waypoints ??
+        (_destCoord != null ? [_startCoord, _destCoord!] : [_startCoord]);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _mapKey.currentState?.fitToRoute(routeWaypoints);
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Trip tracking cancelled'),
+        duration: Duration(seconds: 2),
+      ),
+    );
   }
 
   @override
@@ -1180,6 +1200,7 @@ class TripScreenState extends State<TripScreen> {
                     setState(() {
                       _calculatedRoutes = [];
                       _selectedRoute = null;
+                      _isTrackingActive = false;
                     });
                   },
                 ),
@@ -1206,7 +1227,7 @@ class TripScreenState extends State<TripScreen> {
             if (_isTrackingActive)
               Container(
                 margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF0FDF4),
                   borderRadius: BorderRadius.circular(10),
@@ -1214,71 +1235,76 @@ class TripScreenState extends State<TripScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.my_location, size: 14, color: Color(0xFF16A34A)),
-                    const SizedBox(width: 6),
+                    const Icon(Icons.my_location, size: 15, color: Color(0xFF16A34A)),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'Live tracking active: ${_destination.text}',
                         style: const TextStyle(
-                          fontSize: 11,
+                          fontSize: 12,
                           fontWeight: FontWeight.w700,
                           color: Color(0xFF15803D),
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
-                    InkWell(
-                      onTap: () {
-                        setState(() => _isTrackingActive = false);
-                        _mapKey.currentState?.fitToRoute(
-                          _selectedRoute?.waypoints ?? [_startCoord, _destCoord!],
-                        );
-                      },
-                      child: const Text(
-                        'Stop',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFFDC2626),
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ),
 
-            // Single "Confirm" Button: Saves the trip, focuses on start location, and starts tracking
+            // Dynamic Action Button: Confirm saves trip & starts tracking;
+            // while tracking is active, it is replaced by "Cancel Tracking".
             SizedBox(
               width: double.infinity,
               height: 46,
-              child: ElevatedButton.icon(
-                icon: _busy
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
+              child: _isTrackingActive
+                  ? ElevatedButton.icon(
+                      icon: const Icon(Icons.cancel_outlined, size: 18),
+                      label: const Text(
+                        'Cancel Tracking',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
                         ),
-                      )
-                    : const Icon(Icons.check_circle_outline, size: 18),
-                label: const Text(
-                  'Confirm',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 15,
-                  ),
-                ),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: SupraTheme.brand,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 2,
-                ),
-                onPressed: _busy ? null : _confirmTripAndStartTracking,
-              ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFDC2626), // Destructive red
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 2,
+                      ),
+                      onPressed: _busy ? null : _cancelTracking,
+                    )
+                  : ElevatedButton.icon(
+                      icon: _busy
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.check_circle_outline, size: 18),
+                      label: const Text(
+                        'Confirm',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: SupraTheme.brand,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 2,
+                      ),
+                      onPressed: _busy ? null : _confirmTripAndStartTracking,
+                    ),
             ),
           ],
         ),

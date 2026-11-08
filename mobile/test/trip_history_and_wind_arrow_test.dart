@@ -47,7 +47,7 @@ void main() {
       expect(swZone.descriptiveLabel, contains('SW 20 km/h'));
     });
 
-    testWidgets('InteractiveLocationMap canvas draws wind vector arrows on rain/cloud zones', (
+    testWidgets('InteractiveLocationMap canvas renders map overlays without wind vector arrows', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -66,7 +66,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // CustomPaint canvas is rendered
+      // CustomPaint canvas is rendered cleanly
       expect(find.byType(CustomPaint), findsWidgets);
     });
   });
@@ -296,6 +296,23 @@ void main() {
       // SnackBar confirmation is shown and live tracking indicator appears
       expect(find.textContaining('Trip confirmed & saved'), findsOneWidget);
       expect(find.textContaining('Live tracking active'), findsOneWidget);
+
+      // After pressing confirm, Confirm is replaced by "Cancel Tracking" button
+      expect(find.text('Confirm'), findsNothing);
+      expect(find.text('Cancel Tracking'), findsOneWidget);
+
+      // Dismiss the confirmation snackbar so the button can be tapped directly without hit-test obstruction
+      ScaffoldMessenger.of(tripKey.currentContext!).clearSnackBars();
+      await tester.pumpAndSettle();
+
+      // Tap Cancel Tracking button
+      await tester.tap(find.text('Cancel Tracking'));
+      await tester.pumpAndSettle();
+
+      // Tracking cancelled: Cancel Tracking is replaced back by "Confirm"
+      expect(find.text('Cancel Tracking'), findsNothing);
+      expect(find.text('Confirm'), findsOneWidget);
+      expect(find.textContaining('Trip tracking cancelled'), findsOneWidget);
 
       // Verify trip was recorded in TripHistoryStore
       final trips = TripHistoryStore.instance.trips;
