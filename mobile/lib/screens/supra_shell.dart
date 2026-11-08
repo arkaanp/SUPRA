@@ -43,7 +43,10 @@ class _SupraShellState extends State<SupraShell> {
   }
 
   List<Widget> get _pages => [
-    HomeScreen(),
+    HomeScreen(
+      onNavigateToTrip: () => setState(() => _index = 1),
+      onNavigateToAlerts: () => setState(() => _index = 3),
+    ),
     TripScreen(),
     ChatScreen(),
     NotificationsScreen(),

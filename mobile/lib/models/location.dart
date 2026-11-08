@@ -121,6 +121,12 @@ const List<NamedLocation> greaterJakartaLandmarks = [
     adm4: '31.74.02.1002',
   ),
   NamedLocation(
+    name: 'Kuningan',
+    area: 'South Jakarta',
+    point: LatLng(latitude: -6.2297, longitude: 106.8295),
+    adm4: '31.74.02.1001',
+  ),
+  NamedLocation(
     name: 'Gelora Bung Karno (GBK)',
     area: 'Central Jakarta',
     point: LatLng(latitude: -6.2185, longitude: 106.8025),
