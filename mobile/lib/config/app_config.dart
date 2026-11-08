@@ -11,7 +11,7 @@ abstract final class AppConfig {
   static const geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
   static const geminiModel = String.fromEnvironment(
     'GEMINI_MODEL',
-    defaultValue: 'gemini-1.5-flash',
+    defaultValue: 'gemini-3.5-flash',
   );
 
   static void validate() {

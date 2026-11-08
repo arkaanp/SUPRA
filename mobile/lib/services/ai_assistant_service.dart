@@ -139,30 +139,39 @@ class AiAssistantService extends ChangeNotifier {
   Future<bool> testApiKey(String key) async {
     final trimmed = key.trim();
     if (trimmed.isEmpty) return false;
-    final model = AppConfig.geminiModel;
-    final url = Uri.parse(
-      'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$trimmed',
-    );
-    try {
-      final response = await http
-          .post(
-            url,
-            headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({
-              'contents': [
-                {
-                  'parts': [
-                    {'text': 'Ping'}
-                  ]
-                }
-              ]
-            }),
-          )
-          .timeout(const Duration(seconds: 8));
-      return response.statusCode == 200;
-    } catch (_) {
-      return false;
+    final modelCandidates = <String>[
+      AppConfig.geminiModel,
+      if (AppConfig.geminiModel != 'gemini-3.5-flash') 'gemini-3.5-flash',
+      'gemini-flash-latest',
+      'gemini-3.8-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-1.5-flash',
+    ];
+
+    for (final model in modelCandidates) {
+      final url = Uri.parse(
+        'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$trimmed',
+      );
+      try {
+        final response = await http
+            .post(
+              url,
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({
+                'contents': [
+                  {
+                    'parts': [
+                      {'text': 'Ping'}
+                    ]
+                  }
+                ]
+              }),
+            )
+            .timeout(const Duration(seconds: 8));
+        if (response.statusCode == 200) return true;
+      } catch (_) {}
     }
+    return false;
   }
 
   /// Sends a message from the user and queries the AI assistant.
@@ -291,11 +300,6 @@ class AiAssistantService extends ChangeNotifier {
     required List<Map<String, dynamic>> history,
     required Map<String, dynamic> context,
   }) async {
-    final model = AppConfig.geminiModel;
-    final url = Uri.parse(
-      'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey',
-    );
-
     final systemInstruction =
         'You are SUPRA Agent 1, the AI Commute & Environmental Assistant for Greater Jakarta (Jabodetabek). '
         'Provide helpful, concise, actionable advice for commuters on weather, air quality (AQI), '
@@ -340,27 +344,45 @@ class AiAssistantService extends ChangeNotifier {
       }
     });
 
-    final response = await http.post(
-      url,
-      headers: {'Content-Type': 'application/json'},
-      body: body,
-    );
+    final modelCandidates = <String>[
+      AppConfig.geminiModel,
+      if (AppConfig.geminiModel != 'gemini-3.5-flash') 'gemini-3.5-flash',
+      'gemini-flash-latest',
+      'gemini-3.8-flash',
+      'gemini-2.5-flash-lite',
+      'gemini-1.5-flash',
+    ];
 
-    if (response.statusCode == 200) {
-      final json = jsonDecode(response.body) as Map<String, dynamic>;
-      final candidates = json['candidates'] as List<dynamic>?;
-      if (candidates != null && candidates.isNotEmpty) {
-        final content = candidates[0]['content'] as Map<String, dynamic>?;
-        final parts = content?['parts'] as List<dynamic>?;
-        if (parts != null && parts.isNotEmpty) {
-          final text = parts[0]['text'] as String?;
-          if (text != null && text.trim().isNotEmpty) {
-            return text.trim();
+    for (final model in modelCandidates) {
+      final url = Uri.parse(
+        'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$apiKey',
+      );
+      try {
+        final response = await http
+            .post(
+              url,
+              headers: {'Content-Type': 'application/json'},
+              body: body,
+            )
+            .timeout(const Duration(seconds: 12));
+
+        if (response.statusCode == 200) {
+          final json = jsonDecode(response.body) as Map<String, dynamic>;
+          final candidates = json['candidates'] as List<dynamic>?;
+          if (candidates != null && candidates.isNotEmpty) {
+            final content = candidates[0]['content'] as Map<String, dynamic>?;
+            final parts = content?['parts'] as List<dynamic>?;
+            if (parts != null && parts.isNotEmpty) {
+              final text = parts[0]['text'] as String?;
+              if (text != null && text.trim().isNotEmpty) {
+                return text.trim();
+              }
+            }
           }
         }
-      }
+      } catch (_) {}
     }
-    throw StateError('Gemini API returned status ${response.statusCode}');
+    throw StateError('Gemini API call failed for all models');
   }
 
   /// Generates helpful domain-expert response locally when offline
@@ -443,3 +465,4 @@ class AiAssistantService extends ChangeNotifier {
     notifyListeners();
   }
 }
+

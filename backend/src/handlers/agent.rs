@@ -12,7 +12,7 @@ use crate::{
 };
 
 const AGENT_TIMEOUT: Duration = Duration::from_secs(15);
-const DEFAULT_GEMINI_MODEL: &str = "gemini-1.5-flash";
+const DEFAULT_GEMINI_MODEL: &str = "gemini-3.5-flash";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ChatMessagePayload {
@@ -122,11 +122,6 @@ async fn call_gemini(
         .build()
         .map_err(|e| e.to_string())?;
 
-    let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-        model, api_key
-    );
-
     let system_prompt = "You are SUPRA Agent 1, the premier AI Commute & Environmental Assistant \
 dedicated to Greater Jakarta (Jabodetabek). You help commuters travel safely, cleanly, and efficiently.\n\
 Key capabilities & domain expertise:\n\
@@ -200,30 +195,51 @@ Always reply in the same language as the user (Indonesian or English).";
         }
     });
 
-    let resp = client
-        .post(&url)
-        .header("Content-Type", "application/json")
-        .json(&request_body)
-        .send()
-        .await
-        .map_err(|e| format!("HTTP request error: {e}"))?;
+    let model_candidates = [
+        model,
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
+        "gemini-3.8-flash",
+        "gemini-2.5-flash-lite",
+    ];
 
-    let status = resp.status();
-    if !status.is_success() {
-        let err_text = resp.text().await.unwrap_or_default();
-        return Err(format!("Gemini API error ({status}): {err_text}"));
+    for current_model in model_candidates {
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
+            current_model, api_key
+        );
+
+        let resp = match client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .json(&request_body)
+            .send()
+            .await
+        {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+
+        let status = resp.status();
+        if status.as_u16() == 404 {
+            continue; // Model not available, try next candidate
+        }
+        if !status.is_success() {
+            let err_text = resp.text().await.unwrap_or_default();
+            return Err(format!("Gemini API error ({status}): {err_text}"));
+        }
+
+        let json_val: Value = resp.json().await.map_err(|e| format!("JSON parse error: {e}"))?;
+
+        if let Some(text) = json_val
+            .pointer("/candidates/0/content/parts/0/text")
+            .and_then(|v| v.as_str())
+        {
+            return Ok(text.trim().to_string());
+        }
     }
 
-    let json_val: Value = resp.json().await.map_err(|e| format!("JSON parse error: {e}"))?;
-
-    if let Some(text) = json_val
-        .pointer("/candidates/0/content/parts/0/text")
-        .and_then(|v| v.as_str())
-    {
-        Ok(text.trim().to_string())
-    } else {
-        Err("No candidate text found in Gemini response".to_string())
-    }
+    Err("No candidate text found in Gemini response across all tested models".to_string())
 }
 
 /// Generates a realistic, domain-aware response when Gemini API key is not yet configured.
@@ -373,3 +389,4 @@ mod tests {
         assert!(reply.contains("Sensitive individuals"));
     }
 }
+
