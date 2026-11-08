@@ -226,7 +226,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
           );
 
           if (zone.isRaining || zone.isCloudy || zone.rainfallMm > 0.5) {
-            final rad = (zone.windDirectionDegrees - 90.0) * (pi / 180.0);
+            final rad = ((zone.windDirectionDegrees + 90.0) % 360.0) * (pi / 180.0);
             final dLat = sin(rad) * 0.012;
             final dLon = cos(rad) * 0.012;
             final windColor = zone.isRaining ? '#1D4ED8' : '#475569';
@@ -243,7 +243,8 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                   ),
                 ],
                 lineColor: windColor,
-                lineWidth: 2.5,
+                lineOpacity: 0.18,
+                lineWidth: 2.0,
               ),
             );
           }
@@ -2311,15 +2312,21 @@ class _JakartaCanvasPainter extends CustomPainter {
     }
 
     final deg = zone.windDirectionDegrees;
-    final rad = (deg - 90.0) * (pi / 180.0);
+    // Meteorological wind direction: angle wind blows TOWARDS
+    final rad = ((deg + 90.0) % 360.0) * (pi / 180.0);
 
     final bool isRain = zone.isRaining || zone.rainfallMm > 0.5;
-    final arrowColor = isRain
-        ? const Color(0xFF1D4ED8)
-        : const Color(0xFF475569);
+    // Extremely low opacity matching the rest of the environmental colors
+    final baseColor = isRain
+        ? const Color(0xFF1D4ED8) // Deep Blue for rain
+        : const Color(0xFF475569); // Slate Grey for clouds
 
+    final arrowColor = baseColor.withValues(alpha: 0.20);
+    final fillArrowColor = baseColor.withValues(alpha: 0.16);
+
+    // Subtle frosted pill with extremely low opacity (barely noticeable)
     final badgeWidth = 46.0;
-    final badgeHeight = 36.0;
+    final badgeHeight = 32.0;
     final badgeRect = Rect.fromCenter(
       center: center,
       width: badgeWidth,
@@ -2327,12 +2334,12 @@ class _JakartaCanvasPainter extends CustomPainter {
     );
 
     final bgPaint = Paint()
-      ..color = Colors.white.withValues(alpha: 0.84)
+      ..color = Colors.white.withValues(alpha: 0.08)
       ..style = PaintingStyle.fill;
     final borderPaint = Paint()
-      ..color = arrowColor.withValues(alpha: 0.28)
+      ..color = baseColor.withValues(alpha: 0.08)
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 0.8;
+      ..strokeWidth = 0.5;
 
     canvas.drawRRect(
       RRect.fromRectAndRadius(badgeRect, const Radius.circular(8)),
@@ -2345,11 +2352,11 @@ class _JakartaCanvasPainter extends CustomPainter {
 
     final weatherSym = isRain ? '🌧️' : '☁️';
     final labelSpan = TextSpan(
-      text: '$weatherSym ${zone.windSpeedKmh.toStringAsFixed(0)}k',
+      text: '$weatherSym ${zone.windSpeedKmh.toStringAsFixed(0)}k ${zone.cardinalWindDirection}',
       style: TextStyle(
-        fontSize: 8.5,
-        fontWeight: FontWeight.bold,
-        color: arrowColor,
+        fontSize: 7.5,
+        fontWeight: FontWeight.w700,
+        color: baseColor.withValues(alpha: 0.28),
       ),
     );
     final tp = TextPainter(
@@ -2357,10 +2364,11 @@ class _JakartaCanvasPainter extends CustomPainter {
       textAlign: TextAlign.center,
       textDirection: TextDirection.ltr,
     )..layout();
-    tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy - 13));
+    tp.paint(canvas, Offset(center.dx - tp.width / 2, center.dy - 12));
 
-    final arrowCenter = Offset(center.dx, center.dy + 6);
-    const shaftLen = 14.0;
+    // Arrow vector with clear directional arrowhead pointing towards flow
+    final arrowCenter = Offset(center.dx, center.dy + 5);
+    const shaftLen = 16.0;
     final pStart = Offset(
       arrowCenter.dx - cos(rad) * (shaftLen / 2),
       arrowCenter.dy - sin(rad) * (shaftLen / 2),
@@ -2378,8 +2386,9 @@ class _JakartaCanvasPainter extends CustomPainter {
 
     canvas.drawLine(pStart, pEnd, shaftPaint);
 
-    const headLen = 4.5;
-    const headAngle = 28.0 * (pi / 180.0);
+    // Prominent forward-pointing triangle arrowhead making direction unmistakably apparent
+    const headLen = 6.5;
+    const headAngle = 30.0 * (pi / 180.0);
     final h1 = Offset(
       pEnd.dx - headLen * cos(rad - headAngle),
       pEnd.dy - headLen * sin(rad - headAngle),
@@ -2390,9 +2399,16 @@ class _JakartaCanvasPainter extends CustomPainter {
     );
 
     final headPath = Path()
-      ..moveTo(h1.dx, h1.dy)
-      ..lineTo(pEnd.dx, pEnd.dy)
-      ..lineTo(h2.dx, h2.dy);
+      ..moveTo(pEnd.dx, pEnd.dy)
+      ..lineTo(h1.dx, h1.dy)
+      ..lineTo(h2.dx, h2.dy)
+      ..close();
+
+    final headFillPaint = Paint()
+      ..color = fillArrowColor
+      ..style = PaintingStyle.fill;
+
+    canvas.drawPath(headPath, headFillPaint);
     canvas.drawPath(headPath, shaftPaint);
   }
 

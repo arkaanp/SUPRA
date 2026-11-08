@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../models/current_conditions.dart';
 import '../models/environmental_zone.dart';
 import '../models/location.dart';
+import '../models/saved_trip.dart';
 import '../models/trip.dart';
 import '../services/environmental_service.dart';
 import '../services/supra_api_service.dart';
@@ -70,6 +71,17 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _refreshAll();
+    TripHistoryStore.instance.addListener(_onTripHistoryStoreChanged);
+  }
+
+  void _onTripHistoryStoreChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    TripHistoryStore.instance.removeListener(_onTripHistoryStoreChanged);
+    super.dispose();
   }
 
   Future<void> _refreshAll() async {
@@ -1518,8 +1530,15 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// 4. Recent Trips Section:
+  /// Synchronized with TripHistoryStore (same store used by TripScreen).
   /// Tapping any saved trip triggers navigation to TripScreen and shows the route.
   Widget _buildRecentTripsSection(SupraService service) {
+    if (service.trips.isNotEmpty) {
+      TripHistoryStore.instance.syncWithServiceTrips(service.trips);
+    }
+    final recentTrips =
+        TripHistoryStore.instance.getSortedTrips(TripHistorySort.recent);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1534,16 +1553,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 color: Color(0xFF0F172A),
               ),
             ),
-            if (service.trips.isNotEmpty)
+            if (recentTrips.isNotEmpty)
               Text(
-                '${service.trips.length} saved',
+                '${recentTrips.length} saved',
                 style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
               ),
           ],
         ),
         const SizedBox(height: 10),
 
-        if (service.trips.isEmpty)
+        if (recentTrips.isEmpty)
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -1559,7 +1578,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: SupraTheme.brand.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.bookmark_border_rounded, color: SupraTheme.brand),
+                  child: const Icon(
+                    Icons.bookmark_border_rounded,
+                    color: SupraTheme.brand,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 const Expanded(
@@ -1568,7 +1590,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Text(
                         'No saved trips yet',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
                       ),
                       Text(
                         'Save your daily routes to get instant environmental forecasts and route recommendations.',
@@ -1582,7 +1607,7 @@ class _HomeScreenState extends State<HomeScreen> {
           )
         else
           Column(
-            children: service.trips.take(4).map((trip) {
+            children: recentTrips.take(4).map((trip) {
               return Container(
                 margin: const EdgeInsets.only(bottom: 8),
                 decoration: BoxDecoration(
@@ -1594,19 +1619,50 @@ class _HomeScreenState extends State<HomeScreen> {
                   borderRadius: BorderRadius.circular(14),
                   child: ListTile(
                     dense: true,
-                    leading: const Icon(Icons.route_outlined, color: SupraTheme.brand),
+                    leading: const Icon(
+                      Icons.route_outlined,
+                      color: SupraTheme.brand,
+                    ),
                     title: Text(
-                      trip.name,
+                      trip.displayTitle,
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                     subtitle: Text(
-                      '${trip.startLocation} → ${trip.destination}',
+                      '${trip.start} → ${trip.destination} • ${trip.timeAgo}',
                       overflow: TextOverflow.ellipsis,
                     ),
-                    trailing: const Icon(Icons.chevron_right, size: 18),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: trip.frequency >= 4
+                                ? const Color(0xFFFEF3C7)
+                                : const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '${trip.frequency}x',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: trip.frequency >= 4
+                                  ? const Color(0xFFB45309)
+                                  : SupraTheme.textSecondary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.chevron_right, size: 18),
+                      ],
+                    ),
                     onTap: () {
                       if (widget.onNavigateToTrip != null) {
-                        widget.onNavigateToTrip!(trip);
+                        widget.onNavigateToTrip!(trip.toTrip());
                       }
                     },
                   ),

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'location.dart';
+import 'trip.dart';
 
 enum TripHistorySort {
   recent,
@@ -30,6 +31,7 @@ class CommuteAnalysis {
 /// Used for route navigation, historical replay, and Commute Pattern Detection in Alerts.
 class SavedTrip {
   final String id;
+  final String? name;
   final String start;
   final String destination;
   final LatLng startPoint;
@@ -39,6 +41,7 @@ class SavedTrip {
 
   const SavedTrip({
     required this.id,
+    this.name,
     required this.start,
     required this.destination,
     required this.startPoint,
@@ -49,6 +52,7 @@ class SavedTrip {
 
   SavedTrip copyWith({
     String? id,
+    String? name,
     String? start,
     String? destination,
     LatLng? startPoint,
@@ -58,6 +62,7 @@ class SavedTrip {
   }) {
     return SavedTrip(
       id: id ?? this.id,
+      name: name ?? this.name,
       start: start ?? this.start,
       destination: destination ?? this.destination,
       startPoint: startPoint ?? this.startPoint,
@@ -67,7 +72,20 @@ class SavedTrip {
     );
   }
 
+  String get displayTitle =>
+      (name != null && name!.isNotEmpty) ? name! : destination;
+
   String get routeLabel => '$start → $destination';
+
+  /// Converts this saved trip into a standard [Trip] model for interoperability.
+  Trip toTrip() => Trip(
+        id: id,
+        userId: 'local_user',
+        name: displayTitle,
+        startLocation: start,
+        destination: destination,
+        plannedDeparture: lastUsed,
+      );
 
   String get timeAgo {
     final diff = DateTime.now().difference(lastUsed);
@@ -143,6 +161,32 @@ class TripHistoryStore extends ChangeNotifier {
       });
     }
     return list;
+  }
+
+  /// Merges backend / service trips into the synchronized store if not already present.
+  void syncWithServiceTrips(List<Trip> serviceTrips) {
+    bool changed = false;
+    for (final st in serviceTrips) {
+      if (!_trips.any((t) =>
+          t.id == st.id ||
+          (t.destination == st.destination && t.start == st.startLocation))) {
+        _trips.insert(
+          0,
+          SavedTrip(
+            id: st.id,
+            name: st.name,
+            start: st.startLocation,
+            destination: st.destination,
+            startPoint: const LatLng(latitude: -6.2297, longitude: 106.8295),
+            destPoint: const LatLng(latitude: -6.1925, longitude: 106.8230),
+            lastUsed: st.plannedDeparture,
+            frequency: 1,
+          ),
+        );
+        changed = true;
+      }
+    }
+    if (changed) notifyListeners();
   }
 
   void _initDefaultTrips() {
@@ -291,3 +335,4 @@ class TripHistoryStore extends ChangeNotifier {
     notifyListeners();
   }
 }
+

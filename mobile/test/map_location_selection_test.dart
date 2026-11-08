@@ -515,7 +515,7 @@ void main() {
           findsOneWidget,
         );
         expect(find.textContaining('Transjakarta'), findsNothing);
-        expect(find.textContaining('Start Route Navigation'), findsOneWidget);
+        expect(find.text('Confirm'), findsOneWidget);
       },
     );
 

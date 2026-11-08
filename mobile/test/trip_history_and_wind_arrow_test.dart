@@ -257,7 +257,7 @@ void main() {
       expect(find.textContaining('Reduced frequency'), findsOneWidget);
     });
 
-    testWidgets('Save Route button appears above Start Route Navigation when routes are calculated', (
+    testWidgets('Confirm button replaces Save Route and Start Navigation, saves trip and focuses start location', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(800, 1200);
@@ -284,21 +284,45 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Both Save Route and Start Route Navigation buttons are rendered
-      expect(find.text('Save Route'), findsOneWidget);
-      expect(find.textContaining('Start Route Navigation'), findsOneWidget);
+      // Save Route and Start Route Navigation buttons are replaced by single "Confirm" button
+      expect(find.text('Save Route'), findsNothing);
+      expect(find.textContaining('Start Route Navigation'), findsNothing);
+      expect(find.text('Confirm'), findsOneWidget);
 
-      // Verify Save Route is rendered above Start Route Navigation
-      final saveRouteBox = tester.getRect(find.text('Save Route'));
-      final navRouteBox = tester.getRect(find.textContaining('Start Route Navigation'));
-      expect(saveRouteBox.bottom, lessThanOrEqualTo(navRouteBox.top));
-
-      // Tap Save Route button
-      await tester.tap(find.text('Save Route'));
+      // Tap Confirm button
+      await tester.tap(find.text('Confirm'));
       await tester.pumpAndSettle();
 
-      // SnackBar confirmation is shown
-      expect(find.textContaining('Route saved to Trip History'), findsOneWidget);
+      // SnackBar confirmation is shown and live tracking indicator appears
+      expect(find.textContaining('Trip confirmed & saved'), findsOneWidget);
+      expect(find.textContaining('Live tracking active'), findsOneWidget);
+
+      // Verify trip was recorded in TripHistoryStore
+      final trips = TripHistoryStore.instance.trips;
+      expect(
+        trips.any((t) => t.destination == 'Grand Indonesia Mall' && t.frequency >= 6),
+        isTrue,
+      );
+    });
+
+    testWidgets('Recent Trips in Home and Trip are synchronized via TripHistoryStore', (
+      tester,
+    ) async {
+      final storeTrips = TripHistoryStore.instance.getSortedTrips(TripHistorySort.recent);
+      expect(storeTrips.isNotEmpty, isTrue);
+
+      // Add a new trip to the synchronized store
+      final added = TripHistoryStore.instance.saveTrip(
+        start: 'Kuningan, Jakarta',
+        destination: 'Blok M Plaza',
+        startPoint: const LatLng(latitude: -6.2297, longitude: 106.8295),
+        destPoint: const LatLng(latitude: -6.2445, longitude: 106.7978),
+      );
+
+      // Verify it appears at the front of both recent trips query
+      final updatedRecent = TripHistoryStore.instance.getSortedTrips(TripHistorySort.recent);
+      expect(updatedRecent.first.id, added.id);
+      expect(updatedRecent.first.destination, 'Blok M Plaza');
     });
   });
 }

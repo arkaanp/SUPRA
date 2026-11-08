@@ -314,51 +314,6 @@ class TripScreenState extends State<TripScreen> {
     _fetchRoutes();
   }
 
-  /// Explicitly saves current route to Trip History with start and destination
-  Future<void> _saveRoute() async {
-    if (_destCoord == null) return;
-    final startName = _start.text;
-    final destName = _destination.text;
-
-    final saved = TripHistoryStore.instance.saveTrip(
-      start: startName,
-      destination: destName,
-      startPoint: _startCoord,
-      destPoint: _destCoord!,
-    );
-
-    if (SupraService.instance.currentUser != null) {
-      try {
-        await SupraService.instance.createTrip(
-          start: startName,
-          destination: destName,
-          departure: DateTime.now(),
-        );
-      } catch (_) {}
-    }
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(
-            children: [
-              const Icon(Icons.bookmark_added, color: Colors.white, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Route saved to Trip History (${saved.frequency}x)',
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          backgroundColor: SupraTheme.brand,
-          duration: const Duration(seconds: 2),
-        ),
-      );
-    }
-  }
-
   /// Handles deleting or reducing frequency of a trip item
   void _handleDeleteTrip(SavedTrip trip) {
     if (trip.frequency > 1) {
@@ -572,34 +527,64 @@ class TripScreenState extends State<TripScreen> {
     }
   }
 
-  Future<void> _startNavigation() async {
+  bool _isTrackingActive = false;
+
+  /// Confirms the trip: saves to TripHistoryStore and backend, focuses map
+  /// camera on the start location, and begins tracking user location towards destination.
+  Future<void> _confirmTripAndStartTracking() async {
     if (_destCoord == null || _selectedRoute == null) return;
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _isTrackingActive = true;
+    });
     final messenger = ScaffoldMessenger.of(context);
+    final startName = _start.text;
+    final destName = _destination.text;
     try {
-      TripHistoryStore.instance.saveTrip(
-        start: _start.text,
-        destination: _destination.text,
+      // 1. Save trip to TripHistoryStore (increments frequency and syncs with Home)
+      final saved = TripHistoryStore.instance.saveTrip(
+        start: startName,
+        destination: destName,
         startPoint: _startCoord,
         destPoint: _destCoord!,
       );
+
+      // 2. Sync to backend if authenticated
       if (SupraService.instance.currentUser != null) {
         await SupraService.instance.createTrip(
-          start: _start.text,
-          destination: _destination.text,
+          start: startName,
+          destination: destName,
           departure: DateTime.now(),
         );
       }
+
+      // 3. Focus on the start location to begin tracking location
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _mapKey.currentState?.animateToLocation(_startCoord);
+      });
+
+      // 4. Confirmation notification
       messenger.showSnackBar(
         SnackBar(
-          content: Text(
-            'Navigation started: ${_selectedRoute!.title} • Est. ${_selectedRoute!.formattedDuration}',
+          content: Row(
+            children: [
+              const Icon(Icons.navigation_rounded, color: Colors.white, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Trip confirmed & saved (${saved.frequency}x)! Tracking location from $startName to $destName',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
           ),
           backgroundColor: SupraTheme.brand,
+          duration: const Duration(seconds: 3),
         ),
       );
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('Trip error: $e')));
+      messenger.showSnackBar(SnackBar(content: Text('Trip tracking error: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -1217,33 +1202,73 @@ class TripScreenState extends State<TripScreen> {
             ),
             const SizedBox(height: 8),
 
-            // Save Route Button (Directly above Start Route Navigation)
-            SizedBox(
-              width: double.infinity,
-              height: 42,
-              child: OutlinedButton.icon(
-                icon: const Icon(Icons.bookmark_border_rounded, size: 18),
-                label: const Text(
-                  'Save Route',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+            // Live Tracking Banner when tracking is active
+            if (_isTrackingActive)
+              Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFBBF7D0)),
                 ),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: SupraTheme.brand,
-                  side: const BorderSide(color: SupraTheme.brand, width: 1.5),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.my_location, size: 14, color: Color(0xFF16A34A)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'Live tracking active: ${_destination.text}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF15803D),
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () {
+                        setState(() => _isTrackingActive = false);
+                        _mapKey.currentState?.fitToRoute(
+                          _selectedRoute?.waypoints ?? [_startCoord, _destCoord!],
+                        );
+                      },
+                      child: const Text(
+                        'Stop',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFFDC2626),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
-                onPressed: _busy ? null : _saveRoute,
               ),
-            ),
-            const SizedBox(height: 8),
 
-            // Primary Navigation Action Button
+            // Single "Confirm" Button: Saves the trip, focuses on start location, and starts tracking
             SizedBox(
               width: double.infinity,
               height: 46,
-              child: ElevatedButton(
+              child: ElevatedButton.icon(
+                icon: _busy
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Icon(Icons.check_circle_outline, size: 18),
+                label: const Text(
+                  'Confirm',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                  ),
+                ),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: SupraTheme.brand,
                   foregroundColor: Colors.white,
@@ -1252,23 +1277,7 @@ class TripScreenState extends State<TripScreen> {
                   ),
                   elevation: 2,
                 ),
-                onPressed: _busy ? null : _startNavigation,
-                child: _busy
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : Text(
-                        'Start Route Navigation • ${_selectedRoute!.formattedDuration}',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 14,
-                        ),
-                      ),
+                onPressed: _busy ? null : _confirmTripAndStartTracking,
               ),
             ),
           ],
