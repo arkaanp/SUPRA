@@ -127,7 +127,7 @@ void main() {
       expect(rainingZone.descriptiveLabel, contains('🌧️ 4.5 mm'));
     });
 
-    test('pm25Color and rainColor maintain very low opacity for map clarity', () {
+    test('pm25Color and rainColor maintain ultra-low opacity to be barely visible', () {
       const goodZone = EnvironmentalZone(
         id: 'g',
         name: 'G',
@@ -165,7 +165,7 @@ void main() {
         isRaining: true,
       );
 
-      // Verify opacity is barely noticeable (all single <= 0.08, composite <= 0.12)
+      // Verify opacity is barely visible (all single <= 0.08, composite <= 0.12)
       expect(goodZone.pm25Color.a, lessThanOrEqualTo(0.03));
       expect(modZone.pm25Color.a, lessThanOrEqualTo(0.04));
       expect(unhZone.pm25Color.a, lessThanOrEqualTo(0.06));

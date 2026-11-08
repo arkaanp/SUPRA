@@ -94,10 +94,10 @@ void main() {
       expect(find.text('Traffic'), findsOneWidget);
       expect(find.text('Heavy'), findsOneWidget);
 
-      // Bottom Row Metric 3: Wind symbol + Wind + Value
-      expect(find.byIcon(Icons.air_rounded), findsOneWidget);
-      expect(find.text('Wind'), findsOneWidget);
-      expect(find.text('8 km/h'), findsOneWidget);
+      // Bottom Row Metric 3: Thermometer symbol + Temp + Value (Replacing Wind)
+      expect(find.byIcon(Icons.thermostat_rounded), findsOneWidget);
+      expect(find.text('Temp'), findsOneWidget);
+      expect(find.text('29°C'), findsOneWidget);
 
       // Verify question mark (?) icons exist for Air Quality and Rain
       expect(find.byIcon(Icons.question_mark_rounded), findsNWidgets(2));
@@ -147,6 +147,12 @@ void main() {
 
       // AQI prediction badge
       expect(find.textContaining('AQI'), findsWidgets);
+
+      // Navigation chevrons exist to scroll/slide through all 12 hours
+      expect(find.byIcon(Icons.chevron_left_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.chevron_right_rounded), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.chevron_right_rounded));
+      await tester.pumpAndSettle();
     });
 
     testWidgets('Level 4: Plan your commute is removed and tapping saved trip navigates to Trip', (tester) async {

@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/location.dart';
 import '../models/route_option.dart';
+import '../models/saved_trip.dart';
 import '../services/geocoding_service.dart';
 import '../services/routing_service.dart';
 import '../services/supra_api_service.dart';
@@ -77,23 +80,19 @@ class TripScreenState extends State<TripScreen> {
   RouteOption? _selectedRoute;
   bool _loadingRoutes = false;
 
-  // Destination History sorted by frequency
-  static final Map<String, int> _historyFrequencies = {
-    'Grand Indonesia Mall': 5,
-    'Cibinong City Mall (CCM)': 4,
-    'Sudirman CBD (SCBD)': 4,
-    'Bundaran HI': 4,
-    'McDonald\'s Sarinah Thamrin': 3,
-    'Gelora Bung Karno (GBK)': 3,
-    'Kemang': 2,
-    'Stasiun Gambir': 2,
-  };
+  // Trip History sorting state (Recent vs Frequency)
+  TripHistorySort _historySort = TripHistorySort.recent;
 
   @override
   void initState() {
     super.initState();
     _start.text = 'Monas (Central Jakarta)';
     _updateSnapOptions(_defaultCurrentLocation);
+    TripHistoryStore.instance.addListener(_onTripHistoryStoreChanged);
+  }
+
+  void _onTripHistoryStoreChanged() {
+    if (mounted) setState(() {});
   }
 
   /// Loads start and destination for a trip, resolves their coordinates, and shows the route.
@@ -131,6 +130,8 @@ class TripScreenState extends State<TripScreen> {
 
   @override
   void dispose() {
+    TripHistoryStore.instance.removeListener(_onTripHistoryStoreChanged);
+    _topNotificationTimer?.cancel();
     _start.dispose();
     _destination.dispose();
     _mapSearchController.dispose();
@@ -248,8 +249,6 @@ class TripScreenState extends State<TripScreen> {
       } else {
         _destCoord = place.point;
         _destination.text = place.name;
-        _historyFrequencies[place.name] =
-            (_historyFrequencies[place.name] ?? 0) + 1;
       }
       _isPickingOnMap = false;
       _mapSearchResults = [];
@@ -258,6 +257,7 @@ class TripScreenState extends State<TripScreen> {
       _mapSearchController.text = place.name;
       _selectedRoute = null;
       _calculatedRoutes = [];
+      _isTrackingActive = false;
     });
     _mapKey.currentState?.animateToLocation(place.point);
   }
@@ -291,8 +291,6 @@ class TripScreenState extends State<TripScreen> {
       } else {
         _destCoord = _tempTappedPoint!;
         _destination.text = resolved;
-        _historyFrequencies[resolved] =
-            (_historyFrequencies[resolved] ?? 0) + 1;
       }
       _isPickingOnMap = false;
       _mapSearchResults = [];
@@ -304,9 +302,175 @@ class TripScreenState extends State<TripScreen> {
     setState(() {
       _destCoord = point;
       _destination.text = name;
-      _historyFrequencies[name] = (_historyFrequencies[name] ?? 0) + 1;
       _searchResults = [];
     });
+  }
+
+  /// Selects a historical trip from Trip History and loads/renders its route
+  void _selectTripHistoryItem(SavedTrip trip) {
+    setState(() {
+      _start.text = trip.start;
+      _startCoord = trip.startPoint;
+      _destination.text = trip.destination;
+      _destCoord = trip.destPoint;
+      _searchResults = [];
+    });
+    _fetchRoutes();
+  }
+
+  /// Handles deleting or reducing frequency of a trip item
+  void _handleDeleteTrip(SavedTrip trip) {
+    if (trip.frequency > 1) {
+      showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+        ),
+        builder: (ctx) {
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFCBD5E1),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    trip.routeLabel,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 14,
+                      color: SupraTheme.onSurface,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Current frequency: ${trip.frequency} trips recorded',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: SupraTheme.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  ListTile(
+                    leading: const CircleAvatar(
+                      backgroundColor: Color(0xFFEFF6FF),
+                      child: Icon(
+                        Icons.exposure_minus_1,
+                        color: SupraTheme.brand,
+                        size: 20,
+                      ),
+                    ),
+                    title: const Text(
+                      'Reduce frequency (-1)',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Decrease count from ${trip.frequency}x to ${trip.frequency - 1}x',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: SupraTheme.textSecondary,
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      TripHistoryStore.instance.reduceFrequency(trip.id);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Reduced frequency for "${trip.destination}" to ${trip.frequency - 1}x',
+                          ),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const CircleAvatar(
+                      backgroundColor: Color(0xFFFEE2E2),
+                      child: Icon(
+                        Icons.delete_forever,
+                        color: Color(0xFFDC2626),
+                        size: 20,
+                      ),
+                    ),
+                    title: const Text(
+                      'Delete trip completely',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                        color: Color(0xFFDC2626),
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Remove this route entirely from Trip History',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: SupraTheme.textSecondary,
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      final removed =
+                          TripHistoryStore.instance.deleteTrip(trip.id);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            'Deleted "${trip.destination}" from history',
+                          ),
+                          action: SnackBarAction(
+                            label: 'Undo',
+                            onPressed: () {
+                              if (removed != null) {
+                                TripHistoryStore.instance.insertTrip(removed);
+                              }
+                            },
+                          ),
+                          duration: const Duration(seconds: 3),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+    } else {
+      final removed = TripHistoryStore.instance.deleteTrip(trip.id);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Deleted "${trip.destination}" from history'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () {
+              if (removed != null) {
+                TripHistoryStore.instance.insertTrip(removed);
+              }
+            },
+          ),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   /// Calculates and confirms the route between Start and Destination.
@@ -323,6 +487,7 @@ class TripScreenState extends State<TripScreen> {
     }
     setState(() {
       _loadingRoutes = true;
+      _isTrackingActive = false;
     });
 
     try {
@@ -367,37 +532,263 @@ class TripScreenState extends State<TripScreen> {
     }
   }
 
-  Future<void> _startNavigation() async {
+  bool _isTrackingActive = false;
+
+  // Floating top notification popup state (never blocks the bottom sheet/buttons)
+  String? _topNotificationMessage;
+  IconData? _topNotificationIcon;
+  Color _topNotificationColor = SupraTheme.brand;
+  Timer? _topNotificationTimer;
+
+  void _showTopNotification({
+    required String message,
+    IconData icon = Icons.navigation_rounded,
+    Color color = SupraTheme.brand,
+    Duration duration = const Duration(seconds: 4),
+  }) {
+    _topNotificationTimer?.cancel();
+    setState(() {
+      _topNotificationMessage = message;
+      _topNotificationIcon = icon;
+      _topNotificationColor = color;
+    });
+    _topNotificationTimer = Timer(duration, () {
+      if (mounted) {
+        setState(() {
+          _topNotificationMessage = null;
+        });
+      }
+    });
+  }
+
+  void _dismissTopNotification() {
+    _topNotificationTimer?.cancel();
+    if (mounted) {
+      setState(() {
+        _topNotificationMessage = null;
+      });
+    }
+  }
+
+  /// Confirms the trip: saves to TripHistoryStore and backend, focuses map
+  /// camera on the start location, and begins tracking user location towards destination.
+  Future<void> _confirmTripAndStartTracking() async {
     if (_destCoord == null || _selectedRoute == null) return;
-    setState(() => _busy = true);
-    final messenger = ScaffoldMessenger.of(context);
+    setState(() {
+      _busy = true;
+      _isTrackingActive = true;
+    });
+    final startName = _start.text;
+    final destName = _destination.text;
     try {
+      // 1. Save trip to TripHistoryStore (increments frequency and syncs with Home)
+      final saved = TripHistoryStore.instance.saveTrip(
+        start: startName,
+        destination: destName,
+        startPoint: _startCoord,
+        destPoint: _destCoord!,
+      );
+
+      // 2. Sync to backend if authenticated
       if (SupraService.instance.currentUser != null) {
         await SupraService.instance.createTrip(
-          start: _start.text,
-          destination: _destination.text,
+          start: startName,
+          destination: destName,
           departure: DateTime.now(),
         );
       }
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            'Navigation started: ${_selectedRoute!.title} • Est. ${_selectedRoute!.formattedDuration}',
-          ),
-          backgroundColor: SupraTheme.brand,
-        ),
-      );
+
+      // 3. Focus on the start location to begin tracking location
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _mapKey.currentState?.animateToLocation(_startCoord);
+      });
+
+      // 4. Confirmation notification displayed on top (not blocking the bottom buttons)
+      if (mounted) {
+        _showTopNotification(
+          message:
+              'Trip confirmed & saved (${saved.frequency}x)! Tracking location from $startName to $destName',
+          icon: Icons.navigation_rounded,
+          color: SupraTheme.brand,
+        );
+      }
     } catch (e) {
-      messenger.showSnackBar(SnackBar(content: Text('Trip error: $e')));
+      if (mounted) {
+        _showTopNotification(
+          message: 'Trip tracking error: $e',
+          icon: Icons.error_outline,
+          color: const Color(0xFFEF4444),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
+  /// Prompts a confirmation dialog before cancelling live trip tracking to prevent accidental touches.
+  Future<void> _promptCancelTrackingConfirmation() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
+          ),
+          title: Row(
+            children: const [
+              Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 24),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Cancel Trip Tracking?',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: SupraTheme.onSurface,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Text(
+            'Are you sure you want to stop tracking this trip to ${_destination.text}? Your saved route will remain in Trip History.',
+            style: const TextStyle(
+              fontSize: 13,
+              color: SupraTheme.textSecondary,
+              height: 1.4,
+            ),
+          ),
+          actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          actions: [
+            TextButton(
+              style: TextButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text(
+                'Keep Tracking',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: SupraTheme.textSecondary,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                minimumSize: const Size(128, 42),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                elevation: 0,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text(
+                'Stop Tracking',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true && mounted) {
+      _cancelTracking();
+    }
+  }
+
+  /// Cancels active trip tracking, restoring the Confirm button and re-centering camera to full route.
+  void _cancelTracking() {
+    setState(() {
+      _isTrackingActive = false;
+    });
+    final routeWaypoints = _selectedRoute?.waypoints ??
+        (_destCoord != null ? [_startCoord, _destCoord!] : [_startCoord]);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _mapKey.currentState?.fitToRoute(routeWaypoints);
+    });
+    _showTopNotification(
+      message: 'Trip tracking cancelled',
+      icon: Icons.info_outline,
+      color: const Color(0xFF475569),
+    );
+  }
+
+  /// Builds a floating top notification popup that displays confirmations
+  /// without obstructing or blocking the bottom sheet and action buttons.
+  Widget _buildTopNotificationPopup() {
+    if (_topNotificationMessage == null) return const SizedBox.shrink();
+
+    return Positioned(
+      top: 10,
+      left: 12,
+      right: 12,
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: _topNotificationColor,
+            borderRadius: BorderRadius.circular(14),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x33000000),
+                blurRadius: 10,
+                offset: Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              if (_topNotificationIcon != null) ...[
+                Icon(_topNotificationIcon, color: Colors.white, size: 20),
+                const SizedBox(width: 10),
+              ],
+              Expanded(
+                child: Text(
+                  _topNotificationMessage!,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12.5,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              InkWell(
+                onTap: _dismissTopNotification,
+                child: const Padding(
+                  padding: EdgeInsets.all(2),
+                  child: Icon(
+                    Icons.close,
+                    color: Colors.white70,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final sortedHistory = _historyFrequencies.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
+    final sortedTrips = TripHistoryStore.instance.getSortedTrips(_historySort);
 
     // Flex layout: Map occupies at least half of the screen unless the user swipes
     // the grey bar area to expand the bottom box to full screen.
@@ -414,12 +805,14 @@ class TripScreenState extends State<TripScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF1F5F9),
       body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: Stack(
           children: [
-            // =================================================================
-            // 1. TOP MAP (Always movable/zoomable even when read-only)
-            // =================================================================
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // =================================================================
+                // 1. TOP MAP (Always movable/zoomable even when read-only)
+                // =================================================================
             if (!_isSheetExpanded)
               Expanded(
                 flex: mapFlex,
@@ -688,7 +1081,7 @@ class TripScreenState extends State<TripScreen> {
 
                     // Sheet Body
                     Expanded(
-                      child: _buildBottomSheetContent(sortedHistory),
+                      child: _buildBottomSheetContent(sortedTrips),
                     ),
                   ],
                 ),
@@ -696,8 +1089,12 @@ class TripScreenState extends State<TripScreen> {
             ),
           ],
         ),
-      ),
-    );
+        // Floating top notification popup (does not block the bottom)
+        _buildTopNotificationPopup(),
+      ],
+    ),
+  ),
+);
   }
 
   /// Builds the top grey bar handle that only allows expanding to full screen
@@ -754,7 +1151,7 @@ class TripScreenState extends State<TripScreen> {
     );
   }
 
-  Widget _buildBottomSheetContent(List<MapEntry<String, int>> sortedHistory) {
+  Widget _buildBottomSheetContent(List<SavedTrip> sortedTrips) {
     // -------------------------------------------------------------------------
     // Mode A: "Pilih Lewat Peta" / Pick on Map Confirmation Sheet
     // -------------------------------------------------------------------------
@@ -985,6 +1382,7 @@ class TripScreenState extends State<TripScreen> {
                     setState(() {
                       _calculatedRoutes = [];
                       _selectedRoute = null;
+                      _isTrackingActive = false;
                     });
                   },
                 ),
@@ -1007,37 +1405,88 @@ class TripScreenState extends State<TripScreen> {
             ),
             const SizedBox(height: 8),
 
-            // Primary Navigation Action Button
+            // Live Tracking Banner when tracking is active
+            if (_isTrackingActive)
+              Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFBBF7D0)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.my_location, size: 15, color: Color(0xFF16A34A)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Live tracking active: ${_destination.text}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF15803D),
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+            // Dynamic Action Button: Confirm saves trip & starts tracking;
+            // while tracking is active, it is replaced by "Cancel Tracking".
             SizedBox(
               width: double.infinity,
               height: 46,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: SupraTheme.brand,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 2,
-                ),
-                onPressed: _busy ? null : _startNavigation,
-                child: _busy
-                    ? const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : Text(
-                        'Start Route Navigation • ${_selectedRoute!.formattedDuration}',
-                        style: const TextStyle(
+              child: _isTrackingActive
+                  ? ElevatedButton.icon(
+                      icon: const Icon(Icons.cancel_outlined, size: 18),
+                      label: const Text(
+                        'Cancel Tracking',
+                        style: TextStyle(
                           fontWeight: FontWeight.w800,
-                          fontSize: 14,
+                          fontSize: 15,
                         ),
                       ),
-              ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFDC2626), // Destructive red
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 2,
+                      ),
+                      onPressed: _busy ? null : _promptCancelTrackingConfirmation,
+                    )
+                  : ElevatedButton.icon(
+                      icon: _busy
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Icon(Icons.check_circle_outline, size: 18),
+                      label: const Text(
+                        'Confirm',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 15,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: SupraTheme.brand,
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 2,
+                      ),
+                      onPressed: _busy ? null : _confirmTripAndStartTracking,
+                    ),
             ),
           ],
         ),
@@ -1222,11 +1671,37 @@ class TripScreenState extends State<TripScreen> {
           ),
           const SizedBox(height: 8),
 
-          // Loading indicator for route calculations
+          // Loading indicator for route calculations: Expanded to fill the sheet area smoothly
           if (_loadingRoutes)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 16),
-              child: Center(child: CircularProgressIndicator()),
+            const Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CircularProgressIndicator(
+                      color: SupraTheme.brand,
+                      strokeWidth: 3,
+                    ),
+                    SizedBox(height: 12),
+                    Text(
+                      'Calculating optimal eco-routes...',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: SupraTheme.onSurface,
+                      ),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Analyzing air quality, weather & live traffic',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: SupraTheme.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             )
           // Live autocomplete search dropdown results
           else if (_searchResults.isNotEmpty)
@@ -1270,103 +1745,39 @@ class TripScreenState extends State<TripScreen> {
                 },
               ),
             )
-          // Recent Destinations History
+          // Trip History Section with Sort Option
           else ...[
-            const Text(
-              'Recent destinations',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: SupraTheme.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 4),
-
+            _buildTripHistoryHeader(sortedTrips.length),
+            const SizedBox(height: 6),
             Expanded(
-              child: ListView.separated(
-                padding: EdgeInsets.zero,
-                itemCount: sortedHistory.length,
-                separatorBuilder: (context, _) => const Divider(height: 1),
-                itemBuilder: (context, i) {
-                  final entry = sortedHistory[i];
-                  final lm = greaterJakartaLandmarks.firstWhere(
-                    (l) => l.name.startsWith(entry.key.split(' (').first),
-                    orElse: () => greaterJakartaLandmarks.first,
-                  );
-                  return ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    leading: const CircleAvatar(
-                      radius: 14,
-                      backgroundColor: Color(0xFFF1F5F9),
-                      child: Icon(
-                        Icons.history,
-                        size: 14,
-                        color: SupraTheme.textSecondary,
-                      ),
-                    ),
-                    title: Text(
-                      entry.key,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 12,
-                      ),
-                    ),
-                    subtitle: Text(
-                      lm.area,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: SupraTheme.textSecondary,
-                      ),
-                    ),
-                    trailing: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFF1F5F9),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      child: Text(
-                        '${entry.value}x',
-                        style: const TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: SupraTheme.textSecondary,
-                        ),
-                      ),
-                    ),
-                    onTap: () => _selectDestination(entry.key, lm.point),
-                  );
-                },
-              ),
+              child: _buildTripHistoryList(sortedTrips),
             ),
           ],
 
           const SizedBox(height: 4),
 
-          // Explicit "Show Route" Button: Confirms both locations before displaying route!
-          SizedBox(
-            width: double.infinity,
-            height: 40,
-            child: ElevatedButton.icon(
-              icon: const Icon(Icons.alt_route, size: 18),
-              label: const Text(
-                'Show Route',
-                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
-              ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: SupraTheme.brand,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+          // Explicit "Show Route" Button: Erased while loading so it never appears in the middle
+          if (!_loadingRoutes)
+            SizedBox(
+              width: double.infinity,
+              height: 40,
+              child: ElevatedButton.icon(
+                icon: const Icon(Icons.alt_route, size: 18),
+                label: const Text(
+                  'Show Route',
+                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
                 ),
-                elevation: 2,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: SupraTheme.brand,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 2,
+                ),
+                onPressed: _destCoord == null ? null : _fetchRoutes,
               ),
-              onPressed: _destCoord == null ? null : _fetchRoutes,
             ),
-          ),
         ],
       ),
     );
@@ -1386,6 +1797,228 @@ class TripScreenState extends State<TripScreen> {
       backgroundColor: const Color(0xFFF1F5F9),
       side: const BorderSide(color: Color(0xFFE2E8F0)),
       onPressed: onTap,
+    );
+  }
+
+  Widget _buildTripHistoryHeader(int count) {
+    return Row(
+      children: [
+        const Text(
+          'Trip History',
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w800,
+            color: SupraTheme.onSurface,
+          ),
+        ),
+        const SizedBox(width: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+          decoration: BoxDecoration(
+            color: SupraTheme.brand.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            '$count',
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              color: SupraTheme.brand,
+            ),
+          ),
+        ),
+        const Spacer(),
+        // Segmented Sort Selector on the right side: Recent vs Frequency
+        Container(
+          height: 28,
+          padding: const EdgeInsets.all(2),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildSortSegment(
+                title: 'Recent',
+                icon: Icons.access_time_rounded,
+                isSelected: _historySort == TripHistorySort.recent,
+                onTap: () =>
+                    setState(() => _historySort = TripHistorySort.recent),
+              ),
+              _buildSortSegment(
+                title: 'Frequency',
+                icon: Icons.local_fire_department_rounded,
+                isSelected: _historySort == TripHistorySort.frequency,
+                onTap: () =>
+                    setState(() => _historySort = TripHistorySort.frequency),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSortSegment({
+    required String title,
+    required IconData icon,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: isSelected ? Colors.white : Colors.transparent,
+          borderRadius: BorderRadius.circular(6),
+          boxShadow: isSelected
+              ? const [
+                  BoxShadow(
+                    color: Color(0x14000000),
+                    blurRadius: 3,
+                    offset: Offset(0, 1),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 13,
+              color: isSelected ? SupraTheme.brand : SupraTheme.textSecondary,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              title,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                color: isSelected ? SupraTheme.brand : SupraTheme.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTripHistoryList(List<SavedTrip> trips) {
+    if (trips.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(16.0),
+          child: Text(
+            'No saved trips yet.\nSave a route or search a destination to add one!',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 12, color: SupraTheme.textSecondary),
+          ),
+        ),
+      );
+    }
+
+    return ListView.separated(
+      padding: EdgeInsets.zero,
+      itemCount: trips.length,
+      separatorBuilder: (context, _) => const Divider(height: 1),
+      itemBuilder: (context, i) {
+        final item = trips[i];
+        final isHighFreq = item.frequency >= 4;
+        return Material(
+          color: Colors.transparent,
+          child: ListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 4,
+              vertical: 2,
+            ),
+            leading: CircleAvatar(
+              radius: 14,
+              backgroundColor: _historySort == TripHistorySort.frequency
+                  ? (isHighFreq
+                      ? const Color(0xFFFEF3C7)
+                      : const Color(0xFFF1F5F9))
+                  : const Color(0xFFF1F5F9),
+              child: Icon(
+                _historySort == TripHistorySort.frequency
+                    ? Icons.local_fire_department
+                    : Icons.history,
+                size: 14,
+                color: _historySort == TripHistorySort.frequency
+                    ? (isHighFreq
+                        ? const Color(0xFFEA580C)
+                        : SupraTheme.brand)
+                    : SupraTheme.brand,
+              ),
+            ),
+            title: Text(
+              item.destination,
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: 12.5,
+                color: SupraTheme.onSurface,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              'From: ${item.start} • ${item.timeAgo}',
+              style: const TextStyle(
+                fontSize: 10.5,
+                color: SupraTheme.textSecondary,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: isHighFreq
+                        ? const Color(0xFFFEF3C7)
+                        : const Color(0xFFF1F5F9),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    '${item.frequency}x',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                      color: isHighFreq
+                          ? const Color(0xFFB45309)
+                          : SupraTheme.textSecondary,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                IconButton(
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    size: 18,
+                    color: SupraTheme.textSecondary,
+                  ),
+                  tooltip: 'Delete or reduce frequency',
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.all(4),
+                  constraints: const BoxConstraints(),
+                  onPressed: () => _handleDeleteTrip(item),
+                ),
+              ],
+            ),
+            onTap: () => _selectTripHistoryItem(item),
+          ),
+        );
+      },
     );
   }
 

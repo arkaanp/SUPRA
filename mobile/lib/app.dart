@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/material.dart';
 
 import 'services/supra_api_service.dart';
@@ -5,6 +7,19 @@ import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/supra_shell.dart';
 import 'theme/app_theme.dart';
+
+/// Enables drag scrolling across touch, stylus, mouse, and trackpad devices.
+class AppScrollBehavior extends MaterialScrollBehavior {
+  const AppScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+        PointerDeviceKind.touch,
+        PointerDeviceKind.mouse,
+        PointerDeviceKind.trackpad,
+        PointerDeviceKind.stylus,
+      };
+}
 
 /// Root widget of the Supra mobile app.
 ///
@@ -20,6 +35,7 @@ class SupraApp extends StatelessWidget {
       title: 'Supra',
       debugShowCheckedModeBanner: false,
       theme: SupraTheme.light(),
+      scrollBehavior: const AppScrollBehavior(),
       // Listen to auth state changes so the app can switch between the auth
       // flow and the main shell without a navigation package.
       home: ListenableBuilder(

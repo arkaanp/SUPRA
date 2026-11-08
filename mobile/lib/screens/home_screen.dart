@@ -1,9 +1,11 @@
 import 'dart:math';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import '../models/current_conditions.dart';
 import '../models/environmental_zone.dart';
 import '../models/location.dart';
+import '../models/saved_trip.dart';
 import '../models/trip.dart';
 import '../services/environmental_service.dart';
 import '../services/supra_api_service.dart';
@@ -65,11 +67,24 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _loading = false;
   CurrentConditions? _liveConditions;
   EnvironmentalZone? _currentZone;
+  final ScrollController _hourlyScrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _refreshAll();
+    TripHistoryStore.instance.addListener(_onTripHistoryStoreChanged);
+  }
+
+  void _onTripHistoryStoreChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    TripHistoryStore.instance.removeListener(_onTripHistoryStoreChanged);
+    _hourlyScrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _refreshAll() async {
@@ -822,10 +837,10 @@ class _HomeScreenState extends State<HomeScreen> {
             : 'Moderate')
         : 'Heavy';
 
-    // Wind
-    final double windSpeed =
-        (liveWeather?['wind_speed_kmh'] as num?)?.toDouble() ?? 8.0;
-    final String windValue = '${windSpeed.toStringAsFixed(0)} km/h';
+    // Temperature (Replacing Wind in Today's Air Quality card)
+    final double tempC =
+        (liveWeather?['temperature_c'] as num?)?.toDouble() ?? 29.0;
+    final String tempValue = '${tempC.toStringAsFixed(0)}°C';
 
     // Forecast items: always next 12 hours (13 items total: Now + 12 hours ahead)
     final forecastItems = _generateHourlyForecasts(currentAqi, 13);
@@ -867,7 +882,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 weatherLabel: weatherLabel,
                 rainValue: rainValue,
                 trafficValue: trafficValue,
-                windValue: windValue,
+                tempValue: tempValue,
               ),
 
               const SizedBox(height: 28),
@@ -1055,7 +1070,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// - Bottom divided into three horizontal metrics:
   ///   Left: Umbrella symbol, Weather, value, and (?) help button explaining Rain
   ///   Middle: Traffic symbol, Traffic, value
-  ///   Right: Wind symbol, Wind, value
+  ///   Right: Thermometer symbol, Temp, value
   Widget _buildTodaysAirQualityCard({
     required int aqi,
     required String category,
@@ -1065,7 +1080,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required String weatherLabel,
     required String rainValue,
     required String trafficValue,
-    required String windValue,
+    required String tempValue,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -1292,12 +1307,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: Colors.white.withValues(alpha: 0.15),
                     ),
 
-                    // RIGHT: Wind symbol, Wind, value
+                    // RIGHT: Thermometer symbol, Temp, value (replaces wind)
                     Expanded(
                       child: _buildMetricItem(
-                        icon: Icons.air_rounded,
-                        topLabel: 'Wind',
-                        bottomValue: windValue,
+                        icon: Icons.thermostat_rounded,
+                        topLabel: 'Temp',
+                        bottomValue: tempValue,
                       ),
                     ),
                   ],
@@ -1397,31 +1412,82 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// 3. Next 12 Hours (Combined Local Forecast):
   /// - Left: "Next 12 Hours Forecast" on top, "Combined local weather, air quality & temperature predictions" below
+  /// - Right: Chevron buttons to easily slide left/right across all 12 boxes
   /// - Horizontally scrolling boxes containing Time, Weather Symbol, Temperature, AQI for the full 12 hours
   Widget _buildNextFewHoursSection(List<HourlyForecast> forecastItems) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Section Header Row
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: const [
-            Text(
-              'Next 12 Hours Forecast',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF0F172A),
+        // Section Header Row with Left Title and Right Scroll Navigation Controls
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text(
+                    'Next 12 Hours Forecast',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'Combined local weather, air quality & temperature predictions',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                ],
               ),
             ),
-            SizedBox(height: 2),
-            Text(
-              'Combined local weather, air quality & temperature predictions',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: Color(0xFF64748B),
-              ),
+            const SizedBox(width: 8),
+            // Quick scroll controls to easily slide left/right across all 12 hours
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildHourlyNavArrow(
+                  icon: Icons.chevron_left_rounded,
+                  tooltip: 'Scroll left',
+                  onTap: () {
+                    final target = (_hourlyScrollController.offset - 192).clamp(
+                      0.0,
+                      _hourlyScrollController.hasClients
+                          ? _hourlyScrollController.position.maxScrollExtent
+                          : 1000.0,
+                    );
+                    _hourlyScrollController.animateTo(
+                      target,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOutCubic,
+                    );
+                  },
+                ),
+                const SizedBox(width: 6),
+                _buildHourlyNavArrow(
+                  icon: Icons.chevron_right_rounded,
+                  tooltip: 'Scroll right',
+                  onTap: () {
+                    final target = (_hourlyScrollController.offset + 192).clamp(
+                      0.0,
+                      _hourlyScrollController.hasClients
+                          ? _hourlyScrollController.position.maxScrollExtent
+                          : 1000.0,
+                    );
+                    _hourlyScrollController.animateTo(
+                      target,
+                      duration: const Duration(milliseconds: 300),
+                      curve: Curves.easeOutCubic,
+                    );
+                  },
+                ),
+              ],
             ),
           ],
         ),
@@ -1429,14 +1495,26 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 14),
 
         // Horizontal scrolling series of prediction boxes across all 12 hours
-        SizedBox(
-          height: 136,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            physics: const BouncingScrollPhysics(),
-            itemCount: forecastItems.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 12),
-            itemBuilder: (context, index) {
+        ScrollConfiguration(
+          behavior: ScrollConfiguration.of(context).copyWith(
+            dragDevices: {
+              PointerDeviceKind.touch,
+              PointerDeviceKind.mouse,
+              PointerDeviceKind.trackpad,
+              PointerDeviceKind.stylus,
+            },
+          ),
+          child: SizedBox(
+            height: 136,
+            child: ListView.separated(
+              controller: _hourlyScrollController,
+              scrollDirection: Axis.horizontal,
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics(),
+              ),
+              itemCount: forecastItems.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 12),
+              itemBuilder: (context, index) {
               final item = forecastItems[index];
               return Container(
                 width: 84,
@@ -1513,13 +1591,47 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
         ),
-      ],
+      ),
+    ],
+  );
+}
+
+  Widget _buildHourlyNavArrow({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(10),
+      elevation: 1,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          width: 30,
+          height: 30,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: Icon(icon, size: 20, color: const Color(0xFF475569)),
+        ),
+      ),
     );
   }
 
   /// 4. Recent Trips Section:
+  /// Synchronized with TripHistoryStore (same store used by TripScreen).
   /// Tapping any saved trip triggers navigation to TripScreen and shows the route.
   Widget _buildRecentTripsSection(SupraService service) {
+    if (service.trips.isNotEmpty) {
+      TripHistoryStore.instance.syncWithServiceTrips(service.trips);
+    }
+    final recentTrips =
+        TripHistoryStore.instance.getSortedTrips(TripHistorySort.recent);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1534,16 +1646,16 @@ class _HomeScreenState extends State<HomeScreen> {
                 color: Color(0xFF0F172A),
               ),
             ),
-            if (service.trips.isNotEmpty)
+            if (recentTrips.isNotEmpty)
               Text(
-                '${service.trips.length} saved',
+                '${recentTrips.length} saved',
                 style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
               ),
           ],
         ),
         const SizedBox(height: 10),
 
-        if (service.trips.isEmpty)
+        if (recentTrips.isEmpty)
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
@@ -1559,7 +1671,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     color: SupraTheme.brand.withValues(alpha: 0.1),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.bookmark_border_rounded, color: SupraTheme.brand),
+                  child: const Icon(
+                    Icons.bookmark_border_rounded,
+                    color: SupraTheme.brand,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 const Expanded(
@@ -1568,7 +1683,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Text(
                         'No saved trips yet',
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 14,
+                        ),
                       ),
                       Text(
                         'Save your daily routes to get instant environmental forecasts and route recommendations.',
@@ -1582,7 +1700,7 @@ class _HomeScreenState extends State<HomeScreen> {
           )
         else
           Column(
-            children: service.trips.take(4).map((trip) {
+            children: recentTrips.take(4).map((trip) {
               return Container(
                 margin: const EdgeInsets.only(bottom: 8),
                 decoration: BoxDecoration(
@@ -1594,19 +1712,50 @@ class _HomeScreenState extends State<HomeScreen> {
                   borderRadius: BorderRadius.circular(14),
                   child: ListTile(
                     dense: true,
-                    leading: const Icon(Icons.route_outlined, color: SupraTheme.brand),
+                    leading: const Icon(
+                      Icons.route_outlined,
+                      color: SupraTheme.brand,
+                    ),
                     title: Text(
-                      trip.name,
+                      trip.displayTitle,
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                     subtitle: Text(
-                      '${trip.startLocation} → ${trip.destination}',
+                      '${trip.start} → ${trip.destination} • ${trip.timeAgo}',
                       overflow: TextOverflow.ellipsis,
                     ),
-                    trailing: const Icon(Icons.chevron_right, size: 18),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: trip.frequency >= 4
+                                ? const Color(0xFFFEF3C7)
+                                : const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '${trip.frequency}x',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: trip.frequency >= 4
+                                  ? const Color(0xFFB45309)
+                                  : SupraTheme.textSecondary,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Icon(Icons.chevron_right, size: 18),
+                      ],
+                    ),
                     onTap: () {
                       if (widget.onNavigateToTrip != null) {
-                        widget.onNavigateToTrip!(trip);
+                        widget.onNavigateToTrip!(trip.toTrip());
                       }
                     },
                   ),

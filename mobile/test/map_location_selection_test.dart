@@ -506,10 +506,16 @@ void main() {
         expect(mapAfterRoute.routeWaypoints!.length, greaterThan(2));
 
         // Routes calculated: Car and Motorcycle shown, public transit removed
-        expect(find.textContaining('Car (Automobile)'), findsOneWidget);
-        expect(find.textContaining('Motorcycle (Two-Wheeler)'), findsOneWidget);
+        expect(
+          find.textContaining('Car (Automobile)', skipOffstage: false),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('Motorcycle (Two-Wheeler)', skipOffstage: false),
+          findsOneWidget,
+        );
         expect(find.textContaining('Transjakarta'), findsNothing);
-        expect(find.textContaining('Start Route Navigation'), findsOneWidget);
+        expect(find.text('Confirm'), findsOneWidget);
       },
     );
 
