@@ -331,6 +331,30 @@ class SupraService extends ChangeNotifier {
         notifyListeners();
       });
 
+  /// Sends a conversational message to Agent 1 via backend POST /api/agent/chat.
+  Future<Map<String, dynamic>> sendAgentChat({
+    required String message,
+    List<Map<String, dynamic>>? history,
+    Map<String, dynamic>? context,
+    String? apiKeyOverride,
+  }) =>
+      _withApi((api, id) async {
+        final payload = <String, dynamic>{
+          'message': message,
+          if (history != null && history.isNotEmpty) 'history': history,
+          if (context != null && context.isNotEmpty) 'context': context,
+          if (apiKeyOverride != null && apiKeyOverride.trim().isNotEmpty)
+            'api_key_override': apiKeyOverride.trim(),
+        };
+        final response = await api.request(
+          'POST',
+          '/api/agent/chat',
+          payload,
+        ) as Map<String, dynamic>;
+        _requireSameUser(id);
+        return response;
+      });
+
   @visibleForTesting
   void setTripsForTesting(List<Trip> trips) {
     _trips

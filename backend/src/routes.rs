@@ -1,7 +1,7 @@
 use crate::db::AppState;
 use crate::handlers::{
-    health, notification_preferences, notifications, predictions, routes as route_handlers, trips,
-    users,
+    agent, health, notification_preferences, notifications, predictions, routes as route_handlers,
+    trips, users,
 };
 use axum::{
     Router,
@@ -118,6 +118,10 @@ fn protected_routes(verifier: crate::auth::AuthVerifier) -> Router<AppState> {
             "/api/users/{user_id}/notifications",
             get(notifications::get_user_notifications),
         )
+        // ====================================================================
+        // Agent 1: Conversational Trip-Forecast Assistant
+        // ====================================================================
+        .route("/api/agent/chat", post(agent::chat))
         // Install this before auth so method errors on protected paths cannot
         // bypass authentication. The outer router preserves custom fallbacks.
         .method_not_allowed_fallback(|| async { crate::error::AppError::MethodNotAllowed })
