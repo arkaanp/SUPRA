@@ -11,6 +11,7 @@ import '../models/location.dart';
 import '../services/environmental_service.dart';
 import '../services/geocoding_service.dart';
 import '../theme/app_theme.dart';
+import 'geographic_tile_map.dart';
 
 /// Interactive map widget allowing users to visually select geographic coordinates
 /// within the Greater Jakarta service area (lat: -6.9..-5.8, lon: 106.3..107.3).
@@ -69,6 +70,9 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
   LatLng? _currentLocation;
   ml.MapLibreMapController? _mapController;
   late bool _useMapLibre;
+  final _tileMapKey = GlobalKey<GeographicTileMapState>();
+  bool get _useTileMap =>
+      !_useMapLibre && !widget.forceCanvas && !MapConfig.isTestEnvironment;
   String _mapStyle = MapConfig.cartoPositron;
 
   final GeocodingService _geocodingService = GeocodingService();
@@ -117,7 +121,9 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
 
   Future<void> _refreshEnvironmentalZones() async {
     try {
-      final updated = await _environmentalService.fetchLiveZoneData();
+      final updated = await _environmentalService.fetchLiveZoneData(
+        point: _currentLocation,
+      );
       if (mounted) {
         setState(() => _environmentalZones = updated);
         if (_useMapLibre && _mapController != null) {
@@ -309,14 +315,21 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
   }
 
   void animateToLocation(LatLng loc, {Size? mapSize}) {
+    if (_useTileMap) {
+      setState(() => _currentLocation = loc);
+      _tileMapKey.currentState?.centerOn(loc);
+      _resolveAddress(loc);
+      return;
+    }
     final size = mapSize ?? _lastCanvasSize ?? const Size(400, 300);
     const pad = 18.0;
     final usableW = max(1.0, size.width - 2 * pad);
     final usableH = max(1.0, size.height - 2 * pad);
-    final normX =
-        ((loc.longitude - minLon) / (maxLon - minLon)).clamp(0.0, 1.0);
-    final normY =
-        ((maxLat - loc.latitude) / (maxLat - minLat)).clamp(0.0, 1.0);
+    final normX = ((loc.longitude - minLon) / (maxLon - minLon)).clamp(
+      0.0,
+      1.0,
+    );
+    final normY = ((maxLat - loc.latitude) / (maxLat - minLat)).clamp(0.0, 1.0);
     final centerX = size.width / 2;
     final centerY = size.height / 2;
     final baseX = pad + normX * usableW;
@@ -347,6 +360,10 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
   /// Centers and zooms in/out the view such that the whole route is visible within the viewport.
   void fitToRoute(List<LatLng> points, {Size? mapSize, double padding = 48.0}) {
     if (points.isEmpty) return;
+    if (_useTileMap) {
+      _tileMapKey.currentState?.fit(points);
+      return;
+    }
 
     double routeMinLat = 90.0;
     double routeMaxLat = -90.0;
@@ -401,10 +418,14 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
     final targetZoom = min(zoomX, zoomY).clamp(0.75, 3.2);
 
     // Center offset calculation
-    final normCenterX =
-        ((centerLon - minLon) / (maxLon - minLon)).clamp(0.0, 1.0);
-    final normCenterY =
-        ((maxLat - centerLat) / (maxLat - minLat)).clamp(0.0, 1.0);
+    final normCenterX = ((centerLon - minLon) / (maxLon - minLon)).clamp(
+      0.0,
+      1.0,
+    );
+    final normCenterY = ((maxLat - centerLat) / (maxLat - minLat)).clamp(
+      0.0,
+      1.0,
+    );
     final baseCenterX = pad + normCenterX * usableW;
     final baseCenterY = pad + normCenterY * usableH;
 
@@ -450,10 +471,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
           zoom = 14.5;
         }
         _mapController!.animateCamera(
-          ml.CameraUpdate.newLatLngZoom(
-            ml.LatLng(centerLat, centerLon),
-            zoom,
-          ),
+          ml.CameraUpdate.newLatLngZoom(ml.LatLng(centerLat, centerLon), zoom),
         );
       }
       _updateMapLibreLayers();
@@ -570,6 +588,24 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                       ),
                     },
                   )
+                else if (_useTileMap)
+                  GeographicTileMap(
+                    key: _tileMapKey,
+                    attributionBottomInset: widget.showFooter ? 72 : 0,
+                    selected: location,
+                    secondary: widget.secondaryLocation,
+                    points: widget.routeWaypoints ?? [],
+                    color: widget.routeColor ?? SupraTheme.brand,
+                    samples: widget.showEnvironmentalOverlays
+                        ? _environmentalZones
+                        : [],
+                    onTap: widget.isInteractive
+                        ? (point) {
+                            setState(() => _currentLocation = point);
+                            widget.onLocationChanged?.call(point);
+                          }
+                        : null,
+                  )
                 else
                   LayoutBuilder(
                     builder: (context, mapConstraints) {
@@ -612,12 +648,9 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                           if (!_isDragging && _tapCandidatePos != null) {
                             _handleCanvasTap(_tapCandidatePos!, size);
                           }
-                          Future.delayed(
-                            const Duration(milliseconds: 100),
-                            () {
-                              if (mounted) _isDragging = false;
-                            },
-                          );
+                          Future.delayed(const Duration(milliseconds: 100), () {
+                            if (mounted) _isDragging = false;
+                          });
                         },
                         child: Stack(
                           children: [
@@ -744,6 +777,8 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                               _mapController!.animateCamera(
                                 ml.CameraUpdate.zoomIn(),
                               );
+                            } else if (_useTileMap) {
+                              _tileMapKey.currentState?.zoom(1);
                             } else {
                               setState(
                                 () => _zoomFactor = (_zoomFactor * 1.25).clamp(
@@ -771,6 +806,8 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                               _mapController!.animateCamera(
                                 ml.CameraUpdate.zoomOut(),
                               );
+                            } else if (_useTileMap) {
+                              _tileMapKey.currentState?.zoom(-1);
                             } else {
                               setState(
                                 () => _zoomFactor = (_zoomFactor / 1.25).clamp(
@@ -804,6 +841,9 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                             if (target != null) {
                               animateToLocation(target);
                             } else {
+                              if (_useTileMap) {
+                                _tileMapKey.currentState?.reset();
+                              }
                               setState(() {
                                 _panOffset = Offset.zero;
                                 _zoomFactor = 1.0;
@@ -841,13 +881,19 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Icon(
-                                _useMapLibre ? Icons.public : Icons.map_outlined,
+                                _useMapLibre
+                                    ? Icons.public
+                                    : Icons.map_outlined,
                                 size: 13,
                                 color: SupraTheme.brand,
                               ),
                               const SizedBox(width: 4),
                               Text(
-                                _useMapLibre ? 'MapLibre GL' : 'Vector Map',
+                                _useMapLibre
+                                    ? 'MapLibre GL'
+                                    : _useTileMap
+                                    ? 'OpenStreetMap'
+                                    : 'Test canvas (no basemap)',
                                 style: const TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w700,
@@ -873,7 +919,11 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                 value: EnvironmentalOverlayMode.all,
                                 child: Row(
                                   children: [
-                                    Icon(Icons.layers, size: 16, color: SupraTheme.brand),
+                                    Icon(
+                                      Icons.layers,
+                                      size: 16,
+                                      color: SupraTheme.brand,
+                                    ),
                                     SizedBox(width: 8),
                                     Text('All Overlays (Air + Rain)'),
                                   ],
@@ -883,7 +933,11 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                 value: EnvironmentalOverlayMode.airQuality,
                                 child: Row(
                                   children: [
-                                    Icon(Icons.air, size: 16, color: Color(0xFFEF4444)),
+                                    Icon(
+                                      Icons.air,
+                                      size: 16,
+                                      color: Color(0xFFEF4444),
+                                    ),
                                     SizedBox(width: 8),
                                     Text('Air Pollution (PM2.5)'),
                                   ],
@@ -893,7 +947,11 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                 value: EnvironmentalOverlayMode.rain,
                                 child: Row(
                                   children: [
-                                    Icon(Icons.water_drop, size: 16, color: Color(0xFF2563EB)),
+                                    Icon(
+                                      Icons.water_drop,
+                                      size: 16,
+                                      color: Color(0xFF2563EB),
+                                    ),
                                     SizedBox(width: 8),
                                     Text('Rain (Precipitation)'),
                                   ],
@@ -908,31 +966,43 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                               decoration: BoxDecoration(
                                 color: Colors.white.withValues(alpha: 0.92),
                                 borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                                border: Border.all(
+                                  color: const Color(0xFFE2E8F0),
+                                ),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   Icon(
-                                    _overlayMode == EnvironmentalOverlayMode.rain
+                                    _overlayMode ==
+                                            EnvironmentalOverlayMode.rain
                                         ? Icons.water_drop
-                                        : _overlayMode == EnvironmentalOverlayMode.airQuality
-                                            ? Icons.air
-                                            : Icons.cloud_outlined,
+                                        : _overlayMode ==
+                                              EnvironmentalOverlayMode
+                                                  .airQuality
+                                        ? Icons.air
+                                        : Icons.cloud_outlined,
                                     size: 13,
-                                    color: _overlayMode == EnvironmentalOverlayMode.rain
+                                    color:
+                                        _overlayMode ==
+                                            EnvironmentalOverlayMode.rain
                                         ? const Color(0xFF2563EB)
-                                        : _overlayMode == EnvironmentalOverlayMode.airQuality
-                                            ? const Color(0xFFEF4444)
-                                            : SupraTheme.brand,
+                                        : _overlayMode ==
+                                              EnvironmentalOverlayMode
+                                                  .airQuality
+                                        ? const Color(0xFFEF4444)
+                                        : SupraTheme.brand,
                                   ),
                                   const SizedBox(width: 4),
                                   Text(
-                                    _overlayMode == EnvironmentalOverlayMode.rain
+                                    _overlayMode ==
+                                            EnvironmentalOverlayMode.rain
                                         ? 'Rain'
-                                        : _overlayMode == EnvironmentalOverlayMode.airQuality
-                                            ? 'PM2.5'
-                                            : 'Eco Layers',
+                                        : _overlayMode ==
+                                              EnvironmentalOverlayMode
+                                                  .airQuality
+                                        ? 'PM2.5'
+                                        : 'Eco Layers',
                                     style: const TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w700,
@@ -950,7 +1020,9 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
-                                    content: Text('Refreshed live Open-Meteo atmospheric telemetry.'),
+                                    content: Text(
+                                      'Location sample lookup completed. Check each source/status; unavailable readings are not substituted.',
+                                    ),
                                     duration: Duration(milliseconds: 1500),
                                   ),
                                 );
@@ -964,7 +1036,9 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                               decoration: BoxDecoration(
                                 color: Colors.white.withValues(alpha: 0.92),
                                 borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                                border: Border.all(
+                                  color: const Color(0xFFE2E8F0),
+                                ),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
@@ -973,13 +1047,13 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                     width: 6,
                                     height: 6,
                                     decoration: const BoxDecoration(
-                                      color: Color(0xFF22C55E),
+                                      color: Colors.blueGrey,
                                       shape: BoxShape.circle,
                                     ),
                                   ),
                                   const SizedBox(width: 3.5),
                                   const Text(
-                                    'Live',
+                                    'Refresh sample',
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w700,
@@ -1001,7 +1075,9 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                               decoration: BoxDecoration(
                                 color: Colors.white.withValues(alpha: 0.92),
                                 borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: const Color(0xFFE2E8F0)),
+                                border: Border.all(
+                                  color: const Color(0xFFE2E8F0),
+                                ),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
@@ -1015,7 +1091,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                   _buildLegendDot(const Color(0xFF2563EB)),
                                   const SizedBox(width: 4),
                                   const Text(
-                                    'AQI Guide',
+                                    'Data guide',
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w700,
@@ -1027,7 +1103,8 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                             ),
                           ),
                         ],
-                        if (MapConfig.isMapLibreSupported && !widget.forceCanvas) ...[
+                        if (MapConfig.isMapLibreSupported &&
+                            !widget.forceCanvas) ...[
                           const SizedBox(width: 6),
                           PopupMenuButton<String>(
                             icon: Container(
@@ -1145,11 +1222,11 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                           Text(
                             _resolvedAddress ??
                                 (nearest != null
-                                    ? (nearest.name
-                                            .toLowerCase()
-                                            .contains(nearest.area.toLowerCase())
-                                        ? nearest.name
-                                        : '${nearest.name}, ${nearest.area}')
+                                    ? (nearest.name.toLowerCase().contains(
+                                            nearest.area.toLowerCase(),
+                                          )
+                                          ? nearest.name
+                                          : '${nearest.name}, ${nearest.area}')
                                     : 'Selected Point'),
                             style: const TextStyle(
                               fontWeight: FontWeight.w700,
@@ -1314,9 +1391,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                         overflow: TextOverflow.ellipsis,
                       ),
                       Text(
-                        zone.isRaining
-                            ? '${zone.rainfallMm.toStringAsFixed(1)}mm · PM ${zone.pm25.toStringAsFixed(0)}'
-                            : 'PM ${zone.pm25.toStringAsFixed(0)} · ${zone.aqiCategory}',
+                        zone.descriptiveLabel,
                         style: const TextStyle(
                           color: SupraTheme.textSecondary,
                           fontWeight: FontWeight.w600,
@@ -1486,7 +1561,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                     SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Live telemetry sourced directly from Open-Meteo & OpenAQ models.',
+                        'Samples use the SUPRA backend: OpenAQ station observations and Open-Meteo model estimates. Missing/stale data is not a safe-condition reading. No area-wide interpolation or AQI conversion.',
                         style: TextStyle(
                           fontSize: 10.5,
                           color: Color(0xFF334155),
@@ -1697,7 +1772,7 @@ Future<LatLng?> showLocationPickerSheet({
         builder: (context, setSheetState) {
           void updateAddress(LatLng loc) {
             geocoder.reverseGeocode(loc).then((addr) {
-              if (context.mounted) {
+              if (context.mounted && selected == loc) {
                 setSheetState(() => resolvedAddress = addr);
               }
             });
@@ -1783,10 +1858,37 @@ Future<LatLng?> showLocationPickerSheet({
                     ),
                     onChanged: (text) async {
                       if (text.trim().length >= 2) {
-                        final res = await geocoder.searchPlaces(text);
-                        setSheetState(() => searchResults = res);
+                        final res = await geocoder.searchPlaces(
+                          text,
+                          remote: false,
+                        );
+                        if (context.mounted && searchCtrl.text == text) {
+                          setSheetState(() => searchResults = res);
+                        }
                       } else {
                         setSheetState(() => searchResults = []);
+                      }
+                    },
+                    onSubmitted: (text) async {
+                      try {
+                        final res = await geocoder.searchPlaces(text);
+                        if (context.mounted && searchCtrl.text == text) {
+                          setSheetState(() => searchResults = res);
+                          if (res.isEmpty) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'No matching locations. Choose on the map.',
+                                ),
+                              ),
+                            );
+                          }
+                        }
+                      } catch (error) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context)
+                              .showSnackBar(SnackBar(content: Text('$error')));
+                        }
                       }
                     },
                   ),

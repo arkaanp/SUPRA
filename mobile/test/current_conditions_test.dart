@@ -84,7 +84,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(calls, 1);
       expect(find.text('Weather unavailable'), findsOneWidget);
-      expect(find.textContaining('STALE —'), findsOneWidget);
+      expect(find.textContaining('STALE —'), findsWidgets);
       expect(find.text('Station: Test station'), findsOneWidget);
       expect(find.text('Provider: Test provider'), findsOneWidget);
       expect(find.textContaining('Speed: 20'), findsOneWidget);

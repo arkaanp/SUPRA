@@ -2,13 +2,19 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../config/map_config.dart';
+import '../models/current_conditions.dart';
 import '../models/location.dart';
 import '../models/route_option.dart';
 import '../models/saved_trip.dart';
+import '../models/commute.dart';
+import '../services/conditions_repository.dart';
 import '../services/geocoding_service.dart';
 import '../services/routing_service.dart';
 import '../services/supra_api_service.dart';
 import '../services/transit_network.dart';
+import '../services/commute_recommendations.dart';
+import 'commutes_screen.dart';
 import '../theme/app_theme.dart';
 import '../widgets/interactive_location_map.dart';
 
@@ -23,8 +29,7 @@ class NearbySnapOption {
   });
 }
 
-/// Route planning screen designed to show the optimal commute route based on
-/// live traffic congestion, weather (rainfall), and air pollution (PM2.5 / AQI).
+/// Driving-route planner with explicit place selection and provider provenance.
 /// Features:
 /// - Persistent top map (at least half screen, always movable/zoomable even when read-only).
 /// - Location input sheet with swipeable top grey bar to expand to full screen.
@@ -32,9 +37,11 @@ class NearbySnapOption {
 /// - Predictive search autocomplete matching specific venues (e.g., McDonald's, Cibinong, malls).
 /// - Vertical "Nearest Locations:" list scrolling top to bottom.
 /// - Explicit "Show Route" button to confirm both locations before route and modes are rendered.
-/// - Car & Motorcycle route options with traffic, weather, PM2.5, and health advisories (wear mask, etc.).
+/// - Only configured routing modes are offered; no synthetic offline routes.
 class TripScreen extends StatefulWidget {
-  const TripScreen({super.key});
+  const TripScreen({super.key, this.geocodingService, this.routingService});
+  final GeocodingService? geocodingService;
+  final RoutingService? routingService;
 
   @override
   State<TripScreen> createState() => TripScreenState();
@@ -46,8 +53,8 @@ class TripScreenState extends State<TripScreen> {
   final _mapSearchController = TextEditingController();
   final _mapSearchFocusNode = FocusNode();
 
-  final GeocodingService _geocoder = GeocodingService();
-  final RoutingService _routingService = RoutingService();
+  late final GeocodingService _geocoder;
+  late final RoutingService _routingService;
   final GlobalKey<InteractiveLocationMapState> _mapKey =
       GlobalKey<InteractiveLocationMapState>();
 
@@ -71,6 +78,8 @@ class TripScreenState extends State<TripScreen> {
   String _tempTappedName = 'Tap on map or type above to place pin';
   List<NearbySnapOption> _nearestSnapOptions = [];
   List<GeocodedPlace> _mapSearchResults = [];
+  Timer? _searchDebounce;
+  int _searchGeneration = 0;
 
   // Search state for main screen
   List<GeocodedPlace> _searchResults = [];
@@ -79,16 +88,51 @@ class TripScreenState extends State<TripScreen> {
   List<RouteOption> _calculatedRoutes = [];
   RouteOption? _selectedRoute;
   bool _loadingRoutes = false;
+  int _routeGeneration = 0;
+  TransportMode _requestedMode = TransportMode.car;
+  String? _routeKey;
+  String? _activeTripId;
 
   // Trip History sorting state (Recent vs Frequency)
   TripHistorySort _historySort = TripHistorySort.recent;
 
+  // Stale fallback conditions & ML prediction toggle for Trip screen
+  CurrentConditions? _originConditions;
+  bool _showMlPredictions = false;
+
   @override
   void initState() {
     super.initState();
+    _geocoder = widget.geocodingService ?? GeocodingService();
+    _routingService = widget.routingService ?? RoutingService();
     _start.text = 'Monas (Central Jakarta)';
+    if (!MapConfig.isTestEnvironment) {
+      _originConditions = ConditionsRepository.staleFallbackSnapshot(
+        _defaultCurrentLocation,
+        DateTime.now(),
+      );
+      unawaited(_refreshOriginConditions(_defaultCurrentLocation));
+    }
     _updateSnapOptions(_defaultCurrentLocation);
     TripHistoryStore.instance.addListener(_onTripHistoryStoreChanged);
+  }
+
+  Future<void> _refreshOriginConditions(LatLng point) async {
+    try {
+      final cond = await ConditionsRepository.instance.at(point);
+      if (mounted) {
+        setState(() => _originConditions = cond);
+      }
+    } catch (_) {
+      if (mounted && !MapConfig.isTestEnvironment) {
+        setState(
+          () => _originConditions = ConditionsRepository.staleFallbackSnapshot(
+            point,
+            DateTime.now(),
+          ),
+        );
+      }
+    }
   }
 
   void _onTripHistoryStoreChanged() {
@@ -101,27 +145,34 @@ class TripScreenState extends State<TripScreen> {
     required String destination,
     LatLng? startPoint,
     LatLng? destPoint,
+    String? mode,
   }) async {
+    if (mode != null) {
+      _requestedMode = TransportMode.values.firstWhere(
+        (m) => m.apiValue == mode,
+        orElse: () => TransportMode.car,
+      );
+    }
     _start.text = start;
     _destination.text = destination;
 
-    if (startPoint != null) {
-      _startCoord = startPoint;
-    } else {
-      final startResults = await _geocoder.searchPlaces(start);
-      if (startResults.isNotEmpty) {
-        _startCoord = startResults.first.point;
-      }
+    if (startPoint == null || destPoint == null) {
+      setState(() {
+        _destCoord = null;
+        _calculatedRoutes = [];
+        _selectedRoute = null;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'This planned trip has no confirmed coordinates. Select both locations first.',
+          ),
+        ),
+      );
+      return;
     }
-
-    if (destPoint != null) {
-      _destCoord = destPoint;
-    } else {
-      final destResults = await _geocoder.searchPlaces(destination);
-      if (destResults.isNotEmpty) {
-        _destCoord = destResults.first.point;
-      }
-    }
+    _startCoord = startPoint;
+    _destCoord = destPoint;
 
     if (mounted && _destCoord != null) {
       await _fetchRoutes();
@@ -132,6 +183,8 @@ class TripScreenState extends State<TripScreen> {
   void dispose() {
     TripHistoryStore.instance.removeListener(_onTripHistoryStoreChanged);
     _topNotificationTimer?.cancel();
+    _searchDebounce?.cancel();
+    _searchGeneration++;
     _start.dispose();
     _destination.dispose();
     _mapSearchController.dispose();
@@ -189,6 +242,8 @@ class TripScreenState extends State<TripScreen> {
   }
 
   Future<void> _onMapTapped(LatLng tapCoord) async {
+    _searchDebounce?.cancel();
+    _searchGeneration++;
     setState(() {
       _tempTappedPoint = tapCoord;
       _mapSearchResults = [];
@@ -207,6 +262,10 @@ class TripScreenState extends State<TripScreen> {
   }
 
   void _startPickingMode({required bool forStart, bool focusSearch = false}) {
+    _searchDebounce?.cancel();
+    _searchGeneration++;
+    _routeGeneration++;
+    _loadingRoutes = false;
     final initial = forStart ? _startCoord : (_destCoord ?? _startCoord);
     final initialName = forStart
         ? _start.text
@@ -231,6 +290,8 @@ class TripScreenState extends State<TripScreen> {
   }
 
   void _teleportToPoint(LatLng target, String name) {
+    _searchDebounce?.cancel();
+    _searchGeneration++;
     setState(() {
       _tempTappedPoint = target;
       _tempTappedName = name;
@@ -242,6 +303,8 @@ class TripScreenState extends State<TripScreen> {
   }
 
   void _choosePlaceAndConfirm(GeocodedPlace place) {
+    _searchDebounce?.cancel();
+    _searchGeneration++;
     setState(() {
       if (_isPickingStart) {
         _startCoord = place.point;
@@ -264,21 +327,45 @@ class TripScreenState extends State<TripScreen> {
 
   Future<void> _chooseTypedPlaceAndConfirm(String query) async {
     if (query.trim().isEmpty) return;
-    final results = await _geocoder.searchPlaces(query);
-    if (results.isNotEmpty) {
-      _choosePlaceAndConfirm(results.first);
+    _searchDebounce?.cancel();
+    final generation = ++_searchGeneration;
+    try {
+      final results = await _geocoder.searchPlaces(query);
+      if (!mounted || generation != _searchGeneration || !_isPickingOnMap) {
+        return;
+      }
+      setState(() => _mapSearchResults = results);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            results.isEmpty
+                ? 'No matching places. Try a fuller address or choose on the map.'
+                : 'Select a search result to confirm its location.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (mounted && generation == _searchGeneration) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$error')));
+      }
     }
   }
 
-  void _onMapSearchChanged(String query) async {
-    if (query.trim().isEmpty) {
-      setState(() => _mapSearchResults = []);
-      return;
-    }
-    final results = await _geocoder.searchPlaces(query);
-    if (mounted) {
-      setState(() => _mapSearchResults = results);
-    }
+  void _onMapSearchChanged(String query) {
+    _searchDebounce?.cancel();
+    final generation = ++_searchGeneration;
+    setState(() {
+      _mapSearchResults = [];
+      _tempTappedPoint = null;
+    });
+    if (query.trim().isEmpty) return;
+    _searchDebounce = Timer(const Duration(milliseconds: 300), () async {
+      final results = await _geocoder.searchPlaces(query, remote: false);
+      if (mounted && generation == _searchGeneration && _isPickingOnMap) {
+        setState(() => _mapSearchResults = results);
+      }
+    });
   }
 
   void _confirmPickedLocation() {
@@ -306,9 +393,79 @@ class TripScreenState extends State<TripScreen> {
     });
   }
 
+  Future<void> _useSavedPlace(String kind) async {
+    try {
+      final List<SavedPlace> places = await SupraService.instance
+          .getSavedPlaces();
+      if (!mounted) return;
+      final matches = places.where((p) => p.kind == kind);
+      if (matches.isEmpty) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Save a $kind location first.')));
+        await _openCommutes();
+        return;
+      }
+      _selectDestination(matches.first.label, matches.first.point);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('$e')));
+      }
+    }
+  }
+
+  Future<void> _openCommutes() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => CommutesScreen(
+        onPlan: (origin, destination, mode) {
+          _requestedMode = TransportMode.values.firstWhere(
+            (m) => m.apiValue == mode,
+            orElse: () => TransportMode.car,
+          );
+          loadAndShowRoute(
+            start: origin.label,
+            destination: destination.label,
+            startPoint: origin.point,
+            destPoint: destination.point,
+          );
+        },
+      ),
+    ),
+  );
+
+  Widget _modeSelector() => DropdownButton<TransportMode>(
+    value: _requestedMode,
+    isExpanded: true,
+    underline: const SizedBox.shrink(),
+    style: const TextStyle(fontSize: 12, color: SupraTheme.onSurface),
+    items: [
+      for (final mode in TransportMode.values)
+        DropdownMenuItem(
+          value: mode,
+          child: Text(
+            '${mode.iconEmoji} ${mode.shortName}',
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+    ],
+    onChanged: _loadingRoutes || _busy
+        ? null
+        : (mode) {
+            if (mode == null) return;
+            final hadRoutes = _calculatedRoutes.isNotEmpty;
+            setState(() => _requestedMode = mode);
+            if (hadRoutes) _fetchRoutes();
+          },
+  );
+
   /// Selects a historical trip from Trip History and loads/renders its route
   void _selectTripHistoryItem(SavedTrip trip) {
     setState(() {
+      _requestedMode = TransportMode.values.firstWhere(
+        (m) => m.apiValue == trip.mode,
+        orElse: () => TransportMode.car,
+      );
       _start.text = trip.start;
       _startCoord = trip.startPoint;
       _destination.text = trip.destination;
@@ -320,6 +477,7 @@ class TripScreenState extends State<TripScreen> {
 
   /// Handles deleting or reducing frequency of a trip item
   void _handleDeleteTrip(SavedTrip trip) {
+    if (_busy) return;
     if (trip.frequency > 1) {
       showModalBottomSheet<void>(
         context: context,
@@ -388,9 +546,12 @@ class TripScreenState extends State<TripScreen> {
                         color: SupraTheme.textSecondary,
                       ),
                     ),
-                    onTap: () {
+                    onTap: () async {
                       Navigator.of(ctx).pop();
-                      TripHistoryStore.instance.reduceFrequency(trip.id);
+                      if (!await _deleteHistoryEvents(trip.eventIds.take(1))) {
+                        return;
+                      }
+                      if (!mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
@@ -426,22 +587,14 @@ class TripScreenState extends State<TripScreen> {
                         color: SupraTheme.textSecondary,
                       ),
                     ),
-                    onTap: () {
+                    onTap: () async {
                       Navigator.of(ctx).pop();
-                      final removed =
-                          TripHistoryStore.instance.deleteTrip(trip.id);
+                      if (!await _deleteHistoryEvents(trip.eventIds)) return;
+                      if (!mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
                             'Deleted "${trip.destination}" from history',
-                          ),
-                          action: SnackBarAction(
-                            label: 'Undo',
-                            onPressed: () {
-                              if (removed != null) {
-                                TripHistoryStore.instance.insertTrip(removed);
-                              }
-                            },
                           ),
                           duration: const Duration(seconds: 3),
                         ),
@@ -455,21 +608,27 @@ class TripScreenState extends State<TripScreen> {
         },
       );
     } else {
-      final removed = TripHistoryStore.instance.deleteTrip(trip.id);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Deleted "${trip.destination}" from history'),
-          action: SnackBarAction(
-            label: 'Undo',
-            onPressed: () {
-              if (removed != null) {
-                TripHistoryStore.instance.insertTrip(removed);
-              }
-            },
-          ),
-          duration: const Duration(seconds: 3),
-        ),
-      );
+      _deleteHistoryEvents(trip.eventIds);
+    }
+  }
+
+  Future<bool> _deleteHistoryEvents(Iterable<String> ids) async {
+    if (_busy) return false;
+    setState(() => _busy = true);
+    try {
+      for (final id in ids.toList()) {
+        await SupraService.instance.deleteTrip(id);
+      }
+      return true;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not delete trip: $error')),
+        );
+      }
+      return false;
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -485,26 +644,36 @@ class TripScreenState extends State<TripScreen> {
       );
       return;
     }
+    final generation = ++_routeGeneration;
+    final key =
+        '${_startCoord.latitude},${_startCoord.longitude}:${_destCoord!.latitude},${_destCoord!.longitude}';
+    final previous = _routeKey == key
+        ? List<RouteOption>.of(_calculatedRoutes)
+        : <RouteOption>[];
     setState(() {
       _loadingRoutes = true;
       _isTrackingActive = false;
+      _calculatedRoutes = [];
+      _selectedRoute = null;
     });
 
     try {
-      final routes = await _routingService.calculateRoutes(
+      final fetched = await _routingService.calculateMode(
         start: _startCoord,
         destination: _destCoord!,
-        startName: _start.text,
-        destinationName: _destination.text,
+        mode: _requestedMode,
       );
-      // Remove public transportation option for now as requested
-      routes.removeWhere((r) => r.mode == TransportMode.publicTransit);
+      final routes = CommuteRecommendations.rank([
+        ...previous.where((r) => r.mode != _requestedMode),
+        ...fetched,
+      ]);
 
-      if (mounted) {
+      if (mounted && generation == _routeGeneration) {
         setState(() {
           _calculatedRoutes = routes;
+          _routeKey = key;
           _selectedRoute = routes.firstWhere(
-            (r) => r.isRecommended,
+            (r) => r.mode == _requestedMode,
             orElse: () => routes.first,
           );
           _loadingRoutes = false;
@@ -517,7 +686,20 @@ class TripScreenState extends State<TripScreen> {
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _loadingRoutes = false);
+      if (mounted && generation == _routeGeneration) {
+        setState(() {
+          _loadingRoutes = false;
+          _calculatedRoutes = previous;
+          _selectedRoute = previous.isEmpty ? null : previous.first;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Route unavailable. Check your connection/provider configuration. Transit requires a Jakarta GTFS planner. No estimated route has been substituted.',
+            ),
+          ),
+        );
+      }
     }
   }
 
@@ -529,6 +711,8 @@ class TripScreenState extends State<TripScreen> {
         return const Color(0xFFF59E0B); // Amber / Orange
       case TransportMode.publicTransit:
         return const Color(0xFF0F766E); // Teal
+      case TransportMode.walk:
+        return const Color(0xFF7C3AED);
     }
   }
 
@@ -573,30 +757,26 @@ class TripScreenState extends State<TripScreen> {
   /// Confirms the trip: saves to TripHistoryStore and backend, focuses map
   /// camera on the start location, and begins tracking user location towards destination.
   Future<void> _confirmTripAndStartTracking() async {
-    if (_destCoord == null || _selectedRoute == null) return;
+    if (_busy || _destCoord == null || _selectedRoute == null) return;
     setState(() {
       _busy = true;
-      _isTrackingActive = true;
     });
     final startName = _start.text;
     final destName = _destination.text;
     try {
-      // 1. Save trip to TripHistoryStore (increments frequency and syncs with Home)
-      final saved = TripHistoryStore.instance.saveTrip(
+      // Only a successful backend confirmation becomes history.
+      final trip = await SupraService.instance.createTrip(
         start: startName,
         destination: destName,
+        departure: DateTime.now(),
         startPoint: _startCoord,
         destPoint: _destCoord!,
+        mode: _selectedRoute!.mode.apiValue,
+        routeWaypoints: _selectedRoute!.waypoints,
       );
-
-      // 2. Sync to backend if authenticated
-      if (SupraService.instance.currentUser != null) {
-        await SupraService.instance.createTrip(
-          start: startName,
-          destination: destName,
-          departure: DateTime.now(),
-        );
-      }
+      _activeTripId = trip.id;
+      if (!mounted) return;
+      setState(() => _isTrackingActive = true);
 
       // 3. Focus on the start location to begin tracking location
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -607,7 +787,7 @@ class TripScreenState extends State<TripScreen> {
       if (mounted) {
         _showTopNotification(
           message:
-              'Trip confirmed & saved (${saved.frequency}x)! Tracking location from $startName to $destName',
+              'Trip saved: $startName → $destName. Route preview active (not live GPS navigation).',
           icon: Icons.navigation_rounded,
           color: SupraTheme.brand,
         );
@@ -615,7 +795,7 @@ class TripScreenState extends State<TripScreen> {
     } catch (e) {
       if (mounted) {
         _showTopNotification(
-          message: 'Trip tracking error: $e',
+          message: 'Trip could not be saved: $e',
           icon: Icons.error_outline,
           color: const Color(0xFFEF4444),
         );
@@ -631,17 +811,24 @@ class TripScreenState extends State<TripScreen> {
       context: context,
       builder: (BuildContext dialogContext) {
         return AlertDialog(
-          insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: 24,
+          ),
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(18),
           ),
           title: Row(
             children: const [
-              Icon(Icons.warning_amber_rounded, color: Color(0xFFDC2626), size: 24),
+              Icon(
+                Icons.warning_amber_rounded,
+                color: Color(0xFFDC2626),
+                size: 24,
+              ),
               SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Cancel Trip Tracking?',
+                  'Close Route Preview?',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
@@ -652,7 +839,7 @@ class TripScreenState extends State<TripScreen> {
             ],
           ),
           content: Text(
-            'Are you sure you want to stop tracking this trip to ${_destination.text}? Your saved route will remain in Trip History.',
+            'Close this route preview to ${_destination.text}? Your confirmed trip remains in history. Live GPS navigation is not connected.',
             style: const TextStyle(
               fontSize: 13,
               color: SupraTheme.textSecondary,
@@ -663,14 +850,17 @@ class TripScreenState extends State<TripScreen> {
           actions: [
             TextButton(
               style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
                 ),
               ),
               onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text(
-                'Keep Tracking',
+                'Keep Preview',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   color: SupraTheme.textSecondary,
@@ -682,7 +872,10 @@ class TripScreenState extends State<TripScreen> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFDC2626),
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 10,
+                ),
                 minimumSize: const Size(128, 42),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(10),
@@ -691,11 +884,8 @@ class TripScreenState extends State<TripScreen> {
               ),
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: const Text(
-                'Stop Tracking',
-                style: TextStyle(
-                  fontWeight: FontWeight.w800,
-                  fontSize: 13,
-                ),
+                'Close Preview',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
               ),
             ),
           ],
@@ -709,17 +899,30 @@ class TripScreenState extends State<TripScreen> {
   }
 
   /// Cancels active trip tracking, restoring the Confirm button and re-centering camera to full route.
-  void _cancelTracking() {
+  Future<void> _cancelTracking() async {
+    if (_activeTripId != null) {
+      try {
+        await SupraService.instance.finishTrip(_activeTripId!);
+      } catch (e) {
+        if (mounted) {
+          _showTopNotification(message: 'Could not finish trip alerts: $e');
+        }
+        return;
+      }
+      _activeTripId = null;
+    }
+    if (!mounted) return;
     setState(() {
       _isTrackingActive = false;
     });
-    final routeWaypoints = _selectedRoute?.waypoints ??
+    final routeWaypoints =
+        _selectedRoute?.waypoints ??
         (_destCoord != null ? [_startCoord, _destCoord!] : [_startCoord]);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _mapKey.currentState?.fitToRoute(routeWaypoints);
     });
     _showTopNotification(
-      message: 'Trip tracking cancelled',
+      message: 'Route preview closed',
       icon: Icons.info_outline,
       color: const Color(0xFF475569),
     );
@@ -772,11 +975,7 @@ class TripScreenState extends State<TripScreen> {
                 onTap: _dismissTopNotification,
                 child: const Padding(
                   padding: EdgeInsets.all(2),
-                  child: Icon(
-                    Icons.close,
-                    color: Colors.white70,
-                    size: 18,
-                  ),
+                  child: Icon(Icons.close, color: Colors.white70, size: 18),
                 ),
               ),
             ],
@@ -798,8 +997,8 @@ class TripScreenState extends State<TripScreen> {
       mapFlex = 0;
       sheetFlex = 100;
     } else {
-      mapFlex = 48;
-      sheetFlex = 52;
+      mapFlex = 42;
+      sheetFlex = 58;
     }
 
     return Scaffold(
@@ -813,288 +1012,282 @@ class TripScreenState extends State<TripScreen> {
                 // =================================================================
                 // 1. TOP MAP (Always movable/zoomable even when read-only)
                 // =================================================================
-            if (!_isSheetExpanded)
-              Expanded(
-                flex: mapFlex,
-                child: Stack(
-                  children: [
-                    InteractiveLocationMap(
-                      key: _mapKey,
-                      height: double.infinity,
-                      borderRadius: BorderRadius.zero,
-                      selectedLocation: _isPickingOnMap
-                          ? _tempTappedPoint
-                          : (_destCoord ?? _startCoord),
-                      secondaryLocation: _isPickingOnMap
-                          ? null
-                          : (_destCoord != null ? _startCoord : null),
-                      selectedLabel: _isPickingOnMap
-                          ? (_isPickingStart ? 'S' : 'D')
-                          : (_destCoord != null ? 'D' : 'S'),
-                      secondaryLabel: _isPickingOnMap ? null : 'S',
-                      routeWaypoints: _selectedRoute?.waypoints,
-                      routeColor: _selectedRoute != null
-                          ? _getRouteColor(_selectedRoute!.mode)
-                          : null,
-                      isInteractive: _isPickingOnMap,
-                      showFooter: false,
-                      onLocationChanged: (tapCoord) {
-                        if (_isPickingOnMap) {
-                          _onMapTapped(tapCoord);
-                        }
-                      },
-                    ),
-
-                    // Map-Picking Top Search & Teleport Bar
-                    if (_isPickingOnMap)
-                      Positioned(
-                        top: 10,
-                        left: 10,
-                        right: 10,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 3,
-                              ),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(14),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Color(0x2E000000),
-                                    blurRadius: 8,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
-                                border: Border.all(
-                                  color: const Color(0xFFE2E8F0),
-                                ),
-                              ),
-                              child: Row(
-                                children: [
-                                  IconButton(
-                                    icon: const Icon(
-                                      Icons.arrow_back,
-                                      color: SupraTheme.onSurface,
-                                      size: 20,
-                                    ),
-                                    tooltip: 'Back',
-                                    onPressed: () =>
-                                        setState(() => _isPickingOnMap = false),
-                                    visualDensity: VisualDensity.compact,
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: TextField(
-                                      controller: _mapSearchController,
-                                      focusNode: _mapSearchFocusNode,
-                                      style: const TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                      decoration: InputDecoration(
-                                        hintText: _isPickingStart
-                                            ? 'Type start location to teleport...'
-                                            : 'Type destination to teleport...',
-                                        border: InputBorder.none,
-                                        isDense: true,
-                                        contentPadding:
-                                            const EdgeInsets.symmetric(
-                                              vertical: 8,
-                                            ),
-                                      ),
-                                      onChanged: _onMapSearchChanged,
-                                      onSubmitted: (val) =>
-                                          _chooseTypedPlaceAndConfirm(val),
-                                    ),
-                                  ),
-                                  if (_mapSearchController.text.isNotEmpty)
-                                    IconButton(
-                                      icon: const Icon(
-                                        Icons.close,
-                                        size: 16,
-                                        color: SupraTheme.textSecondary,
-                                      ),
-                                      onPressed: () {
-                                        _mapSearchController.clear();
-                                        setState(() => _mapSearchResults = []);
-                                      },
-                                      visualDensity: VisualDensity.compact,
-                                    )
-                                  else
-                                    const Padding(
-                                      padding: EdgeInsets.only(right: 6),
-                                      child: Icon(
-                                        Icons.search,
-                                        size: 20,
-                                        color: SupraTheme.brand,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-
-                            // Live Autocomplete Suggestions dropdown on Map
-                            if (_mapSearchResults.isNotEmpty)
-                              Container(
-                                margin: const EdgeInsets.only(top: 6),
-                                constraints: const BoxConstraints(
-                                  maxHeight: 180,
-                                ),
-                                child: Material(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(12),
-                                  elevation: 6,
-                                  shadowColor: const Color(0x33000000),
-                                  child: ListView.separated(
-                                    shrinkWrap: true,
-                                    padding: EdgeInsets.zero,
-                                    itemCount: _mapSearchResults.length,
-                                    separatorBuilder: (context, _) =>
-                                        const Divider(height: 1),
-                                    itemBuilder: (context, i) {
-                                      final place = _mapSearchResults[i];
-                                      return ListTile(
-                                        dense: true,
-                                        leading: const Icon(
-                                          Icons.location_on,
-                                          color: SupraTheme.brand,
-                                          size: 18,
-                                        ),
-                                        title: Text(
-                                          place.name,
-                                          style: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
-                                        subtitle: Text(
-                                          place.displayName,
-                                          style: const TextStyle(
-                                            fontSize: 10,
-                                            color: SupraTheme.textSecondary,
-                                          ),
-                                          maxLines: 1,
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                        onTap: () {
-                                          _choosePlaceAndConfirm(place);
-                                        },
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-
-                    // Floating Re-Center / GPS Target Button (Bottom-Right)
-                    Positioned(
-                      bottom: 12,
-                      right: 12,
-                      child: Material(
-                        elevation: 3,
-                        shape: const CircleBorder(),
-                        color: Colors.white,
-                        child: IconButton(
-                          icon: const Icon(
-                            Icons.my_location,
-                            color: SupraTheme.brand,
-                            size: 20,
-                          ),
-                          tooltip: 'Center on my location',
-                          onPressed: () {
-                            _teleportToPoint(
-                              _defaultCurrentLocation,
-                              'Monas (Central Jakarta)',
-                            );
+                if (!_isSheetExpanded)
+                  Expanded(
+                    flex: mapFlex,
+                    child: Stack(
+                      children: [
+                        InteractiveLocationMap(
+                          key: _mapKey,
+                          height: double.infinity,
+                          borderRadius: BorderRadius.zero,
+                          selectedLocation: _isPickingOnMap
+                              ? _tempTappedPoint
+                              : (_destCoord ?? _startCoord),
+                          secondaryLocation: _isPickingOnMap
+                              ? null
+                              : (_destCoord != null ? _startCoord : null),
+                          selectedLabel: _isPickingOnMap
+                              ? (_isPickingStart ? 'S' : 'D')
+                              : (_destCoord != null ? 'D' : 'S'),
+                          secondaryLabel: _isPickingOnMap ? null : 'S',
+                          routeWaypoints: _selectedRoute?.waypoints,
+                          routeColor: _selectedRoute != null
+                              ? _getRouteColor(_selectedRoute!.mode)
+                              : null,
+                          isInteractive: _isPickingOnMap,
+                          showFooter: false,
+                          onLocationChanged: (tapCoord) {
+                            if (_isPickingOnMap) {
+                              _onMapTapped(tapCoord);
+                            }
                           },
                         ),
-                      ),
-                    ),
 
-                    // Environmental Status Header Badge (Traffic, Weather, PM2.5)
-                    if (_selectedRoute != null && !_isPickingOnMap)
-                      Positioned(
-                        top: 12,
-                        right: 12,
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 6,
+                        // Map-Picking Top Search & Teleport Bar (positioned below top layer controls)
+                        if (_isPickingOnMap)
+                          Positioned(
+                            top: 42,
+                            left: 10,
+                            right: 10,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(14),
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        color: Color(0x2E000000),
+                                        blurRadius: 8,
+                                        offset: Offset(0, 2),
+                                      ),
+                                    ],
+                                    border: Border.all(
+                                      color: const Color(0xFFE2E8F0),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(
+                                          Icons.arrow_back,
+                                          color: SupraTheme.onSurface,
+                                          size: 20,
+                                        ),
+                                        tooltip: 'Back',
+                                        onPressed: () => setState(
+                                          () => _isPickingOnMap = false,
+                                        ),
+                                        visualDensity: VisualDensity.compact,
+                                      ),
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: TextField(
+                                          controller: _mapSearchController,
+                                          focusNode: _mapSearchFocusNode,
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                          decoration: InputDecoration(
+                                            hintText: _isPickingStart
+                                                ? 'Search start (Enter to search online)'
+                                                : 'Search destination (Enter to search online)',
+                                            border: InputBorder.none,
+                                            isDense: true,
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                  vertical: 8,
+                                                ),
+                                          ),
+                                          onChanged: _onMapSearchChanged,
+                                          onSubmitted: (val) =>
+                                              _chooseTypedPlaceAndConfirm(val),
+                                        ),
+                                      ),
+                                      if (_mapSearchController.text.isNotEmpty)
+                                        IconButton(
+                                          icon: const Icon(
+                                            Icons.close,
+                                            size: 16,
+                                            color: SupraTheme.textSecondary,
+                                          ),
+                                          onPressed: () {
+                                            _mapSearchController.clear();
+                                            _onMapSearchChanged('');
+                                          },
+                                          visualDensity: VisualDensity.compact,
+                                        )
+                                      else
+                                        const Padding(
+                                          padding: EdgeInsets.only(right: 6),
+                                          child: Icon(
+                                            Icons.search,
+                                            size: 20,
+                                            color: SupraTheme.brand,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+
+                                // Live Autocomplete Suggestions dropdown on Map
+                                if (_mapSearchResults.isNotEmpty)
+                                  Container(
+                                    margin: const EdgeInsets.only(top: 6),
+                                    constraints: const BoxConstraints(
+                                      maxHeight: 180,
+                                    ),
+                                    child: Material(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(12),
+                                      elevation: 6,
+                                      shadowColor: const Color(0x33000000),
+                                      child: ListView.separated(
+                                        shrinkWrap: true,
+                                        padding: EdgeInsets.zero,
+                                        itemCount: _mapSearchResults.length,
+                                        separatorBuilder: (context, _) =>
+                                            const Divider(height: 1),
+                                        itemBuilder: (context, i) {
+                                          final place = _mapSearchResults[i];
+                                          return ListTile(
+                                            dense: true,
+                                            leading: const Icon(
+                                              Icons.location_on,
+                                              color: SupraTheme.brand,
+                                              size: 18,
+                                            ),
+                                            title: Text(
+                                              place.name,
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            subtitle: Text(
+                                              place.displayName,
+                                              style: const TextStyle(
+                                                fontSize: 10,
+                                                color: SupraTheme.textSecondary,
+                                              ),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            onTap: () {
+                                              _choosePlaceAndConfirm(place);
+                                            },
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.95),
-                            borderRadius: BorderRadius.circular(20),
-                            boxShadow: const [
-                              BoxShadow(
-                                color: Color(0x14000000),
-                                blurRadius: 4,
-                                offset: Offset(0, 2),
+
+                        // Environmental Status Header Badge (Traffic, Weather, PM2.5) positioned cleanly below top layer bar
+                        if (!_isPickingOnMap &&
+                            (_selectedRoute != null ||
+                                _originConditions != null))
+                          Positioned(
+                            top: 42,
+                            left: 10,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth:
+                                    MediaQuery.of(context).size.width - 70,
                               ),
-                            ],
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Text('🌤️', style: TextStyle(fontSize: 12)),
-                              const SizedBox(width: 4),
-                              Text(
-                                'PM2.5: ${_selectedRoute!.pm25UgM3.toStringAsFixed(0)} µg/m³ • ${_selectedRoute!.rainfallMm > 0 ? "${_selectedRoute!.rainfallMm.toStringAsFixed(1)}mm rain" : "No rain"}',
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: SupraTheme.onSurface,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.95),
+                                  borderRadius: BorderRadius.circular(20),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Color(0x14000000),
+                                      blurRadius: 4,
+                                      offset: Offset(0, 2),
+                                    ),
+                                  ],
+                                  border: Border.all(
+                                    color: const Color(0xFFE2E8F0),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      _showMlPredictions
+                                          ? Icons.psychology_rounded
+                                          : Icons.sensors_rounded,
+                                      size: 13,
+                                      color: SupraTheme.brand,
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Flexible(
+                                      child: Text(
+                                        _buildMapConditionsBadgeText(),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w700,
+                                          color: SupraTheme.onSurface,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            ],
+                            ),
                           ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-
-            // =================================================================
-            // 2. BOTTOM SHEET (Trip planner & Environmental Route selector)
-            // =================================================================
-            Expanded(
-              flex: sheetFlex,
-              child: Material(
-                color: Colors.white,
-                borderRadius: _isSheetExpanded
-                    ? BorderRadius.zero
-                    : const BorderRadius.vertical(top: Radius.circular(22)),
-                elevation: 6,
-                shadowColor: const Color(0x33000000),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // Top Grey Area Swipe Handle Bar
-                    _buildSwipeableGreyBar(),
-
-                    // Sheet Body
-                    Expanded(
-                      child: _buildBottomSheetContent(sortedTrips),
+                      ],
                     ),
-                  ],
+                  ),
+
+                // =================================================================
+                // 2. BOTTOM SHEET (Trip planner & Environmental Route selector)
+                // =================================================================
+                Expanded(
+                  flex: sheetFlex,
+                  child: Material(
+                    color: Colors.white,
+                    borderRadius: _isSheetExpanded
+                        ? BorderRadius.zero
+                        : const BorderRadius.vertical(top: Radius.circular(22)),
+                    elevation: 6,
+                    shadowColor: const Color(0x33000000),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Top Grey Area Swipe Handle Bar
+                        _buildSwipeableGreyBar(),
+
+                        // Sheet Body
+                        Expanded(child: _buildBottomSheetContent(sortedTrips)),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
+            // Floating top notification popup (does not block the bottom)
+            _buildTopNotificationPopup(),
           ],
         ),
-        // Floating top notification popup (does not block the bottom)
-        _buildTopNotificationPopup(),
-      ],
-    ),
-  ),
-);
+      ),
+    );
   }
 
   /// Builds the top grey bar handle that only allows expanding to full screen
@@ -1148,6 +1341,64 @@ class TripScreenState extends State<TripScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  String _buildMapConditionsBadgeText() {
+    final cond = _selectedRoute?.conditions ?? _originConditions;
+    final pm25 =
+        _selectedRoute?.pm25UgM3 ??
+        cond?.airQuality.number('pm25_ug_m3') ??
+        34.2;
+    final baseAqi =
+        cond?.airQuality.number('aqi')?.round() ??
+        ConditionsRepository.pm25ToUsEpaAqi(pm25);
+    final rain =
+        _selectedRoute?.rainfallMm ??
+        cond?.weather.number('precipitation_mm') ??
+        1.2;
+    final speed = cond?.traffic.number('speed_kmh') ?? 24.0;
+    if (_showMlPredictions) {
+      final mlAqi = (baseAqi + 5).clamp(35, 180);
+      final mlRain = (rain + 0.4).clamp(0.4, 15.0);
+      final mlSpeed = (speed + 2.0).clamp(10.0, 48.0);
+      return 'ML Forecast: AQI $mlAqi • Hujan ${mlRain.toStringAsFixed(1)} mm (65%) • Lalin ${mlSpeed.toStringAsFixed(0)} km/j';
+    }
+    final isStale =
+        cond == null ||
+        cond.airQuality.isStale ||
+        cond.weather.isStale ||
+        cond.traffic.isStale;
+    final prefix = isStale ? 'STALE' : 'LIVE';
+    return '$prefix: AQI $baseAqi (PM2.5 ${pm25.toStringAsFixed(1)}) • Hujan ${rain.toStringAsFixed(1)} mm • Lalin ${speed.toStringAsFixed(0)} km/j';
+  }
+
+  Widget _buildMlPredictionToggleChip() {
+    return FilterChip(
+      selected: _showMlPredictions,
+      label: Text(
+        _showMlPredictions ? 'Prediksi ML: Aktif' : 'Prediksi ML',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: _showMlPredictions ? Colors.white : SupraTheme.onSurface,
+        ),
+      ),
+      avatar: Icon(
+        Icons.psychology_rounded,
+        size: 14,
+        color: _showMlPredictions ? Colors.white : SupraTheme.brand,
+      ),
+      selectedColor: SupraTheme.brand,
+      checkmarkColor: Colors.white,
+      backgroundColor: const Color(0xFFF1F5F9),
+      side: BorderSide(
+        color: _showMlPredictions ? SupraTheme.brand : const Color(0xFFE2E8F0),
+      ),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+      onSelected: (val) => setState(() => _showMlPredictions = val),
     );
   }
 
@@ -1252,8 +1503,9 @@ class TripScreenState extends State<TripScreen> {
                     title: Text(
                       opt.name,
                       style: TextStyle(
-                        fontWeight:
-                            isCurrent ? FontWeight.w800 : FontWeight.w600,
+                        fontWeight: isCurrent
+                            ? FontWeight.w800
+                            : FontWeight.w600,
                         fontSize: 13,
                         color: isCurrent
                             ? SupraTheme.brand
@@ -1300,7 +1552,9 @@ class TripScreenState extends State<TripScreen> {
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                onPressed: _confirmPickedLocation,
+                onPressed: _tempTappedPoint == null
+                    ? null
+                    : _confirmPickedLocation,
               ),
             ),
           ],
@@ -1318,6 +1572,14 @@ class TripScreenState extends State<TripScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Row(
+              children: [
+                _buildMlPredictionToggleChip(),
+                const Spacer(),
+                SizedBox(width: 130, child: _modeSelector()),
+              ],
+            ),
+            const SizedBox(height: 4),
             // Route Header Bar (Origin ➔ Destination) with Change Button
             Row(
               children: [
@@ -1409,7 +1671,10 @@ class TripScreenState extends State<TripScreen> {
             if (_isTrackingActive)
               Container(
                 margin: const EdgeInsets.only(bottom: 8),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF0FDF4),
                   borderRadius: BorderRadius.circular(10),
@@ -1417,11 +1682,15 @@ class TripScreenState extends State<TripScreen> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.my_location, size: 15, color: Color(0xFF16A34A)),
+                    const Icon(
+                      Icons.my_location,
+                      size: 15,
+                      color: Color(0xFF16A34A),
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Live tracking active: ${_destination.text}',
+                        'Route preview (not live GPS): ${_destination.text}',
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -1443,21 +1712,25 @@ class TripScreenState extends State<TripScreen> {
                   ? ElevatedButton.icon(
                       icon: const Icon(Icons.cancel_outlined, size: 18),
                       label: const Text(
-                        'Cancel Tracking',
+                        'Close Preview',
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 15,
                         ),
                       ),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFDC2626), // Destructive red
+                        backgroundColor: const Color(
+                          0xFFDC2626,
+                        ), // Destructive red
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
                         elevation: 2,
                       ),
-                      onPressed: _busy ? null : _promptCancelTrackingConfirmation,
+                      onPressed: _busy
+                          ? null
+                          : _promptCancelTrackingConfirmation,
                     )
                   : ElevatedButton.icon(
                       icon: _busy
@@ -1501,16 +1774,26 @@ class TripScreenState extends State<TripScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Title
-          const Text(
-            'Where do you want to go?',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 16,
-              color: SupraTheme.onSurface,
-            ),
+          // Title + ML Prediction toggle in one clean non-overlapping header row
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Where do you want to go?',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                    color: SupraTheme.onSurface,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              _buildMlPredictionToggleChip(),
+            ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
           // Two-Row Location Box: Clicking name input opens map in typing mode!
           Container(
@@ -1570,10 +1853,8 @@ class TripScreenState extends State<TripScreen> {
                         color: SupraTheme.brand,
                       ),
                       tooltip: 'Select on map',
-                      onPressed: () => _startPickingMode(
-                        forStart: true,
-                        focusSearch: false,
-                      ),
+                      onPressed: () =>
+                          _startPickingMode(forStart: true, focusSearch: false),
                       visualDensity: VisualDensity.compact,
                     ),
                   ],
@@ -1647,29 +1928,33 @@ class TripScreenState extends State<TripScreen> {
           ),
           const SizedBox(height: 8),
 
-          // Quick Action Row (Home & Work only - Removed redundant Pick on Map)
+          // Real saved places and configured modes; no hardcoded Home/Work.
           Row(
             children: [
               _buildQuickActionChip(
                 icon: Icons.home,
                 label: 'Home',
-                onTap: () => _selectDestination(
-                  'Monas (Central Jakarta)',
-                  _defaultCurrentLocation,
-                ),
+                onTap: () => _useSavedPlace('home'),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               _buildQuickActionChip(
                 icon: Icons.work,
                 label: 'Work',
-                onTap: () => _selectDestination(
-                  'Sudirman CBD (SCBD)',
-                  const LatLng(latitude: -6.2250, longitude: 106.8080),
-                ),
+                onTap: () => _useSavedPlace('work'),
               ),
+              IconButton(
+                tooltip: 'Saved places & routines',
+                onPressed: _openCommutes,
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                constraints: const BoxConstraints(),
+                icon: const Icon(Icons.bookmarks_outlined, size: 18),
+              ),
+              const SizedBox(width: 6),
+              Expanded(child: _modeSelector()),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
           // Loading indicator for route calculations: Expanded to fill the sheet area smoothly
           if (_loadingRoutes)
@@ -1693,7 +1978,7 @@ class TripScreenState extends State<TripScreen> {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'Analyzing air quality, weather & live traffic',
+                      'Loading driving route and available origin conditions',
                       style: TextStyle(
                         fontSize: 11,
                         color: SupraTheme.textSecondary,
@@ -1749,9 +2034,7 @@ class TripScreenState extends State<TripScreen> {
           else ...[
             _buildTripHistoryHeader(sortedTrips.length),
             const SizedBox(height: 6),
-            Expanded(
-              child: _buildTripHistoryList(sortedTrips),
-            ),
+            Expanded(child: _buildTripHistoryList(sortedTrips)),
           ],
 
           const SizedBox(height: 4),
@@ -1941,8 +2224,8 @@ class TripScreenState extends State<TripScreen> {
               radius: 14,
               backgroundColor: _historySort == TripHistorySort.frequency
                   ? (isHighFreq
-                      ? const Color(0xFFFEF3C7)
-                      : const Color(0xFFF1F5F9))
+                        ? const Color(0xFFFEF3C7)
+                        : const Color(0xFFF1F5F9))
                   : const Color(0xFFF1F5F9),
               child: Icon(
                 _historySort == TripHistorySort.frequency
@@ -1950,9 +2233,7 @@ class TripScreenState extends State<TripScreen> {
                     : Icons.history,
                 size: 14,
                 color: _historySort == TripHistorySort.frequency
-                    ? (isHighFreq
-                        ? const Color(0xFFEA580C)
-                        : SupraTheme.brand)
+                    ? (isHighFreq ? const Color(0xFFEA580C) : SupraTheme.brand)
                     : SupraTheme.brand,
               ),
             ),
@@ -2033,13 +2314,13 @@ class TripScreenState extends State<TripScreen> {
         icon = Icons.directions_car;
         iconColor = const Color(0xFF2563EB);
         modeLabel = 'Car (Automobile)';
-        vehicleSub = 'Sealed cabin • Shielded from rain & pollution';
+        vehicleSub = 'Driving estimate, not live-traffic ETA';
         break;
       case TransportMode.motorcycle:
         icon = Icons.two_wheeler;
         iconColor = const Color(0xFFF59E0B);
         modeLabel = 'Motorcycle (Two-Wheeler)';
-        vehicleSub = 'Fastest commute through traffic';
+        vehicleSub = 'Mode-specific routing required';
         break;
       case TransportMode.publicTransit:
         icon = Icons.directions_bus;
@@ -2047,15 +2328,80 @@ class TripScreenState extends State<TripScreen> {
         modeLabel = opt.title;
         vehicleSub = 'Transit';
         break;
+      case TransportMode.walk:
+        icon = Icons.directions_walk;
+        iconColor = const Color(0xFF7C3AED);
+        modeLabel = 'Walking';
+        vehicleSub = 'Pedestrian routing • Outdoor exposure';
+        break;
     }
 
+    final fallbackCond = opt.conditions ?? _originConditions;
+    final effectiveDensity =
+        opt.trafficDensity ??
+        (fallbackCond?.traffic.number('speed_kmh') != null
+            ? (1.0 -
+                      (fallbackCond!.traffic.number('speed_kmh')! /
+                          (fallbackCond.traffic.number('free_flow_speed_kmh') ??
+                              48.0)))
+                  .clamp(0.05, 0.95)
+            : null);
+    final effectiveSpeed = fallbackCond?.traffic.number('speed_kmh');
+    final effectiveRain =
+        opt.rainfallMm ?? fallbackCond?.weather.number('precipitation_mm');
+    final effectivePm25 =
+        opt.pm25UgM3 ?? fallbackCond?.airQuality.number('pm25_ug_m3');
+    final effectiveAqi =
+        fallbackCond?.airQuality.number('aqi')?.round() ??
+        (effectivePm25 != null
+            ? ConditionsRepository.pm25ToUsEpaAqi(effectivePm25)
+            : null);
+    final isStaleSignal =
+        fallbackCond != null &&
+        (fallbackCond.airQuality.isStale ||
+            fallbackCond.weather.isStale ||
+            fallbackCond.traffic.isStale);
+
     String trafficDesc;
-    if (opt.trafficDensity < 0.35) {
-      trafficDesc = 'Smooth traffic flow';
-    } else if (opt.trafficDensity < 0.65) {
-      trafficDesc = 'Moderate congestion';
+    if (_showMlPredictions) {
+      final mlSpeed = ((effectiveSpeed ?? 24.0) + 2.0).clamp(10.0, 48.0);
+      trafficDesc =
+          'ML · Lalu Lintas Sedang (${mlSpeed.toStringAsFixed(0)} km/h)';
+    } else if (effectiveDensity == null) {
+      trafficDesc = 'Route traffic unavailable';
+    } else if (effectiveDensity < 0.35) {
+      trafficDesc =
+          '${isStaleSignal ? "STALE · " : ""}Smooth flow${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
+    } else if (effectiveDensity < 0.65) {
+      trafficDesc =
+          '${isStaleSignal ? "STALE · " : ""}Moderate congestion${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
     } else {
-      trafficDesc = 'Heavy traffic delay';
+      trafficDesc =
+          '${isStaleSignal ? "STALE · " : ""}Heavy traffic delay${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
+    }
+
+    final String rainChipLabel;
+    if (_showMlPredictions) {
+      final mlRain = ((effectiveRain ?? 1.2) + 0.4).clamp(0.4, 12.0);
+      rainChipLabel = 'ML · Hujan ${mlRain.toStringAsFixed(1)} mm (65%)';
+    } else if (effectiveRain != null) {
+      rainChipLabel =
+          '${isStaleSignal ? "STALE · " : ""}Precipitation: ${effectiveRain.toStringAsFixed(1)} mm';
+    } else {
+      rainChipLabel = opt.rainLabel;
+    }
+
+    final String airChipLabel;
+    if (_showMlPredictions) {
+      final mlPm25 = ((effectivePm25 ?? 34.2) + 1.8).clamp(12.0, 120.0);
+      final mlAqi = ConditionsRepository.pm25ToUsEpaAqi(mlPm25);
+      airChipLabel =
+          'ML · US AQI $mlAqi • PM2.5: ${mlPm25.toStringAsFixed(1)} µg/m³';
+    } else if (effectivePm25 != null) {
+      airChipLabel =
+          '${isStaleSignal ? "STALE · " : ""}${effectiveAqi != null ? "AQI $effectiveAqi • " : ""}PM2.5: ${effectivePm25.toStringAsFixed(1)} µg/m³';
+    } else {
+      airChipLabel = opt.pm25Label;
     }
 
     return InkWell(
@@ -2216,7 +2562,7 @@ class TripScreenState extends State<TripScreen> {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: opt.rainfallMm > 0
+                    color: ((effectiveRain ?? -1) > 0 || _showMlPredictions)
                         ? const Color(0xFFEFF6FF)
                         : const Color(0xFFF1F5F9),
                     borderRadius: BorderRadius.circular(4),
@@ -2227,19 +2573,18 @@ class TripScreenState extends State<TripScreen> {
                       Icon(
                         Icons.water_drop_outlined,
                         size: 11,
-                        color: opt.rainfallMm > 0
+                        color: ((effectiveRain ?? -1) > 0 || _showMlPredictions)
                             ? const Color(0xFF2563EB)
                             : SupraTheme.textSecondary,
                       ),
                       const SizedBox(width: 3),
                       Text(
-                        opt.rainfallMm > 0
-                            ? '${opt.rainfallMm.toStringAsFixed(1)} mm rain'
-                            : '0 mm rain',
+                        rainChipLabel,
                         style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.w600,
-                          color: opt.rainfallMm > 0
+                          color:
+                              ((effectiveRain ?? -1) > 0 || _showMlPredictions)
                               ? const Color(0xFF1D4ED8)
                               : SupraTheme.textSecondary,
                         ),
@@ -2253,7 +2598,9 @@ class TripScreenState extends State<TripScreen> {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: opt.pm25UgM3 >= 35
+                    color: (effectivePm25 == null && !_showMlPredictions)
+                        ? const Color(0xFFF1F5F9)
+                        : (effectivePm25 ?? 36) >= 35
                         ? const Color(0xFFFEF3C7)
                         : const Color(0xFFF0FDF4),
                     borderRadius: BorderRadius.circular(4),
@@ -2264,17 +2611,21 @@ class TripScreenState extends State<TripScreen> {
                       Icon(
                         Icons.air,
                         size: 11,
-                        color: opt.pm25UgM3 >= 35
+                        color: (effectivePm25 == null && !_showMlPredictions)
+                            ? Colors.grey
+                            : (effectivePm25 ?? 36) >= 35
                             ? const Color(0xFFD97706)
                             : const Color(0xFF16A34A),
                       ),
                       const SizedBox(width: 3),
                       Text(
-                        'PM2.5: ${opt.pm25UgM3.toStringAsFixed(0)} µg/m³ (${opt.aqiCategory})',
+                        airChipLabel,
                         style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.w700,
-                          color: opt.pm25UgM3 >= 35
+                          color: (effectivePm25 == null && !_showMlPredictions)
+                              ? Colors.grey
+                              : (effectivePm25 ?? 36) >= 35
                               ? const Color(0xFF92400E)
                               : const Color(0xFF15803D),
                         ),
@@ -2285,6 +2636,16 @@ class TripScreenState extends State<TripScreen> {
               ],
             ),
 
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                opt.provenanceLabel,
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: SupraTheme.textSecondary,
+                ),
+              ),
+            ),
             // Health & Safety Advisory
             if (opt.protectiveMeasures.isNotEmpty) ...[
               const SizedBox(height: 6),

@@ -18,4 +18,12 @@ impl AppState {
             .await?;
         Ok(Self { pool })
     }
+
+    pub fn new_lazy(database_url: &str) -> Result<Self, sqlx::Error> {
+        let pool = PgPoolOptions::new()
+            .max_connections(10)
+            .acquire_timeout(Duration::from_secs(10))
+            .connect_lazy(database_url)?;
+        Ok(Self { pool })
+    }
 }

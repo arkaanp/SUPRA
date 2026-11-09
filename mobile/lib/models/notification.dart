@@ -47,6 +47,14 @@ class AppNotification {
         },
         sentAt: DateTime.parse(json['sent_at'] as String).toLocal(),
         isRead: json['is_read'] as bool,
+        sourceUrl: json['source_url'] as String?,
+        expiresAt: DateTime.tryParse(
+          (json['context'] is Map
+                      ? (json['context'] as Map)['expires_at']
+                      : null)
+                  as String? ??
+              '',
+        ),
       );
   final String id;
   final String userId;
@@ -55,6 +63,8 @@ class AppNotification {
   final NotificationSeverity severity;
   final DateTime sentAt;
   final bool isRead;
+  final String? sourceUrl;
+  final DateTime? expiresAt;
 
   const AppNotification({
     required this.id,
@@ -64,6 +74,8 @@ class AppNotification {
     required this.severity,
     required this.sentAt,
     this.isRead = false,
+    this.sourceUrl,
+    this.expiresAt,
   });
 
   AppNotification copyWith({bool? isRead}) => AppNotification(
@@ -74,6 +86,8 @@ class AppNotification {
     severity: severity,
     sentAt: sentAt,
     isRead: isRead ?? this.isRead,
+    sourceUrl: sourceUrl,
+    expiresAt: expiresAt,
   );
 
   String get timeLabel =>

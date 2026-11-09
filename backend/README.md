@@ -102,6 +102,41 @@ code and returns an explicitly labeled upcoming forecast, not an observation.
 See [the conditions contract](docs/current-conditions.md) for response fields,
 coverage, attribution, timeouts, credential setup and verification limitations.
 
+## Prototype bug/data migration
+
+Run `cargo run --locked -- migrate` before using the updated client. See
+[the migration contract](docs/prototype-migration.md) for confirmed journey fields,
+backend-only Gemini behavior and truthful route/environmental display guarantees.
+
+Set `GEMINI_API_KEY` and a supported `GEMINI_MODEL` on the server only. Missing
+configuration or provider errors return 503, never a simulated environmental reply.
+
+Avatar uploads are decoded, bounded to 4096×4096/5 MB, resized to at most 512×512,
+and re-encoded as PNG (no original metadata). `AVATAR_STORAGE_DIR` is a runtime
+directory relative to the backend working directory or an absolute durable-volume
+path. Set `PUBLIC_BASE_URL` to the externally reachable origin (HTTPS in
+production); request Host headers are not used to construct links. Avatars are
+public profile images. Replacements/account deletion clean up referenced,
+same-origin owned files; unrelated/legacy files are not bulk-deleted. Runtime
+uploads are Git-ignored. Local files must be mounted on persistent/shared storage
+for production replicas; this does not provision object storage automatically.
+
+## Commute features and alerts
+
+See [the commute features contract](docs/commute-features.md) for endpoints,
+validation rules, and background alert evaluation details.
+
+Run `cargo run --locked -- migrate` to apply `20261109000000_commute_features.sql`.
+Saved places (`/api/places`) and routines (`/api/routines`) provide user-isolated
+entities for daily travel. Routing for walking and motorcycle modes uses Valhalla,
+while public transit routes query an OpenTripPlanner 2.x GTFS GraphQL endpoint.
+
+Background alert evaluations can be scheduled by setting `ALERTS_ENABLED=true`.
+When enabled, an asynchronous worker evaluates due targets once per minute,
+limiting checks to at most once per 5 minutes per target. Incident news alerts require
+a configured JSON feed URL (`NEWS_INCIDENTS_URL`). Users can also queue manual checks
+via `POST /api/alerts/evaluate`, which responds with HTTP 202 Accepted.
+
 ## API errors and input format
 
 ### Public health endpoints

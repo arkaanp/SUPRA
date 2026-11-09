@@ -10,7 +10,7 @@ import '../services/geocoding_service.dart';
 import '../services/routing_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/route_planner_view.dart';
-import '../widgets/supra_map.dart';
+import '../widgets/interactive_location_map.dart';
 
 /// Full-screen route map with road-accurate routing, multi-modal transport options
 /// (Car, Motorcycle, Public Transit), weather/air quality exposure evaluation,
@@ -91,8 +91,6 @@ class _MapScreenState extends State<MapScreen> {
         destination: widget.destination,
         startName: widget.startName,
         destinationName: widget.destinationName,
-        pm25UgM3: widget.initialPm25,
-        rainfallMm: widget.initialRainMm,
       );
       if (mounted) {
         setState(() {
@@ -170,12 +168,14 @@ class _MapScreenState extends State<MapScreen> {
       final points =
           _selectedOption?.waypoints ??
           widget.route?.waypoints ??
-          [widget.start, widget.destination];
+          const <LatLng>[];
 
       String lineColor = '#0F766E';
       if (_selectedOption != null) {
         if (_selectedOption!.mode == TransportMode.motorcycle) {
-          lineColor = _selectedOption!.pm25UgM3 >= 35.0 ? '#D97706' : '#0F766E';
+          lineColor = (_selectedOption!.pm25UgM3 ?? -1) >= 35.0
+              ? '#D97706'
+              : '#0F766E';
         } else if (_selectedOption!.mode == TransportMode.car) {
           lineColor = _showTraffic ? '#E11D48' : '#0F766E';
         } else {
@@ -305,20 +305,14 @@ class _MapScreenState extends State<MapScreen> {
                     trackCameraPosition: true,
                   )
                 else
-                  SupraMap(
-                    start: widget.start,
-                    destination: widget.destination,
-                    route: Route(
-                      id: 'active_route',
-                      tripId: 'active_trip',
-                      waypoints:
-                          _selectedOption?.waypoints ??
-                          widget.route?.waypoints ??
-                          const [],
-                      totalDistanceKm: distance,
-                    ),
-                    predictions: widget.predictions,
-                    onTapLocation: _onInspectLocation,
+                  InteractiveLocationMap(
+                    selectedLocation: widget.start,
+                    secondaryLocation: widget.destination,
+                    routeWaypoints:
+                        _selectedOption?.waypoints ?? widget.route?.waypoints,
+                    forceCanvas: widget.forceCanvas,
+                    showFooter: false,
+                    onLocationChanged: _onInspectLocation,
                   ),
 
                 // Top inspected location card

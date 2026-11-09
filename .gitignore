@@ -1,4 +1,5 @@
 /backend/target
+/backend/uploads/
 /backend/.env
 /guidelines
 /backend/.env

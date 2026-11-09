@@ -137,7 +137,29 @@ impl Validate for CreateTrip {
     fn validate(&self) -> Result<(), AppError> {
         nonempty(&self.name, "name", 255)?;
         nonempty(&self.start_location, "start_location", 255)?;
-        nonempty(&self.destination, "destination", 255)
+        nonempty(&self.destination, "destination", 255)?;
+        if !crate::commutes::valid_mode(&self.transport_mode) {
+            return Err(AppError::bad_request("Invalid transport mode"));
+        }
+        if let Some(points) = &self.route_waypoints {
+            waypoints(points)?;
+        }
+        let coordinates = [
+            self.start_latitude,
+            self.start_longitude,
+            self.destination_latitude,
+            self.destination_longitude,
+        ];
+        if coordinates.iter().any(Option::is_some) || self.confirmed {
+            for (coordinate, limit) in coordinates.iter().zip([90.0, 180.0, 90.0, 180.0]) {
+                if !coordinate.is_some_and(|v| v.is_finite() && v.abs() <= limit) {
+                    return Err(AppError::bad_request(
+                        "A confirmed trip requires four valid coordinates",
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -215,6 +237,43 @@ mod tests {
         assert!(waypoints(&serde_json::json!([[-6.2, 106.8]])).is_err());
         assert!(waypoints(&serde_json::json!([{"lat": 91, "lng": 106}])).is_err());
         assert!(waypoints(&serde_json::json!([{"lat": -6.2, "lng": 106.8}])).is_ok());
+    }
+
+    #[test]
+    fn confirmed_trips_require_valid_complete_coordinates() {
+        let base = serde_json::json!({"name": "A to B", "start_location": "A",
+            "destination": "B", "planned_departure": "2030-01-01T12:00:00Z"});
+        let planned: CreateTrip = serde_json::from_value(base.clone()).unwrap();
+        assert!(planned.validate().is_ok());
+        let mut confirmed = base;
+        confirmed["confirmed"] = serde_json::json!(true);
+        assert!(
+            serde_json::from_value::<CreateTrip>(confirmed.clone())
+                .unwrap()
+                .validate()
+                .is_err()
+        );
+        for (name, value) in [
+            ("start_latitude", -6.2),
+            ("start_longitude", 106.8),
+            ("destination_latitude", -6.3),
+            ("destination_longitude", 106.9),
+        ] {
+            confirmed[name] = serde_json::json!(value);
+        }
+        assert!(
+            serde_json::from_value::<CreateTrip>(confirmed.clone())
+                .unwrap()
+                .validate()
+                .is_ok()
+        );
+        confirmed["destination_latitude"] = serde_json::json!(91);
+        assert!(
+            serde_json::from_value::<CreateTrip>(confirmed)
+                .unwrap()
+                .validate()
+                .is_err()
+        );
     }
 
     #[tokio::test]

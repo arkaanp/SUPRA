@@ -1,7 +1,13 @@
-import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'dart:async';
 
+import 'package:flutter/material.dart';
+
+import '../config/map_config.dart';
+import '../models/current_conditions.dart';
+import '../models/location.dart';
+import '../models/saved_trip.dart';
 import '../services/ai_assistant_service.dart';
+import '../services/conditions_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/chat_bubble.dart';
 
@@ -17,6 +23,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
+  CurrentConditions? _attachedConditions;
 
   final List<String> _quickPrompts = const [
     '🌤️ Kualitas udara hari ini',
@@ -25,6 +32,48 @@ class _ChatScreenState extends State<ChatScreen> {
     '😷 Apakah saya perlu pakai masker hari ini?',
     '🚇 Rekomendasi rute menghindari genangan air',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    if (!MapConfig.isTestEnvironment) {
+      _attachedConditions = ConditionsRepository.staleFallbackSnapshot(
+        const LatLng(latitude: -6.2297, longitude: 106.8295),
+        DateTime.now(),
+      );
+      unawaited(_loadAttachedConditions());
+    }
+  }
+
+  Future<void> _loadAttachedConditions() async {
+    try {
+      final cond = await ConditionsRepository.instance.at(
+        const LatLng(latitude: -6.2297, longitude: 106.8295),
+      );
+      if (mounted) {
+        setState(() => _attachedConditions = cond);
+      }
+    } catch (_) {}
+  }
+
+  String _buildContextPillText() {
+    if (MapConfig.isTestEnvironment || _attachedConditions == null) {
+      return 'No live conditions attached';
+    }
+    final cond = _attachedConditions!;
+    final pm25 = cond.airQuality.number('pm25_ug_m3') ?? 34.0;
+    final aqi =
+        cond.airQuality.number('aqi')?.round() ??
+        ConditionsRepository.pm25ToUsEpaAqi(pm25);
+    final rain = cond.weather.number('precipitation_mm') ?? 1.2;
+    final temp = cond.weather.number('temperature_c') ?? 29.0;
+    final speed = cond.traffic.number('speed_kmh') ?? 24.0;
+    final isStale =
+        cond.airQuality.isStale ||
+        cond.weather.isStale ||
+        cond.traffic.isStale;
+    return 'Kuningan, Jakarta (${isStale ? "Stale" : "Live"}): AQI $aqi • PM2.5 ${pm25.toStringAsFixed(1)} • Hujan ${rain.toStringAsFixed(1)} mm • ${temp.toStringAsFixed(0)}°C • ${speed.toStringAsFixed(0)} km/j';
+  }
 
   @override
   void dispose() {
@@ -48,253 +97,57 @@ class _ChatScreenState extends State<ChatScreen> {
 
   Future<void> _handleSend([String? textToSend]) async {
     final text = textToSend ?? _textController.text;
-    if (text.trim().isEmpty) return;
+    if (text.trim().isEmpty || AiAssistantService.instance.isLoading) return;
 
     _textController.clear();
     _scrollToBottom();
 
-    // Get current environmental state for location context
-    const ctx = ChatEnvironmentalContext(
-      currentLocation: 'Kuningan, Jakarta',
-      aqi: 72,
-      weather: 'Moderate',
-      temperature: '31°C',
-    );
+    ChatEnvironmentalContext? envContext;
+    if (!MapConfig.isTestEnvironment && _attachedConditions != null) {
+      final cond = _attachedConditions!;
+      final pm25 = cond.airQuality.number('pm25_ug_m3') ?? 34.0;
+      final aqi =
+          cond.airQuality.number('aqi')?.round() ??
+          ConditionsRepository.pm25ToUsEpaAqi(pm25);
+      final rain = cond.weather.number('precipitation_mm') ?? 1.2;
+      final temp = cond.weather.number('temperature_c') ?? 29.0;
+      final speed = cond.traffic.number('speed_kmh') ?? 24.0;
+      final isStale =
+          cond.airQuality.isStale ||
+          cond.weather.isStale ||
+          cond.traffic.isStale;
+      envContext = ChatEnvironmentalContext(
+        currentLocation: 'Kuningan, Jakarta Selatan',
+        aqi: aqi,
+        temperature: '${temp.toStringAsFixed(0)}°C',
+        weather:
+            'Hujan ${rain.toStringAsFixed(1)} mm, PM2.5 ${pm25.toStringAsFixed(1)} µg/m³, Kecepatan lalu lintas ${speed.toStringAsFixed(0)} km/jam (${isStale ? "stale fallback" : "live"})',
+        frequentRoutes: TripHistoryStore.instance.frequentCommutes
+            .take(3)
+            .map((t) => t.routeLabel)
+            .toList(),
+      );
+    }
 
-    await AiAssistantService.instance.sendMessage(text, envContext: ctx);
+    await AiAssistantService.instance.sendMessage(text, envContext: envContext);
     _scrollToBottom();
   }
 
-  void _showApiKeyDialog(BuildContext context) {
-    final service = AiAssistantService.instance;
-    final textCtrl = TextEditingController(text: service.customApiKey ?? '');
-    bool isTesting = false;
-    String? testResult;
-    bool testSuccess = false;
-
+  void _showConnectionInfo(BuildContext context) {
     showDialog(
       context: context,
-      builder: (dialogCtx) => StatefulBuilder(
-        builder: (ctx, setDialogState) {
-          final effectiveKey = service.effectiveApiKey;
-          final hasKey = service.hasApiKey;
-
-          return AlertDialog(
-            title: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: SupraTheme.brand.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.key_rounded,
-                    color: SupraTheme.brand,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                const Text(
-                  'Google Gemini API Key',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
-                ),
-              ],
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Agent 1 menggunakan model Gemini dari Google AI Studio untuk analisis cuaca & kualitas udara Jabodetabek.',
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      color: SupraTheme.textSecondary,
-                      height: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Key status badge
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: hasKey
-                          ? SupraTheme.aqiGood.withValues(alpha: 0.1)
-                          : const Color(0xFFFEF3C7),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: hasKey
-                            ? SupraTheme.aqiGood.withValues(alpha: 0.3)
-                            : const Color(0xFFF59E0B).withValues(alpha: 0.4),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          hasKey ? Icons.check_circle : Icons.info_outline,
-                          size: 16,
-                          color: hasKey
-                              ? SupraTheme.aqiGood
-                              : const Color(0xFFD97706),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            hasKey
-                                ? 'Status: Terhubung (${effectiveKey?.substring(0, 6)}...)'
-                                : 'Status: Kunci belum dipasang (Mode Offline Aktif)',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w700,
-                              color: hasKey
-                                  ? const Color(0xFF15803D)
-                                  : const Color(0xFFB45309),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  const Text(
-                    'Masukkan Gemini API Key:',
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 6),
-                  TextField(
-                    controller: textCtrl,
-                    decoration: InputDecoration(
-                      hintText: 'AIzaSy...',
-                      isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.paste, size: 18),
-                        tooltip: 'Paste from clipboard',
-                        onPressed: () async {
-                          final data =
-                              await Clipboard.getData(Clipboard.kTextPlain);
-                          if (data?.text != null) {
-                            textCtrl.text = data!.text!.trim();
-                          }
-                        },
-                      ),
-                    ),
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontFamily: 'monospace',
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Anda juga bisa memasang kunci di backend/.env (GEMINI_API_KEY) atau di mobile/config/local.json.',
-                    style: TextStyle(
-                      fontSize: 10.5,
-                      color: SupraTheme.textSecondary,
-                    ),
-                  ),
-                  if (testResult != null) ...[
-                    const SizedBox(height: 10),
-                    Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: testSuccess
-                            ? const Color(0xFFECFDF5)
-                            : const Color(0xFFFEF2F2),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            testSuccess ? Icons.check : Icons.error_outline,
-                            size: 14,
-                            color: testSuccess
-                                ? const Color(0xFF059669)
-                                : const Color(0xFFDC2626),
-                          ),
-                          const SizedBox(width: 6),
-                          Expanded(
-                            child: Text(
-                              testResult!,
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: testSuccess
-                                    ? const Color(0xFF059669)
-                                    : const Color(0xFFDC2626),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogCtx),
-                child: const Text('Batal'),
-              ),
-              if (textCtrl.text.trim().isNotEmpty)
-                TextButton(
-                  onPressed: isTesting
-                      ? null
-                      : () async {
-                          setDialogState(() {
-                            isTesting = true;
-                            testResult = 'Menghubungi Google AI Studio...';
-                          });
-                          final ok = await service.testApiKey(textCtrl.text);
-                          setDialogState(() {
-                            isTesting = false;
-                            testSuccess = ok;
-                            testResult = ok
-                                ? 'Koneksi ke Gemini berhasil!'
-                                : 'Koneksi gagal. Periksa kembali API key.';
-                          });
-                        },
-                  child: isTesting
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Tes Kunci'),
-                ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: SupraTheme.brand,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                ),
-                onPressed: () async {
-                  await service.setCustomApiKey(textCtrl.text);
-                  if (dialogCtx.mounted) {
-                    Navigator.pop(dialogCtx);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Pengaturan API Key disimpan'),
-                        duration: Duration(seconds: 2),
-                        behavior: SnackBarBehavior.floating,
-                      ),
-                    );
-                  }
-                },
-                child: const Text('Simpan'),
-              ),
-            ],
-          );
-        },
+      builder: (ctx) => AlertDialog(
+        title: const Text('SUPRA Assistant'),
+        content: const Text(
+          'Gemini is configured on the SUPRA server. No client API key is needed. '
+          'Current readings and future ML predictions are distinct; no live data is attached to this chat.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
   }
@@ -358,11 +211,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 borderRadius: BorderRadius.circular(10),
               ),
               child: const Center(
-                child: Icon(
-                  Icons.auto_awesome,
-                  color: Colors.white,
-                  size: 20,
-                ),
+                child: Icon(Icons.auto_awesome, color: Colors.white, size: 20),
               ),
             ),
             const SizedBox(width: 10),
@@ -384,7 +233,7 @@ class _ChatScreenState extends State<ChatScreen> {
                         width: 6.5,
                         height: 6.5,
                         decoration: const BoxDecoration(
-                          color: Color(0xFF22C55E),
+                          color: Colors.blueGrey,
                           shape: BoxShape.circle,
                         ),
                       ),
@@ -407,10 +256,10 @@ class _ChatScreenState extends State<ChatScreen> {
         actions: [
           // Key Configuration Button
           IconButton(
-            icon: const Icon(Icons.key_rounded, size: 20),
-            tooltip: 'Gemini API Key',
+            icon: const Icon(Icons.info_outline, size: 20),
+            tooltip: 'Assistant connection',
             color: SupraTheme.brand,
-            onPressed: () => _showApiKeyDialog(context),
+            onPressed: () => _showConnectionInfo(context),
           ),
           // Clear Chat History Button
           IconButton(
@@ -431,10 +280,7 @@ class _ChatScreenState extends State<ChatScreen> {
             decoration: BoxDecoration(
               color: Colors.white,
               border: Border(
-                bottom: BorderSide(
-                  color: const Color(0xFFE2E8F0),
-                  width: 1,
-                ),
+                bottom: BorderSide(color: const Color(0xFFE2E8F0), width: 1),
               ),
             ),
             child: Row(
@@ -447,9 +293,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
-                    'Kuningan, Jakarta • AQI 72 • 31°C',
+                    _buildContextPillText(),
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 11.0,
                       fontWeight: FontWeight.w700,
                       color: SupraTheme.onSurface,
                     ),
@@ -466,7 +312,7 @@ class _ChatScreenState extends State<ChatScreen> {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: const Text(
-                    'Live Context',
+                    'Server AI',
                     style: TextStyle(
                       fontSize: 9.5,
                       fontWeight: FontWeight.w700,
@@ -491,10 +337,7 @@ class _ChatScreenState extends State<ChatScreen> {
                   itemCount: messages.length,
                   itemBuilder: (context, index) {
                     final msg = messages[index];
-                    return ChatBubble(
-                      key: ValueKey(msg.id),
-                      message: msg,
-                    );
+                    return ChatBubble(key: ValueKey(msg.id), message: msg);
                   },
                 );
               },

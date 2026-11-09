@@ -43,6 +43,13 @@ pub struct Trip {
     pub destination: String,
     pub planned_departure: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
+    pub start_latitude: Option<f64>,
+    pub start_longitude: Option<f64>,
+    pub destination_latitude: Option<f64>,
+    pub destination_longitude: Option<f64>,
+    pub confirmed_at: Option<DateTime<Utc>>,
+    pub transport_mode: String,
+    pub active_until: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -52,6 +59,18 @@ pub struct CreateTrip {
     pub start_location: String,
     pub destination: String,
     pub planned_departure: DateTime<Utc>,
+    pub start_latitude: Option<f64>,
+    pub start_longitude: Option<f64>,
+    pub destination_latitude: Option<f64>,
+    pub destination_longitude: Option<f64>,
+    #[serde(default)]
+    pub confirmed: bool,
+    #[serde(default = "default_transport_mode")]
+    pub transport_mode: String,
+    pub route_waypoints: Option<Value>,
+}
+fn default_transport_mode() -> String {
+    "car".into()
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,6 +136,7 @@ pub struct NotificationPreference {
     pub alert_unhealthy_aqi: bool,
     pub alert_heavy_rain: bool,
     pub alert_severe_traffic: bool,
+    pub alert_relevant_news: bool,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -126,6 +146,7 @@ pub struct UpdateNotificationPreference {
     pub alert_unhealthy_aqi: Option<bool>,
     pub alert_heavy_rain: Option<bool>,
     pub alert_severe_traffic: Option<bool>,
+    pub alert_relevant_news: Option<bool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -141,4 +162,6 @@ pub struct Notification {
     pub severity: String,
     pub sent_at: DateTime<Utc>,
     pub is_read: bool,
+    pub source_url: Option<String>,
+    pub context: Value,
 }

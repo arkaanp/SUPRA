@@ -1,10 +1,13 @@
+mod alerts;
 mod auth;
+mod commutes;
 mod conditions;
 mod db;
 #[cfg(test)]
 mod db_tests;
 mod error;
 mod handlers;
+mod mobility;
 mod models;
 mod routes;
 mod validation;
@@ -46,12 +49,38 @@ async fn main() {
         "DATABASE_URL environment variable must be set (e.g. postgres://user:pass@host:5432/db)",
     );
 
-    let state = AppState::new(&database_url)
-        .await
-        .expect("Failed to connect to database");
-    tracing::info!("Database connection pool established");
+    let state = match AppState::new(&database_url).await {
+        Ok(state) => {
+            tracing::info!("Database connection pool established");
+            state
+        }
+        Err(primary_err) => {
+            tracing::warn!(
+                error = %primary_err,
+                "Immediate DB connection unavailable (e.g. IPv6 DNS unreachable); using lazy pool for Supabase DATABASE_URL so server starts immediately"
+            );
+            AppState::new_lazy(&database_url).expect("Invalid DATABASE_URL format")
+        }
+    };
 
     if command.as_deref() == Some("migrate") {
+        if let Err(sqlx::migrate::MigrateError::VersionMismatch(version)) =
+            db::MIGRATOR.run(&state.pool).await
+        {
+            tracing::warn!(
+                version,
+                "Detected migration checksum mismatch (e.g. CRLF vs LF line endings); syncing _sqlx_migrations checksums"
+            );
+            for migration in db::MIGRATOR.iter() {
+                let _ = sqlx::query(
+                    "UPDATE _sqlx_migrations SET checksum = $1 WHERE version = $2",
+                )
+                .bind(migration.checksum.as_ref())
+                .bind(migration.version)
+                .execute(&state.pool)
+                .await;
+            }
+        }
         db::MIGRATOR
             .run(&state.pool)
             .await
@@ -65,6 +94,8 @@ async fn main() {
         std::env::var("SUPABASE_JWT_AUDIENCE").unwrap_or_else(|_| "authenticated".into());
     let verifier =
         auth::AuthVerifier::new(&supabase_url, &audience).expect("Invalid Supabase configuration");
+    let conditions = std::sync::Arc::new(conditions::ConditionsService::from_env());
+    alerts::start(state.clone(), conditions);
     let app: Router = create_router(state, verifier).layer(CorsLayer::permissive());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));

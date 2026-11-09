@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:supra_mobile_ui/models/location.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -156,6 +158,8 @@ void main() {
       start: 'A',
       destination: 'B',
       departure: DateTime.utc(2030, 1, 1, 12),
+      startPoint: const LatLng(latitude: -6.2, longitude: 106.8),
+      destPoint: const LatLng(latitude: -6.3, longitude: 106.9),
     );
     expect(service.trips.single.userId, uuid);
     await service.updatePreferences(
@@ -173,5 +177,92 @@ void main() {
     expect(service.trips, isEmpty);
     expect(service.notifications, isEmpty);
     expect(service.backendReady, isFalse);
+  });
+
+  test('Password recovery requests email, verifies OTP code, and completes password update', () async {
+    const uuid = 'a1b2c3d4-0000-4000-8000-000000000007';
+    final user = {
+      'id': uuid,
+      'aud': 'authenticated',
+      'role': 'authenticated',
+      'email': 'rider@example.com',
+      'created_at': '2026-01-01T00:00:00Z',
+      'app_metadata': {
+        'provider': 'email',
+        'providers': ['email'],
+      },
+      'user_metadata': {'full_name': 'Test Rider'},
+    };
+    final expiresAt = DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600;
+    String part(Object value) =>
+        base64Url.encode(utf8.encode(jsonEncode(value))).replaceAll('=', '');
+    final token =
+        '${part({'alg': 'ES256', 'typ': 'JWT'})}.${part({'sub': uuid, 'exp': expiresAt})}.test-signature';
+    var recoverRequested = false;
+    var otpVerified = false;
+    var passwordUpdated = false;
+
+    final client = SupabaseClient(
+      'https://test.supabase.co',
+      'test-publishable-key',
+      authOptions: AuthClientOptions(
+        autoRefreshToken: false,
+        pkceAsyncStorage: _MemoryStorage(),
+      ),
+      httpClient: MockClient((request) async {
+        final path = request.url.path;
+        if (path.endsWith('/recover')) {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          expect(body['email'], 'rider@example.com');
+          recoverRequested = true;
+          return http.Response('{}', 200);
+        }
+        if (path.endsWith('/verify')) {
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          expect(body['type'], 'recovery');
+          expect(body['token'], '123456');
+          otpVerified = true;
+          return http.Response(
+            jsonEncode({
+              'access_token': token,
+              'refresh_token': 'refresh-token',
+              'token_type': 'bearer',
+              'expires_in': 3600,
+              'expires_at': expiresAt,
+              'user': user,
+            }),
+            200,
+          );
+        }
+        if (path.endsWith('/user') && request.method == 'PUT') {
+          expect(request.headers['Authorization'], 'Bearer $token');
+          final body = jsonDecode(request.body) as Map<String, dynamic>;
+          expect(body['password'], 'newpassword123');
+          passwordUpdated = true;
+          return http.Response(jsonEncode(user), 200);
+        }
+        return http.Response('{}', 404);
+      }),
+    );
+    addTearDown(client.dispose);
+
+    final service = SupraService(
+      apiBaseUrl: 'http://localhost:3000',
+      httpClientFactory: () => MockClient((_) async => http.Response('{}', 200)),
+    );
+    addTearDown(service.dispose);
+    service.initializeAuth(client);
+
+    expect(service.recoveringPassword, isFalse);
+    await service.requestPasswordRecovery('rider@example.com');
+    expect(recoverRequested, isTrue);
+
+    await service.verifyRecoveryCode('rider@example.com', '123456');
+    expect(otpVerified, isTrue);
+    expect(service.recoveringPassword, isTrue);
+
+    await service.completePasswordRecovery('newpassword123');
+    expect(passwordUpdated, isTrue);
+    expect(service.recoveringPassword, isFalse);
   });
 }

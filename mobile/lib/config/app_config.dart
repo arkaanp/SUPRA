@@ -8,11 +8,6 @@ abstract final class AppConfig {
     'SUPRA_API_URL',
     defaultValue: 'http://localhost:3000',
   );
-  static const geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
-  static const geminiModel = String.fromEnvironment(
-    'GEMINI_MODEL',
-    defaultValue: 'gemini-3.5-flash',
-  );
 
   static void validate() {
     final url = Uri.tryParse(supabaseUrl);

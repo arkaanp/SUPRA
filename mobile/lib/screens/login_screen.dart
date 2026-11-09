@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 
 import 'package:supra_mobile_ui/services/supra_api_service.dart';
 
+import 'password_recovery_screen.dart';
+
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.signIn});
+
+  final Future<void> Function(String email, String password)? signIn;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -12,6 +16,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _email = TextEditingController();
   final _password = TextEditingController();
+  final _passwordFocus = FocusNode();
   bool _obscure = true;
   bool _loading = false;
 
@@ -19,13 +24,19 @@ class _LoginScreenState extends State<LoginScreen> {
   void dispose() {
     _email.dispose();
     _password.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
   Future<void> _signIn() async {
+    if (_loading) return;
     setState(() => _loading = true);
     try {
-      await SupraService.instance.login(_email.text.trim(), _password.text);
+      if (widget.signIn != null) {
+        await widget.signIn!(_email.text.trim(), _password.text);
+      } else {
+        await SupraService.instance.login(_email.text.trim(), _password.text);
+      }
       if (!mounted) return;
       Navigator.of(context).popUntil((route) => route.isFirst);
     } catch (e) {
@@ -33,6 +44,7 @@ class _LoginScreenState extends State<LoginScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
       );
+      _passwordFocus.requestFocus();
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -64,6 +76,8 @@ class _LoginScreenState extends State<LoginScreen> {
               TextField(
                 controller: _email,
                 keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                onSubmitted: (_) => _passwordFocus.requestFocus(),
                 decoration: const InputDecoration(
                   labelText: 'Email',
                   prefixIcon: Icon(Icons.email_outlined),
@@ -72,6 +86,11 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 16),
               TextField(
                 controller: _password,
+                focusNode: _passwordFocus,
+                autocorrect: false,
+                enableSuggestions: false,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) => _signIn(),
                 obscureText: _obscure,
                 decoration: InputDecoration(
                   labelText: 'Password',
@@ -80,11 +99,26 @@ class _LoginScreenState extends State<LoginScreen> {
                     icon: Icon(
                       _obscure ? Icons.visibility : Icons.visibility_off,
                     ),
-                    onPressed: () => setState(() => _obscure = !_obscure),
+                    onPressed: () {
+                      setState(() => _obscure = !_obscure);
+                      _passwordFocus.requestFocus();
+                    },
                   ),
                 ),
               ),
               const SizedBox(height: 24),
+              TextButton(
+                onPressed: _loading
+                    ? null
+                    : () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => PasswordRecoveryScreen(
+                            initialEmail: _email.text.trim(),
+                          ),
+                        ),
+                      ),
+                child: const Text('Forgot password?'),
+              ),
               ElevatedButton(
                 onPressed: _loading ? null : _signIn,
                 child: _loading

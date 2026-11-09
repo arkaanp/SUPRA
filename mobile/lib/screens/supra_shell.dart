@@ -52,6 +52,9 @@ class _SupraShellState extends State<SupraShell> {
             _tripKey.currentState?.loadAndShowRoute(
               start: trip.startLocation,
               destination: trip.destination,
+              startPoint: trip.startPoint,
+              destPoint: trip.destPoint,
+              mode: trip.transportMode,
             );
           });
         }
@@ -70,30 +73,35 @@ class _SupraShellState extends State<SupraShell> {
       body: SafeArea(
         child: _loading
             ? const Center(child: CircularProgressIndicator())
-            : _error != null
-            ? Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text('Could not load your account: $_error'),
-                      TextButton(onPressed: _load, child: const Text('Retry')),
-                      TextButton(
-                        onPressed: () async {
-                          try {
-                            await SupraService.instance.logout();
-                          } catch (error) {
-                            if (mounted) setState(() => _error = '$error');
-                          }
-                        },
-                        child: const Text('Sign out'),
+            : Column(
+                children: [
+                  if (_error != null)
+                    MaterialBanner(
+                      content: const Text(
+                        'Account refresh unavailable. Last-known conditions can still be shown as stale.',
                       ),
-                    ],
+                      actions: [
+                        TextButton(
+                          onPressed: _load,
+                          child: const Text('Retry'),
+                        ),
+                        TextButton(
+                          onPressed: () async {
+                            try {
+                              await SupraService.instance.logout();
+                            } catch (error) {
+                              if (mounted) setState(() => _error = '$error');
+                            }
+                          },
+                          child: const Text('Sign out'),
+                        ),
+                      ],
+                    ),
+                  Expanded(
+                    child: IndexedStack(index: _index, children: _pages),
                   ),
-                ),
-              )
-            : IndexedStack(index: _index, children: _pages),
+                ],
+              ),
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _index,

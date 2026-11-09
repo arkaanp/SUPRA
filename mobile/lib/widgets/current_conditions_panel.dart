@@ -3,7 +3,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/current_conditions.dart';
 import '../models/location.dart';
-import '../services/supra_api_service.dart';
+import '../services/conditions_repository.dart';
 import 'interactive_location_map.dart';
 
 /// Explicit lookups only: do not poll paid providers on every rebuild/tab change.
@@ -27,6 +27,21 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
   bool _loading = false;
   String? _error;
   bool _showInlineMap = false;
+  late final ConditionsRepository _repository;
+
+  @override
+  void initState() {
+    super.initState();
+    _repository = widget.load == null
+        ? ConditionsRepository.instance
+        : ConditionsRepository(
+            load: (point) => widget.load!(
+              point.latitude,
+              point.longitude,
+              _adm4.text.trim().isEmpty ? null : _adm4.text.trim(),
+            ),
+          );
+  }
 
   @override
   void dispose() {
@@ -53,10 +68,9 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
       setState(() {
         _lat.text = picked.latitude.toStringAsFixed(4);
         _lon.text = picked.longitude.toStringAsFixed(4);
-        final nearest = findNearestLandmark(picked);
-        if (nearest?.adm4 != null && picked.distanceTo(nearest!.point) < 2.0) {
-          _adm4.text = nearest.adm4!;
-        }
+        // A nearby landmark does not establish the selected village boundary.
+        _adm4.clear();
+        _result = null;
         _error = null;
       });
     }
@@ -81,15 +95,13 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
     setState(() {
       _loading = true;
       _error = null;
-      _result = null;
     });
     try {
-      final result =
-          await (widget.load ?? SupraService.instance.getCurrentConditions)(
-            lat,
-            lon,
-            _adm4.text.trim().isEmpty ? null : _adm4.text.trim(),
-          );
+      final result = await _repository.at(
+        LatLng(latitude: lat, longitude: lon),
+        adm4: _adm4.text.trim().isEmpty ? null : _adm4.text.trim(),
+        refresh: true,
+      );
       if (mounted) setState(() => _result = result);
     } catch (error) {
       if (mounted) setState(() => _error = '$error');
@@ -136,6 +148,8 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
             ),
           if (signal.validAt != null)
             Text('Valid/observed: ${_wib(signal.validAt!)}'),
+          if (signal.receivedAt != null)
+            Text('Fetched: ${_wib(signal.receivedAt!)}'),
           for (final detail in details) Text(detail),
           Text(
             signal.message == 'not_configured'
@@ -229,15 +243,13 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
           InteractiveLocationMap(
             height: 220,
             selectedLocation: currentLoc,
+            isInteractive: !_loading,
             onLocationChanged: (location) {
               setState(() {
                 _lat.text = location.latitude.toStringAsFixed(4);
                 _lon.text = location.longitude.toStringAsFixed(4);
-                final nearest = findNearestLandmark(location);
-                if (nearest?.adm4 != null &&
-                    location.distanceTo(nearest!.point) < 2.0) {
-                  _adm4.text = nearest.adm4!;
-                }
+                _adm4.clear();
+                _result = null;
                 _error = null;
               });
             },
@@ -246,6 +258,10 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
         ],
         TextField(
           controller: _lat,
+          onChanged: (_) => setState(() {
+            _result = null;
+            _adm4.clear();
+          }),
           enabled: !_loading,
           keyboardType: const TextInputType.numberWithOptions(
             decimal: true,
@@ -262,6 +278,10 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
         ),
         TextField(
           controller: _lon,
+          onChanged: (_) => setState(() {
+            _result = null;
+            _adm4.clear();
+          }),
           enabled: !_loading,
           keyboardType: const TextInputType.numberWithOptions(
             decimal: true,
@@ -278,6 +298,7 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
         ),
         TextField(
           controller: _adm4,
+          onChanged: (_) => setState(() => _result = null),
           enabled: !_loading,
           decoration: const InputDecoration(
             labelText: 'BMKG village adm4 (optional)',
