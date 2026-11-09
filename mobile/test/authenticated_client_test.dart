@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -25,6 +27,34 @@ void main() {
     );
     await (await client.send(request)).stream.drain<void>();
     expect(seen, ['Bearer first-token', 'Bearer refreshed-token']);
+  });
+
+  test('Stalled session refresh fails before sending a write, and retry can recover', () async {
+    var sent = 0;
+    var refreshing = true;
+    final pending = Completer<String>();
+    final client = AuthenticatedClient(
+      baseUrl: Uri.parse('http://localhost:3000'),
+      tokenTimeout: const Duration(milliseconds: 10),
+      accessToken: () =>
+          refreshing ? pending.future : Future.value('new-token'),
+      inner: MockClient((request) async {
+        sent++;
+        expect(request.headers['Authorization'], 'Bearer new-token');
+        return http.Response('{}', 200);
+      }),
+    );
+    addTearDown(client.close);
+    await expectLater(
+      client.post(Uri.parse('http://localhost:3000/api/trips')),
+      throwsA(isA<SessionRefreshException>()),
+    );
+    pending.complete('late-token');
+    await Future<void>.delayed(Duration.zero);
+    expect(sent, 0); // Late auth completion must not create a trip.
+    refreshing = false;
+    await client.post(Uri.parse('http://localhost:3000/api/trips'));
+    expect(sent, 1);
   });
 
   test('Refuses unauthenticated requests and other origins', () async {

@@ -24,8 +24,10 @@ impl AppError {
 impl From<sqlx::Error> for AppError {
     fn from(error: sqlx::Error) -> Self {
         match &error {
+            sqlx::Error::PoolTimedOut => Self::Unavailable,
             sqlx::Error::RowNotFound => Self::NotFound,
             sqlx::Error::Database(db_error) => match db_error.code().as_deref() {
+                Some("57014" | "55P03") => Self::Unavailable,
                 Some("23505") => Self::Conflict, // unique constraint
                 Some("23502" | "23503" | "23514" | "22001") => {
                     Self::bad_request("Request violates a database constraint")
@@ -84,6 +86,16 @@ mod tests {
     fn row_not_found_is_404() {
         let response = AppError::from(sqlx::Error::RowNotFound).into_response();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn pool_timeout_is_service_unavailable() {
+        assert_eq!(
+            AppError::from(sqlx::Error::PoolTimedOut)
+                .into_response()
+                .status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
     }
 
     #[test]

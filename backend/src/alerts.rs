@@ -80,7 +80,9 @@ fn fresh(s: &Signal, now: DateTime<Utc>) -> bool {
         && s.kind != Some("provider_forecast")
         && s.data.is_some()
         && match s.valid_at {
-            Some(at) => at <= now + chrono::Duration::minutes(10) && at >= now - chrono::Duration::hours(3),
+            Some(at) => {
+                at <= now + chrono::Duration::minutes(10) && at >= now - chrono::Duration::hours(3)
+            }
             None => s.kind == Some("provider_live_estimate"),
         }
 }
@@ -233,12 +235,13 @@ async fn incidents() -> Vec<Incident> {
                             bytes.extend_from_slice(&chunk);
                         }
                         if ok {
-                            let parsed: Vec<Incident> = serde_json::from_slice::<Vec<Incident>>(&bytes)
-                                .unwrap_or_default()
-                                .into_iter()
-                                .take(100)
-                                .filter(|i| valid_incident(i, now))
-                                .collect();
+                            let parsed: Vec<Incident> =
+                                serde_json::from_slice::<Vec<Incident>>(&bytes)
+                                    .unwrap_or_default()
+                                    .into_iter()
+                                    .take(100)
+                                    .filter(|i| valid_incident(i, now))
+                                    .collect();
                             if !parsed.is_empty() || cfg!(test) {
                                 return parsed;
                             }
@@ -360,10 +363,8 @@ pub async fn evaluate(
                 longitude: t.dest_longitude,
                 adm4: None,
             };
-            let (c_origin, c_dest) = tokio::join!(
-                conditions.lookup(&q_origin),
-                conditions.lookup(&q_dest),
-            );
+            let (c_origin, c_dest) =
+                tokio::join!(conditions.lookup(&q_origin), conditions.lookup(&q_dest),);
             candidates.extend(hazards(&c_origin, now, t.air, t.rain, t.traffic));
             candidates.extend(hazards(&c_dest, now, t.air, t.rain, t.traffic));
         }
@@ -414,22 +415,18 @@ pub async fn evaluate_user(
     Extension(u): Extension<AuthUser>,
     Extension(c): Extension<Arc<ConditionsService>>,
 ) -> (axum::http::StatusCode, Json<Value>) {
-    let mut eval_count = 0_usize;
-    let mut created_count = 0_u64;
-    if let Ok(res) = evaluate(&s, &c, Some(u.id)).await {
-        eval_count += res.evaluated;
-        created_count += res.created;
-    }
-    if let Ok(extra) = evaluate_verified_news_for_user(&s, &c, u.id).await {
-        eval_count = eval_count.max(1);
-        created_count += extra;
-    }
+    tokio::spawn(async move {
+        if evaluate(&s, &c, Some(u.id)).await.is_err() {
+            tracing::warn!("Manual alert evaluation failed");
+        }
+        if evaluate_verified_news_for_user(&s, &c, u.id).await.is_err() {
+            tracing::warn!("Manual news evaluation failed");
+        }
+    });
     let response = json!({
         "queued": true,
-        "evaluated": eval_count,
-        "created": created_count,
-        "news_configured": true,
-        "scheduler_enabled": true
+        "news_configured": std::env::var("NEWS_INCIDENTS_URL").is_ok_and(|url| !url.trim().is_empty()),
+        "scheduler_enabled": enabled()
     });
     (axum::http::StatusCode::ACCEPTED, Json(response))
 }
@@ -588,6 +585,28 @@ mod tests {
         assert_eq!(due.to_rfc3339(), "2026-11-08T17:10:00+00:00");
         assert!(due_departure(now, &[1], 10, 30).is_none());
     }
+    #[tokio::test]
+    async fn manual_evaluation_returns_before_database_or_provider_work() {
+        let state = AppState::new_lazy("postgres://localhost/unused_test").unwrap();
+        let conditions = Arc::new(ConditionsService::from_env());
+        let (status, Json(body)) = tokio::time::timeout(
+            Duration::from_millis(100),
+            evaluate_user(
+                State(state),
+                Extension(AuthUser {
+                    id: Uuid::new_v4(),
+                    email: "demo@example.invalid".into(),
+                }),
+                Extension(conditions),
+            ),
+        )
+        .await
+        .expect("queue acknowledgement must not wait for dependencies");
+        assert_eq!(status, axum::http::StatusCode::ACCEPTED);
+        assert_eq!(body["queued"], true);
+        assert!(body.get("created").is_none());
+    }
+
     #[test]
     fn stale_or_forecast_signals_are_not_current_hazards() {
         let s = Signal {
