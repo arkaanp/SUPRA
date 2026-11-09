@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../config/map_config.dart';
 import '../models/current_conditions.dart';
+import '../models/environmental_zone.dart';
+import '../widgets/route_environment_samples.dart';
 import '../models/location.dart';
 import '../models/route_option.dart';
 import '../models/saved_trip.dart';
@@ -86,6 +88,7 @@ class TripScreenState extends State<TripScreen> {
 
   // Routes state evaluated against traffic, weather, and air pollution
   List<RouteOption> _calculatedRoutes = [];
+  List<EnvironmentalZone> _routeSamples = [];
   RouteOption? _selectedRoute;
   bool _loadingRoutes = false;
   int _routeGeneration = 0;
@@ -651,6 +654,7 @@ class TripScreenState extends State<TripScreen> {
         ? List<RouteOption>.of(_calculatedRoutes)
         : <RouteOption>[];
     setState(() {
+      _routeSamples = [];
       _loadingRoutes = true;
       _isTrackingActive = false;
       _calculatedRoutes = [];
@@ -1032,6 +1036,11 @@ class TripScreenState extends State<TripScreen> {
                               : (_destCoord != null ? 'D' : 'S'),
                           secondaryLabel: _isPickingOnMap ? null : 'S',
                           routeWaypoints: _selectedRoute?.waypoints,
+                          onEnvironmentalSamplesChanged: (samples) {
+                            if (mounted) {
+                              setState(() => _routeSamples = samples);
+                            }
+                          },
                           routeColor: _selectedRoute != null
                               ? _getRouteColor(_selectedRoute!.mode)
                               : null,
@@ -1656,9 +1665,12 @@ class TripScreenState extends State<TripScreen> {
             Expanded(
               child: ListView.separated(
                 padding: EdgeInsets.zero,
-                itemCount: _calculatedRoutes.length,
+                itemCount: _calculatedRoutes.length + 1,
                 separatorBuilder: (context, _) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
+                  if (index == _calculatedRoutes.length) {
+                    return RouteEnvironmentSamples(samples: _routeSamples);
+                  }
                   final opt = _calculatedRoutes[index];
                   final isSelected = opt.mode == _selectedRoute?.mode;
                   return _buildRouteOptionCard(opt, isSelected);

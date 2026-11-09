@@ -74,3 +74,10 @@ account rows or SQL text. The isolated test runner requires PostgreSQL tools
 `testing/evidence/`, runs the ignored integration test, then stops the cluster.
 It retains logs/data for demonstration and never connects to the app database.
 The integration test now exercises avatar upload as well as confirmed-trip CRUD.
+
+Live provider recency audit: `python3 testing/scripts/provider_freshness.py`.
+This checks Jakarta weather/CAMS timestamps and nearby OpenAQ last-update metadata;
+it reports provider failures and never prints API keys.
+
+Authenticated three-point source/time check: `python3 testing/scripts/conditions_smoke.py`.
+It reads the local desktop session without printing tokens or account data.

@@ -1,105 +1,74 @@
-# Location conditions — initial provider contract
+# Current conditions and route samples
 
-`GET /api/conditions/current?latitude=-6.2&longitude=106.82`
+Authenticated `GET /api/conditions/current?latitude=-6.2&longitude=106.82`
+returns weather, air_quality and traffic with independent status, source, kind,
+valid_at and data. Coordinates are bounded to Greater Jakarta. Optional `adm4`
+must match the requested BMKG village; no automatic village lookup is provided.
 
-Requires the same Supabase bearer token as other resource endpoints. No profile
-or database write is needed. Coordinates must be within the initial Greater
-Jakarta bounding box: latitude [-6.9, -5.8], longitude [106.3, 107.3]. This box
-is a service envelope, not an administrative-boundary polygon.
+## Weather freshness
 
-Optional `adm4=31.71.03.1001` supplies a BMKG village code. The caller must
-choose the matching village; this endpoint does not reverse-geocode coordinates.
-Unknown query fields, malformed codes and invalid coordinates return JSON 400.
+Open-Meteo and BMKG (when an adm4 is supplied) are queried concurrently. Each
+eligible response is compared by absolute distance of its valid time from now;
+BMKG wins only when strictly closer. Open-Meteo wins ties. Weather estimates
+older than two hours or implausibly future-dated are rejected. BMKG selects its
+nearest three-hourly slot within -3/+6 hours and requires issuance within 24 hours.
+BMKG remains labelled `provider_forecast`, including when the slot is in the past;
+it is not a station observation. Missing BMKG rainfall is not filled from another
+provider. Issued time and valid time are different; retrieval time is neither.
 
-## Response
+BMKG documents three-hourly forecasts, twice-daily updates, village adm4 codes,
+a 60 requests/minute/IP limit and required attribution:
+https://data.bmkg.go.id/prakiraan-cuaca/
 
-200 means the aggregate lookup completed, **not** that every signal is available.
-Each of `weather`, `air_quality`, and `traffic` has:
+## Air quality freshness and alternative
 
-| Field | Meaning |
-| --- | --- |
-| `status` | `available`, `stale`, or `unavailable` |
-| `source` | `open_meteo`, `bmkg`, `openaq`, or `tomtom` |
-| `kind` | `model_estimate`, `provider_forecast`, `station_observation`, `provider_live_estimate`; null if unavailable |
-| `valid_at` | UTC observation/forecast valid time; null when unknown/unavailable |
-| `message` | Attribution/limitations or a sanitized failure reason |
-| `data` | Source-normalized object below; null if unavailable |
+OpenAQ station metadata older than 24 hours is excluded before selecting up to
+three candidates within 25 km. Known recently active stations take priority over
+unknown-recency candidates, then distance orders candidates. Actual PM2.5 sensor
+timestamps/units are checked; only readings within three hours count as current.
+Station work has a three-second budget to leave time for the alternative.
 
-Top-level `latitude` and `longitude` echo the requested point. `retrieved_at`
-is UTC time when the aggregate lookup finished, not a measurement time. Times
-are rendered as WIB in Flutter. Each signal can have a different valid time.
+If no fresh OpenAQ reading is usable, query Open-Meteo's CAMS global current
+PM2.5 and provider-calculated US AQI. Response source is `open_meteo_cams`, kind
+`model_estimate`. The model grid is approximately 45 km; similar values across
+Jakarta are expected and do not imply street-level monitoring. Display CAMS,
+Open-Meteo, CC BY 4.0 attribution and returned valid time. The API's AQI is used
+directly; a single OpenAQ PM2.5 sample is not converted here into AQI.
 
-- **Open-Meteo weather:** `temperature_c`, `humidity_percent`,
-  `precipitation_mm`, `interval_seconds`, `wind_speed_kmh`, `weather_code`,
-  `model_latitude`, `model_longitude`. Precipitation belongs to the returned
-  provider interval, not a probability or a daily total. This is model-derived
-  current weather, not a thermometer/rain-gauge observation. Estimates older
-  than two hours or implausibly future-dated trigger fallback.
-- **BMKG fallback weather:** `temperature_c`, `humidity_percent`, `description`,
-  `issued_at`, `village`, `model_latitude`, `model_longitude`. Used only if the
-  primary weather request fails, is malformed, or is stale, and `adm4` is given.
-  Returns the first upcoming forecast within six hours from a run issued within
-  24 hours. **Not a substitute current observation**: `kind=provider_forecast`
-  and its actual valid time must remain visible. No fabricated rain probability.
-  The returned village code must match and its representative point must be
-  within 15 km; that sanity check does not prove point-in-village membership.
-- **OpenAQ air quality:** `pm25_ug_m3`, `station_id`, `station_name`,
-  `distance_km`, `coordinates`, `provider`, `owner`, `licenses`. Discovers up to
-  100 locations within 25 km, examines the nearest three stationary candidates,
-  joins `/locations/{id}/latest` by sensor ID to parameter/unit metadata, and
-  selects a usable PM2.5 reading. Prefers a fresh station; reports stale readings
-  (>3 hours old) explicitly. No reading is a valid unavailable outcome. Coverage
-  is limited to those candidates, not an exhaustive search of every sensor.
-  **No US AQI or ISPU is computed from an instantaneous PM2.5 value.**
-  Keep station distance, source and license attribution visible. This is not an
-  exact-point or street-wide measurement and is not used to assess health risk.
-- **TomTom traffic:** `speed_kmh`, `free_flow_speed_kmh`,
-  `travel_time_seconds`, `free_flow_time_seconds`, `confidence`, `road_closed`,
-  `coordinates` (provider `latitude`/`longitude` pairs). Nearest provider road
-  fragment only, **not** direction/route matched, whole-area traffic, physical
-  vehicle density or a trip ETA. The provider gives no observation timestamp
-  here, so `valid_at=null`; never substitute retrieval time as observation time.
+CAMS values older than three hours or over 15 minutes in the future are rejected.
+If CAMS fails, only a genuine OpenAQ reading at most 24 hours old can remain
+stale. Otherwise air quality is unavailable. Cache retention also stops after
+24 hours; refresh attempts do not advance the original data timestamp.
 
-## Configuration and failures
-
-Backend `.env` only:
-
-```dotenv
-OPENAQ_API_KEY=your_openaq_key
-TOMTOM_API_KEY=your_tomtom_key
-```
-
-Get the OpenAQ v3 key from https://explore.openaq.org/ and enable a TomTom Traffic
-API key in the provider account. Missing credentials yield `not_configured` for
-that signal; other signals still load. Never place provider keys in Flutter.
-
-Provider failures return reasons such as `provider_access_denied`,
-`provider_rate_limited`, `provider_error`, `provider_unreachable`, or
-`provider_timeout`; provider payloads and credential-bearing URLs are never
-returned or logged. No retries, redirects, fabricated values or AQI provider
-fallbacks are used. Request timeouts are four seconds, each signal has an
-eight-second total deadline, and at most eight aggregate lookups run per process.
-Overload returns the existing JSON 503 `unavailable` response. There is no
-automatic polling in Flutter.
-
-This initial slice does not persist/cache responses or collect training data.
-Review provider storage, reuse, attribution and ML licensing before adding a
-cache/archive. Add per-user rate limits and deployment-wide quota controls
-before a public launch; the concurrency cap is not a request-rate limit.
-
-## Evidence and limitations
-
-Tests call the real authenticated Axum route and provider adapters against local
-HTTP stand-ins, exercising normalization, weather fallback, missing credentials,
-stale readings and sanitized failures. The stand-ins follow provider docs:
-
-- https://open-meteo.com/en/docs
-- https://data.bmkg.go.id/prakiraan-cuaca/
-- https://docs.openaq.org/resources/locations
+Official contracts:
 - https://docs.openaq.org/resources/latest
-- https://developer.tomtom.com/traffic-api/documentation/tomtom-maps/v1/traffic-flow/flow-segment-data
+- https://open-meteo.com/en/docs/air-quality-api
 
-Open-Meteo and BMKG public response shapes were inspected during development.
-Live OpenAQ/TomTom account access and individual-road/station coverage remain
-to be verified with your keys. This endpoint does not implement routing,
-route-wide sampling, model training, Supra predictions, or automatic alerts.
+`OPENAQ_API_KEY` and `TOMTOM_API_KEY` remain backend-only. CAMS needs no key for
+the public noncommercial endpoint; use an appropriate commercial plan for
+commercial deployment. Provider quotas and attribution requirements still apply.
+
+## Route map
+
+Flutter samples the successful provider polyline by cumulative distance, including
+start and destination, at a target of roughly 5 km with a maximum of five samples.
+Lookups run at most two at a time and reuse the account/location repository cache.
+Detailed sample cards appear below the transport options in the scrollable trip
+sheet. They show air quality/PM2.5, weather, model/station identity and stale status;
+expand source details for timestamps. Map squares use transparent AQI category
+colors (or labelled PM2.5 concentration bands when AQI is absent), with blue rain
+symbols and mm values. These squares are sample footprints, not measured areas. These are discrete samples, not a
+continuous pollution heatmap or a route-wide exposure prediction. A point without
+an adm4 uses Open-Meteo weather rather than borrowing another village's BMKG code.
+
+TomTom remains nearest-road flow, not a trip ETA. Aggregate lookups have an
+8-second per-signal deadline and an 8-request concurrency cap. Source failures
+remain isolated. No automatic polling is introduced.
+
+## Verification
+
+Unit tests exercise closest-valid-time selection, CAMS fallback/stale rejection,
+provider failure contracts, route endpoint/intermediate sampling, and rejection
+of years-old cache data. `python3 testing/scripts/provider_freshness.py` inspects
+live source timestamps without exposing keys. Live availability is reported
+separately from deterministic fixture tests.

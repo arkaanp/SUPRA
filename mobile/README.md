@@ -148,3 +148,12 @@ real provider credentials. For a live smoke
 test, register and confirm a user, sign in, save a trip, reload to verify
 persistence, change preferences, sign out and sign into a second account to
 verify isolation. Backend cross-user DB tests require a dedicated test database.
+
+## Freshness and route map update
+
+Conditions now compare eligible BMKG/Open-Meteo valid times when a matching adm4
+is supplied. Air quality uses fresh OpenAQ station readings, with fresh CAMS
+model PM2.5/provider US AQI as an alternative. Route maps display discrete samples
+including both endpoints (at most five), with model/station and stale labels.
+CAMS is approximately 45 km resolution, not street monitoring. See
+[the updated contract](../backend/docs/current-conditions.md).

@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../models/location.dart';
 import '../models/environmental_zone.dart';
+import 'route_environment_samples.dart';
 
 /// Real geographic basemap for platforms without the MapLibre plugin.
 class GeographicTileMap extends StatefulWidget {
@@ -149,16 +150,9 @@ class GeographicTileMapState extends State<GeographicTileMap> {
               ))
                 fm.Marker(
                   point: _geo(sample.center),
-                  width: 40,
-                  height: 40,
-                  child: Tooltip(
-                    message:
-                        '${sample.descriptiveLabel}\n${sample.healthAdvisory}',
-                    child: const Icon(
-                      Icons.info_outline,
-                      color: Colors.blueGrey,
-                    ),
-                  ),
+                  width: 54,
+                  height: 54,
+                  child: EnvironmentalSampleMarker(sample: sample),
                 ),
             ],
           ),

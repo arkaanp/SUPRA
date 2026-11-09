@@ -12,6 +12,7 @@ import '../services/environmental_service.dart';
 import '../services/geocoding_service.dart';
 import '../theme/app_theme.dart';
 import 'geographic_tile_map.dart';
+import 'route_environment_samples.dart';
 
 /// Interactive map widget allowing users to visually select geographic coordinates
 /// within the Greater Jakarta service area (lat: -6.9..-5.8, lon: 106.3..107.3).
@@ -35,6 +36,7 @@ class InteractiveLocationMap extends StatefulWidget {
   final bool showEnvironmentalOverlays;
   final List<EnvironmentalZone>? environmentalZones;
   final bool autoFitRoute;
+  final ValueChanged<List<EnvironmentalZone>>? onEnvironmentalSamplesChanged;
 
   const InteractiveLocationMap({
     super.key,
@@ -54,6 +56,7 @@ class InteractiveLocationMap extends StatefulWidget {
     this.showEnvironmentalOverlays = true,
     this.environmentalZones,
     this.autoFitRoute = true,
+    this.onEnvironmentalSamplesChanged,
   });
 
   @override
@@ -119,13 +122,23 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
     }
   }
 
+  int _environmentGeneration = 0;
   Future<void> _refreshEnvironmentalZones() async {
+    final generation = ++_environmentGeneration;
+    if (widget.environmentalZones != null) {
+      setState(() => _environmentalZones = widget.environmentalZones!);
+      return;
+    }
     try {
-      final updated = await _environmentalService.fetchLiveZoneData(
-        point: _currentLocation,
-      );
-      if (mounted) {
+      final path = widget.routeWaypoints;
+      final updated = path != null && path.length >= 2
+          ? await _environmentalService.fetchRouteData(path)
+          : await _environmentalService.fetchLiveZoneData(
+              point: _currentLocation,
+            );
+      if (mounted && generation == _environmentGeneration) {
         setState(() => _environmentalZones = updated);
+        widget.onEnvironmentalSamplesChanged?.call(updated);
         if (_useMapLibre && _mapController != null) {
           _updateMapLibreLayers();
         }
@@ -143,6 +156,22 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
   @override
   void didUpdateWidget(covariant InteractiveLocationMap oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.onEnvironmentalSamplesChanged == null &&
+        widget.onEnvironmentalSamplesChanged != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          widget.onEnvironmentalSamplesChanged?.call(_environmentalZones);
+        }
+      });
+    }
+
+    if (widget.showEnvironmentalOverlays &&
+        (widget.selectedLocation != oldWidget.selectedLocation ||
+            !listEquals(widget.routeWaypoints, oldWidget.routeWaypoints) ||
+            widget.environmentalZones != oldWidget.environmentalZones)) {
+      _environmentalZones = []; // Do not show the previous route's samples.
+      _refreshEnvironmentalZones();
+    }
     if (widget.selectedLocation != oldWidget.selectedLocation) {
       _currentLocation = widget.selectedLocation;
       if (_currentLocation != null && widget.showFooter) {
@@ -201,6 +230,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
 
     try {
       await controller.clearCircles();
+      await controller.clearSymbols();
       await controller.clearLines();
       await controller.clearFills();
 
@@ -213,6 +243,41 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
             areaColor = zone.isRaining ? zone.rainColor : Colors.transparent;
           } else {
             areaColor = zone.compositeAreaColor;
+          }
+          if (zone.conditions != null) {
+            final c = zone.center;
+            const d = 0.003;
+            final hex =
+                '#${(zone.solidAqiColor.toARGB32() & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+            await controller.addFill(
+              ml.FillOptions(
+                geometry: [
+                  [
+                    ml.LatLng(c.latitude - d, c.longitude - d),
+                    ml.LatLng(c.latitude + d, c.longitude - d),
+                    ml.LatLng(c.latitude + d, c.longitude + d),
+                    ml.LatLng(c.latitude - d, c.longitude + d),
+                    ml.LatLng(c.latitude - d, c.longitude - d),
+                  ],
+                ],
+                fillColor: hex,
+                fillOpacity: 0.20,
+                fillOutlineColor: hex,
+              ),
+            );
+            final rain = zone.rainfallMm;
+            await controller.addSymbol(
+              ml.SymbolOptions(
+                geometry: ml.LatLng(c.latitude, c.longitude),
+                textField: rain == null
+                    ? '☁ —'
+                    : '${rain > 0 ? '🌧' : '☁'} ${rain.toStringAsFixed(1)} mm',
+                textSize: 11,
+                textColor: rain != null && rain > 0 ? '#1565C0' : '#607D8B',
+                textHaloColor: '#FFFFFF',
+                textHaloWidth: 2,
+              ),
+            );
           }
           if (areaColor == Colors.transparent) continue;
 
@@ -1325,89 +1390,12 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
       return const SizedBox.shrink();
     }
 
-    final isSelected = _inspectedZone?.id == zone.id;
-
     return Positioned(
-      left: px - 65,
-      top: py - 14,
-      child: IgnorePointer(
-        ignoring: widget.isInteractive,
-        child: GestureDetector(
-          onTap: () {
-            setState(() {
-              _inspectedZone = isSelected ? null : zone;
-            });
-          },
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-            constraints: const BoxConstraints(maxWidth: 135),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.92),
-              borderRadius: BorderRadius.circular(6),
-              border: Border.all(
-                color: isSelected
-                    ? zone.solidAqiColor
-                    : zone.solidAqiColor.withValues(alpha: 0.35),
-                width: isSelected ? 1.5 : 0.8,
-              ),
-              boxShadow: const [
-                BoxShadow(
-                  color: Color(0x1A000000),
-                  blurRadius: 3,
-                  offset: Offset(0, 1),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  margin: const EdgeInsets.only(right: 4),
-                  decoration: BoxDecoration(
-                    color: zone.solidAqiColor,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-                if (zone.isRaining)
-                  const Padding(
-                    padding: EdgeInsets.only(right: 3),
-                    child: Text('🌧️', style: TextStyle(fontSize: 9)),
-                  ),
-                Flexible(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        zone.name,
-                        style: const TextStyle(
-                          color: SupraTheme.onSurface,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 9.0,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      Text(
-                        zone.descriptiveLabel,
-                        style: const TextStyle(
-                          color: SupraTheme.textSecondary,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 7.5,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
+      left: px - 27,
+      top: py - 27,
+      width: 54,
+      height: 54,
+      child: EnvironmentalSampleMarker(sample: zone),
     );
   }
 
@@ -1536,7 +1524,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                   ),
                   const SizedBox(width: 8),
                   const Text(
-                    'Air Quality (PM2.5) & Rain Guide',
+                    'AQI Colors & Rain Guide',
                     style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
                   ),
                   const Spacer(),
@@ -1561,7 +1549,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                     SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Samples use the SUPRA backend: OpenAQ station observations and Open-Meteo model estimates. Missing/stale data is not a safe-condition reading. No area-wide interpolation or AQI conversion.',
+                        'Transparent squares mark individual samples, not measured area coverage. Provider AQI uses the categories below. PM2.5-only samples use labelled concentration bands; missing values are gray.',
                         style: TextStyle(
                           fontSize: 10.5,
                           color: Color(0xFF334155),
@@ -1575,39 +1563,45 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
               const SizedBox(height: 12),
               _buildAqiScaleRow(
                 const Color(0xFF22C55E),
-                '0 – 12 µg/m³',
+                'AQI 0–50',
                 'Good',
-                'Air quality is satisfactory with little to no risk.',
+                'Provider-supplied US AQI category.',
               ),
               _buildAqiScaleRow(
                 const Color(0xFFEAB308),
-                '12.1 – 35.4 µg/m³',
+                'AQI 51–100',
                 'Moderate',
-                'Acceptable; sensitive individuals may experience slight irritation.',
+                'Provider-supplied US AQI category.',
               ),
               _buildAqiScaleRow(
                 const Color(0xFFF97316),
-                '35.5 – 55.4 µg/m³',
-                'Unhealthy for Sensitive',
-                'Sensitive groups should reduce prolonged outdoor exertion.',
+                'AQI 101–150',
+                'Unhealthy for sensitive groups',
+                'Provider-supplied US AQI category.',
               ),
               _buildAqiScaleRow(
                 const Color(0xFFEF4444),
-                '55.5 – 150.4 µg/m³',
-                'Unhealthy (Dark Red)',
-                'General public affected. Wear N95 mask. Color darkens as PM2.5 rises.',
+                'AQI 151–200',
+                'Unhealthy',
+                'Provider-supplied US AQI category.',
               ),
               _buildAqiScaleRow(
                 const Color(0xFF8B5CF6),
-                '150.5 – 250.4 µg/m³',
-                'Very Unhealthy (Purple)',
-                'Health alert: significant health risk for all commuters.',
+                'AQI 201–300',
+                'Very unhealthy',
+                'Provider-supplied US AQI category.',
+              ),
+              _buildAqiScaleRow(
+                const Color(0xFF7F1D1D),
+                'AQI 301+',
+                'Hazardous',
+                'Provider-supplied US AQI category.',
               ),
               _buildAqiScaleRow(
                 const Color(0xFF2563EB),
-                'Rain Active (>0.5 mm)',
-                'Precipitation Radar',
-                'Blue shaded areas indicate active rainfall with wet pavement.',
+                'Rain (mm)',
+                'Blue droplet',
+                'Precipitation in the provider interval. A cloud with 0.0 mm means zero reported rain; a crossed cloud means unavailable. See cards below transport options for sources and times.',
               ),
             ],
           ),

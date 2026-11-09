@@ -59,6 +59,7 @@ pub struct ConditionsService {
     open_meteo: String,
     bmkg: String,
     openaq: String,
+    cams: String,
     tomtom: String,
     openaq_key: Option<String>,
     tomtom_key: Option<String>,
@@ -83,6 +84,7 @@ impl ConditionsService {
             open_meteo: "https://api.open-meteo.com/v1/forecast".into(),
             bmkg: "https://api.bmkg.go.id/publik/prakiraan-cuaca".into(),
             openaq: "https://api.openaq.org/v3".into(),
+            cams: "https://air-quality-api.open-meteo.com/v1/air-quality".into(),
             tomtom: "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/16/json"
                 .into(),
             openaq_key: key("OPENAQ_API_KEY"),
@@ -113,33 +115,67 @@ impl ConditionsService {
     }
 
     async fn weather(&self, q: &ConditionsQuery) -> Signal {
-        let primary = self.get(self.client.get(&self.open_meteo).query(&[
+        let primary = async {
+            self.get(self.client.get(&self.open_meteo).query(&[
             ("latitude", q.latitude.to_string()), ("longitude", q.longitude.to_string()),
             ("current", "temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m".into()),
             ("timeformat", "unixtime".into()), ("timezone", "GMT".into()),
             ("temperature_unit", "celsius".into()), ("wind_speed_unit", "kmh".into()),
             ("precipitation_unit", "mm".into()),
-        ])).await.and_then(|value| parse_weather(&value));
-        if let Ok(signal) = primary {
-            return signal;
-        }
-        let Some(code) = &q.adm4 else {
-            return Signal::missing(
-                "open_meteo",
-                "Weather unavailable. BMKG fallback requires the matching village adm4 code.",
-            );
+        ])).await.and_then(|value| parse_weather(&value))
         };
-        match self
-            .get(self.client.get(&self.bmkg).query(&[("adm4", code)]))
-            .await
-            .and_then(|value| parse_bmkg(&value, q))
-        {
-            Ok(signal) => signal,
-            Err(reason) => Signal::missing("bmkg", reason),
+        let Some(code) = &q.adm4 else {
+            return primary
+                .await
+                .unwrap_or_else(|reason| Signal::missing("open_meteo", reason));
+        };
+        let secondary = async {
+            self.get(self.client.get(&self.bmkg).query(&[("adm4", code)]))
+                .await
+                .and_then(|value| parse_bmkg(&value, q))
+        };
+        let (primary, secondary) = tokio::join!(primary, secondary);
+        match (primary, secondary) {
+            (Ok(a), Ok(b)) => closest_weather(a, b, Utc::now()),
+            (Ok(a), Err(_)) => a,
+            (Err(_), Ok(b)) => b,
+            (Err(_), Err(reason)) => Signal::missing("bmkg", reason),
         }
     }
 
     async fn air_quality(&self, q: &ConditionsQuery) -> Signal {
+        // Reserve time for the alternate provider even when station discovery is slow.
+        let station = tokio::time::timeout(Duration::from_secs(3), self.station_air(q))
+            .await
+            .unwrap_or_else(|_| Signal::missing("openaq", "provider_timeout"));
+        if station.status == "available" {
+            return station;
+        }
+        let alternative = self
+            .get(self.client.get(&self.cams).query(&[
+                ("latitude", q.latitude.to_string()),
+                ("longitude", q.longitude.to_string()),
+                ("current", "pm2_5,us_aqi".into()),
+                ("domains", "cams_global".into()),
+                ("timezone", "GMT".into()),
+                ("timeformat", "unixtime".into()),
+            ]))
+            .await
+            .and_then(|v| parse_cams(&v));
+        match alternative {
+            Ok(signal) => signal,
+            Err(_)
+                if station
+                    .valid_at
+                    .is_some_and(|t| t > Utc::now() - chrono::Duration::hours(24)) =>
+            {
+                station
+            }
+            Err(reason) => Signal::missing("open_meteo_cams", reason),
+        }
+    }
+
+    async fn station_air(&self, q: &ConditionsQuery) -> Signal {
         let Some(key) = &self.openaq_key else {
             return Signal::missing("openaq", "not_configured");
         };
@@ -166,6 +202,13 @@ impl ConditionsService {
         let mut candidates: Vec<_> = results
             .iter()
             .filter_map(|station| {
+                if station["datetimeLast"]["utc"]
+                    .as_str()
+                    .and_then(|t| DateTime::parse_from_rfc3339(t).ok())
+                    .is_some_and(|t| t < Utc::now() - chrono::Duration::hours(24))
+                {
+                    return None;
+                }
                 if station["isMobile"].as_bool() != Some(false) {
                     return None;
                 }
@@ -178,7 +221,15 @@ impl ConditionsService {
                 (distance.is_finite() && distance <= 25.0).then_some((distance, station))
             })
             .collect();
-        candidates.sort_by(|a, b| a.0.total_cmp(&b.0));
+        candidates.sort_by(|a, b| {
+            let fresh = |s: &Value| {
+                s["datetimeLast"]["utc"]
+                    .as_str()
+                    .and_then(|t| DateTime::parse_from_rfc3339(t).ok())
+                    .is_some_and(|t| t > Utc::now() - chrono::Duration::hours(MAX_AIR_AGE_HOURS))
+            };
+            fresh(b.1).cmp(&fresh(a.1)).then(a.0.total_cmp(&b.0))
+        });
         let mut stale = None;
         // Bounded fan-out: examine the nearest three candidates, not all stations.
         for (distance, station) in candidates.into_iter().take(3) {
@@ -240,93 +291,11 @@ impl ConditionsService {
                 .await
                 .unwrap_or_else(|_| Signal::missing(source, "provider_timeout"))
         }
-        let (mut weather, mut air_quality, mut traffic) = tokio::join!(
+        let (weather, air_quality, traffic) = tokio::join!(
             bounded("open_meteo", self.weather(q)),
             bounded("openaq", self.air_quality(q)),
             bounded("tomtom", self.traffic(q)),
         );
-        if !cfg!(test) {
-            let stale_time = Utc::now() - chrono::Duration::hours(4);
-            let has_rain = weather
-                .data
-                .as_ref()
-                .and_then(|d| d.get("precipitation_mm"))
-                .and_then(|v| v.as_f64())
-                .is_some();
-            if weather.status == "unavailable" {
-                weather = Signal {
-                    status: "stale",
-                    source: "open_meteo",
-                    kind: Some("model_estimate"),
-                    valid_at: Some(stale_time),
-                    message: "Last-known Jabodetabek weather snapshot (stale fallback while live provider is unavailable).".into(),
-                    data: Some(serde_json::json!({
-                        "temperature_c": 29.0,
-                        "humidity_percent": 76.0,
-                        "precipitation_mm": 1.2,
-                        "wind_speed_kmh": 11.0,
-                        "weather_code": 61
-                    })),
-                };
-            } else if !has_rain {
-                weather.status = "stale";
-                weather.kind = Some("model_estimate");
-                if let Some(obj) = weather.data.as_mut().and_then(|v| v.as_object_mut()) {
-                    obj.entry("precipitation_mm")
-                        .or_insert_with(|| serde_json::json!(1.2));
-                    obj.entry("wind_speed_kmh")
-                        .or_insert_with(|| serde_json::json!(11.0));
-                    obj.entry("weather_code")
-                        .or_insert_with(|| serde_json::json!(61));
-                }
-            }
-            if air_quality.status == "unavailable" {
-                let pm25 = 34.2_f64;
-                let aqi = pm25_to_us_epa_aqi(pm25);
-                air_quality = Signal {
-                    status: "stale",
-                    source: "openaq",
-                    kind: Some("station_observation"),
-                    valid_at: Some(stale_time),
-                    message: "Last-known Jabodetabek station PM2.5 and US EPA AQI snapshot (stale fallback).".into(),
-                    data: Some(serde_json::json!({
-                        "pm25_ug_m3": pm25,
-                        "aqi": aqi,
-                        "aqi_standard": "US EPA",
-                        "station_id": 8118,
-                        "station_name": "Jakarta Selatan - DKI",
-                        "distance_km": 2.4,
-                        "provider": { "name": "OpenAQ / DLH DKI" },
-                        "owner": { "name": "DLH DKI Jakarta" },
-                        "licenses": [{ "name": "CC BY 4.0" }]
-                    })),
-                };
-            } else if let Some(obj) = air_quality.data.as_mut().and_then(|v| v.as_object_mut()) {
-                if let Some(pm25) = obj.get("pm25_ug_m3").and_then(|v| v.as_f64()) {
-                    obj.entry("aqi")
-                        .or_insert_with(|| serde_json::json!(pm25_to_us_epa_aqi(pm25)));
-                    obj.entry("aqi_standard")
-                        .or_insert_with(|| serde_json::json!("US EPA"));
-                }
-            }
-            if traffic.status == "unavailable" {
-                traffic = Signal {
-                    status: "stale",
-                    source: "tomtom",
-                    kind: Some("provider_live_estimate"),
-                    valid_at: Some(Utc::now() - chrono::Duration::minutes(15)),
-                    message: "Last-known Jabodetabek road flow snapshot (stale fallback while live traffic is unavailable).".into(),
-                    data: Some(serde_json::json!({
-                        "speed_kmh": 24.0,
-                        "free_flow_speed_kmh": 48.0,
-                        "travel_time_seconds": 180.0,
-                        "free_flow_time_seconds": 90.0,
-                        "confidence": 0.85,
-                        "road_closed": false
-                    })),
-                };
-            }
-        }
         ConditionsResponse {
             latitude: q.latitude,
             longitude: q.longitude,
@@ -409,6 +378,32 @@ fn number(value: &Value, key: &str, min: f64, max: f64) -> Result<f64, &'static 
         .ok_or("invalid_provider_response")
 }
 
+fn closest_weather(a: Signal, b: Signal, now: DateTime<Utc>) -> Signal {
+    let gap = |s: &Signal| {
+        s.valid_at
+            .map(|t| (now - t).num_seconds().abs())
+            .unwrap_or(i64::MAX)
+    };
+    if gap(&b) < gap(&a) { b } else { a }
+}
+
+fn parse_cams(value: &Value) -> Result<Signal, &'static str> {
+    let c = &value["current"];
+    let at = DateTime::from_timestamp(c["time"].as_i64().ok_or("invalid_provider_response")?, 0)
+        .ok_or("invalid_provider_response")?;
+    if at < Utc::now() - chrono::Duration::hours(3)
+        || at > Utc::now() + chrono::Duration::minutes(15)
+    {
+        return Err("stale_provider_data");
+    }
+    let pm = number(c, "pm2_5", 0.0, 2000.0)?;
+    let aqi = number(c, "us_aqi", 0.0, 2000.0)?;
+    Ok(Signal { status:"available", source:"open_meteo_cams", kind:Some("model_estimate"),
+        valid_at:Some(at), message:"CAMS global via Open-Meteo (https://open-meteo.com/), CC BY 4.0. Approx. 45 km grid model estimate; not a local station or street-level reading. US AQI supplied by provider.".into(),
+        data:Some(serde_json::json!({"pm25_ug_m3":pm,"aqi":aqi,"aqi_standard":"US EPA",
+            "model_latitude":value["latitude"],"model_longitude":value["longitude"],"resolution_km":45})) })
+}
+
 fn parse_weather(value: &Value) -> Result<Signal, &'static str> {
     let current = &value["current"];
     let time = DateTime::from_timestamp(
@@ -465,13 +460,15 @@ fn parse_bmkg(value: &Value, q: &ConditionsQuery) -> Result<Signal, &'static str
                     continue;
                 };
                 let time = time.and_utc();
-                if time >= Utc::now() && time <= Utc::now() + chrono::Duration::hours(6) {
+                if time >= Utc::now() - chrono::Duration::hours(3)
+                    && time <= Utc::now() + chrono::Duration::hours(6)
+                {
                     entries.push((time, entry));
                 }
             }
         }
     }
-    entries.sort_by_key(|(time, _)| *time);
+    entries.sort_by_key(|(time, _)| (*time - Utc::now()).num_seconds().abs());
     let (time, entry) = entries
         .first()
         .ok_or("No upcoming BMKG forecast within six hours")?;
@@ -496,9 +493,9 @@ fn parse_bmkg(value: &Value, q: &ConditionsQuery) -> Result<Signal, &'static str
     let temperature = number(entry, "t", -60.0, 65.0)?;
     let humidity = number(entry, "hu", 0.0, 100.0)?;
     Ok(Signal { status: "available", source: "bmkg", kind: Some("provider_forecast"), valid_at: Some(*time),
-        message: "Sumber: BMKG (https://www.bmkg.go.id/). Upcoming three-hourly forecast, not current observed weather. Open-Meteo was unavailable.".into(),
+        message: "Sumber: BMKG (https://www.bmkg.go.id/). Three-hourly forecast nearest to now, not a station observation. Selected by forecast valid-time distance when BMKG is closer than Open-Meteo.".into(),
         data: Some(serde_json::json!({ "temperature_c": temperature, "humidity_percent": humidity,
-            "description": entry["weather_desc"], "issued_at": issued, "village": location["desa"],
+            "description": entry["weather_desc"], "wind_speed_kmh": entry["ws"], "issued_at": issued, "village": location["desa"],
             "model_latitude": lat, "model_longitude": lon })) })
 }
 
@@ -665,6 +662,15 @@ mod tests {
                 ),
             )
             .route(
+                "/cams",
+                get(|| async {
+                    Json(json!({
+                        "latitude":-6.2,"longitude":106.8,
+                        "current":{"time":Utc::now().timestamp(),"pm2_5":25.0,"us_aqi":90.0}
+                    }))
+                }),
+            )
+            .route(
                 "/aq/locations",
                 get(|headers: axum::http::HeaderMap| async move {
                     assert_eq!(headers["X-API-Key"], "fake-openaq-key");
@@ -692,6 +698,7 @@ mod tests {
         let server = tokio::spawn(async { axum::serve(listener, router).await.unwrap() });
         let mut service = ConditionsService::from_env();
         service.open_meteo = format!("{base}/weather");
+        service.cams = format!("{base}/cams");
         service.bmkg = format!("{base}/bmkg");
         service.openaq = format!("{base}/aq");
         service.tomtom = format!("{base}/traffic");
@@ -774,7 +781,9 @@ mod tests {
         mock.service.tomtom_key = None;
         let response = mock.service.lookup(&query()).await;
         assert_eq!(response.weather.status, "available");
-        assert_eq!(response.air_quality.message, "not_configured");
+        assert_eq!(response.air_quality.source, "open_meteo_cams");
+        assert_eq!(response.air_quality.status, "available");
+        assert_eq!(response.air_quality.data.as_ref().unwrap()["aqi"], 90.0);
         assert_eq!(response.traffic.message, "not_configured");
         assert!(parse_weather(&json!({})).is_err());
         assert!(parse_traffic(&json!({})).is_err());
@@ -828,6 +837,25 @@ mod tests {
         let response = mock.service.lookup(&query()).await;
         assert_eq!(response.weather.status, "unavailable");
         assert_eq!(response.traffic.status, "available");
+    }
+
+    #[test]
+    fn weather_chooses_closest_valid_time_and_cams_rejects_old_data() {
+        let mut a = parse_weather(&weather()).unwrap();
+        let mut q = query();
+        q.adm4 = Some("31.71.03.1001".into());
+        let mut b = parse_bmkg(&bmkg(), &q).unwrap();
+        let now = Utc::now();
+        a.valid_at = Some(now - chrono::Duration::minutes(50));
+        b.valid_at = Some(now + chrono::Duration::minutes(10));
+        assert_eq!(closest_weather(a.clone(), b.clone(), now).source, "bmkg");
+        a.valid_at = Some(now - chrono::Duration::minutes(2));
+        assert_eq!(closest_weather(a, b, now).source, "open_meteo");
+        assert!(
+            parse_cams(&json!({"current":{"time":now.timestamp()-86400*365,
+            "pm2_5":20,"us_aqi":80}}))
+            .is_err()
+        );
     }
 
     #[test]

@@ -55,3 +55,36 @@ DB pool acquisition is 4 seconds, statements 6 seconds and locks 3 seconds.
 Inbox reads no longer run provider evaluation; manual evaluation acknowledges
 asynchronously. Account errors retain their cause and save timeouts advise
 checking persisted state before retrying.
+
+## Provider freshness and route-map verification — 2026-11-09
+
+1. **Unit testing:** backend 34 passed/one DB case ignored, Flutter 68 passed,
+   analyzer clean. Coverage includes closest BMKG/Open-Meteo valid-time selection,
+   CAMS fallback and old-data rejection, route endpoints/intermediate geometry,
+   and years-old cache rejection. Combined-suite evidence:
+   `testing/evidence/20261109T074916548991Z/`.
+2. **Integration testing:** provider HTTP fixtures pass. Live recency audit found
+   nearby OpenAQ station metadata ranging from 2016 through today; current stations
+   are now selected before inactive ones. Public Open-Meteo weather and CAMS
+   returned current-day values. The BMKG sample request returned an HTTP error;
+   live BMKG availability is not claimed.
+3. **System testing:** backend rebuilt and desktop app restarted. Authenticated
+   conditions GETs at three Jakarta points returned available Open-Meteo weather
+   valid at 2026-11-09 15:00 WIB and OpenAQ PM2.5 valid at 14:00 WIB. Inspect the
+   actual presentation-device route labels manually; sampled geometry does not
+   establish continuous coverage or street-level model precision.
+
+Scripts: `testing/scripts/provider_freshness.py` and
+`testing/scripts/conditions_smoke.py`. The latter reads the local desktop session
+and prints source/time metadata only. BMKG requires a matching optional adm4;
+route samples without one use Open-Meteo. CAMS global resolution is about 45 km.
+
+## Route sample presentation update — 2026-11-09
+
+- Detailed route samples moved below transport cards in the existing scroll view.
+- Map labels replaced with compact transparent category-colored squares and rain
+  symbols/mm. Zero rainfall and missing weather have distinct symbols.
+- Provider AQI uses the shared AQI categories. Raw PM2.5 uses explicitly labelled
+  concentration bands without deriving a numeric AQI. Missing air values are gray.
+- Focused UI regression suite: 28 passed, covering category colors, scrolling,
+  precipitation markers, geographic map behavior and location selection.

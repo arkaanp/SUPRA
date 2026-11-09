@@ -96,6 +96,26 @@ void main() {
     expect((await restored.at(point)).airQuality.data, isNull);
   });
   test(
+    'Years-old persisted readings are not retained after provider failure',
+    () async {
+      final original = ConditionsRepository(
+        userId: () => 'old-user',
+        now: () => time,
+        load: (p) async => sample(p),
+      );
+      await original.at(point);
+      final restored = ConditionsRepository(
+        userId: () => 'old-user',
+        now: () => time.add(const Duration(days: 730)),
+        load: (_) async => throw StateError('offline'),
+      );
+      final result = await restored.at(point);
+      expect(result.airQuality.data, isNull);
+      expect(result.weather.data, isNull);
+    },
+  );
+
+  test(
     'No cached reading stays empty, and expired traffic is visibly stale',
     () async {
       final empty = ConditionsRepository(

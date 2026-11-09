@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'current_conditions.dart';
 import 'location.dart';
+import 'prediction.dart';
 
 enum EnvironmentalOverlayMode { all, airQuality, rain }
 
@@ -38,12 +39,52 @@ class EnvironmentalZone {
     this.conditions,
   });
 
+  String get mapLabel {
+    final air = conditions?.airQuality.agedAt(DateTime.now());
+    final weather = conditions?.weather.agedAt(DateTime.now());
+    final aqi = air?.number('aqi');
+    final temperature = weather?.number('temperature_c');
+    final airText = aqi != null
+        ? 'AQI ${aqi.round()}'
+        : pm25 != null
+        ? 'PM2.5 ${pm25!.round()}'
+        : 'Air unavailable';
+    final weatherText = temperature != null
+        ? '${temperature.round()}°C'
+        : 'Weather unavailable';
+    final description = weather?.data?['description'];
+    final rain = weather?.number('precipitation_mm');
+    final detail =
+        description ?? (rain != null ? '${rain.toStringAsFixed(1)} mm' : '');
+    final label = air?.kind == 'model_estimate' ? 'model' : 'station';
+    return '$name · $airText ($label)${air?.isStale == true ? " STALE" : ""}\n$weatherText $detail${weather?.isStale == true ? " STALE" : ""}';
+  }
+
   String get aqiCategory => pm25 == null ? 'Unavailable' : 'PM2.5, not AQI';
   // No unsupported area-wide interpolation from a single station sample.
   Color get pm25Color => Colors.transparent;
   Color get rainColor => Colors.transparent;
   Color get compositeAreaColor => Colors.transparent;
-  Color get solidAqiColor => pm25 == null ? Colors.grey : Colors.blueGrey;
+  double? get _suppliedAqi => conditions?.airQuality.number('aqi');
+  int? get _colorBand {
+    if (_suppliedAqi != null) return aqiLevel(_suppliedAqi!).index;
+    if (pm25 == null) return null;
+    // Concentration bands for display only; no AQI value is derived.
+    if (pm25! <= 9) return 0;
+    if (pm25! <= 35.4) return 1;
+    if (pm25! <= 55.4) return 2;
+    if (pm25! <= 125.4) return 3;
+    if (pm25! <= 225.4) return 4;
+    return 5;
+  }
+
+  Color get solidAqiColor =>
+      _colorBand == null ? Colors.grey : AqiLevel.values[_colorBand!].color();
+  String get colorBandLabel => _colorBand == null
+      ? 'Unavailable'
+      : _suppliedAqi != null
+      ? AqiLevel.values[_colorBand!].label()
+      : 'PM2.5 band · ${['Low', 'Moderate', 'Elevated', 'High', 'Very high', 'Extreme'][_colorBand!]}';
 
   String get cardinalWindDirection {
     if (windDirectionDegrees == null) return 'Unavailable';
@@ -65,7 +106,7 @@ class EnvironmentalZone {
       '${weatherDescription ?? (rainfallMm == null ? 'Weather unavailable' : 'Precipitation ${rainfallMm!.toStringAsFixed(1)} mm')}';
   String get descriptiveLabel =>
       '$name · $weatherSummary · '
-      '${pm25 == null ? "PM2.5 unavailable" : "Station PM2.5 ${pm25!.toStringAsFixed(1)} µg/m³ (not AQI)"}'
+      '${pm25 == null ? "PM2.5 unavailable" : "${conditions?.airQuality.kind == "model_estimate" ? "Model" : "Station"} PM2.5 ${pm25!.toStringAsFixed(1)} µg/m³ (not AQI)"}'
       '${conditions == null ? "" : " · ${conditions!.airQuality.source}: ${conditions!.airQuality.status}"}';
   String get healthAdvisory =>
       'Location sample only, not area-wide exposure. '
