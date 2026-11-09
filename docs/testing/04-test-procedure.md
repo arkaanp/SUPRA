@@ -11,43 +11,52 @@ in the package READMEs. Run from repository root; confirm revision with
 `git rev-parse --short HEAD`. Keep private config, account details and keys out
 of shared evidence.
 
-## Automated demonstration
+## Step 1 — Unit testing
 
 ```sh
 python3 testing/scripts/run_checks.py
 ```
 
-This runs `cargo test --locked`, `fvm flutter analyze`, and
-`fvm flutter test --no-pub`. Logs and summary are saved under
-`testing/evidence/<UTC timestamp>/`. Expected baseline: 30 backend passes,
-one ignored DB case, 62 Flutter passes, analyzer clean. Inspect failures and
-return codes; do not count the ignored database test as a pass.
+The runner executes `cargo test --locked`, `fvm flutter analyze`, and
+`fvm flutter test --no-pub`. Logs and JSON summaries are saved under
+`testing/evidence/<UTC timestamp>/`. Baseline: 30 backend passes, one ignored
+DB case, 62 Flutter passes and clean analysis. These package totals also contain
+component-integration cases; do not report them as unit-only counts or count
+them again in Step 2. Inspect failures and preserve the ignored test status.
 
-## Running backend checks
+## Step 2 — Integration testing
 
-```sh
-python3 testing/scripts/smoke.py
-python3 testing/scripts/schema_audit.py --backend-env
-```
-
-Smoke expects 200/200/401/404 and matching JSON fields. The schema audit is
-read-only and shows migration versions and feature columns/tables. Neither
-command migrates or restarts the backend.
-
-## Optional database and build checks
-
-Provision a dedicated disposable PostgreSQL database ending in `_test` and set
-`SUPRA_TEST_DATABASE_URL` in your shell. Do not point it at the app database.
+Review provider/JWKS stand-in, router and client-contract results from Step 1
+against the integration cases in `03-test-cases.md`. Then provision a dedicated
+disposable PostgreSQL database ending in `_test` and set
+`SUPRA_TEST_DATABASE_URL` in your shell. Never use the application database.
 
 ```sh
 python3 testing/scripts/run_checks.py --database
-python3 testing/scripts/run_checks.py --builds
+python3 testing/scripts/schema_audit.py --backend-env
 ```
 
-The runner does not provision or delete databases. Build artifacts stay under
-`mobile/build/`; Rust artifacts stay under `backend/target/`.
+`--database` reruns the package suites and additionally runs the ignored DB test.
+That test verifies migrations, CRUD and cross-user ownership. Report its result
+separately. The schema script is a read-only supporting check of configured
+migration metadata and feature columns/tables; it does not replace the DB test.
+The runner does not provision/delete databases or apply runtime migrations.
 
-## Manual demo
+## Step 3 — System testing
+
+### Build preparation and running-backend smoke
+
+```sh
+python3 testing/scripts/run_checks.py --builds
+python3 testing/scripts/smoke.py
+```
+
+`--builds` reruns package checks and builds Linux/web. Artifacts stay in
+`mobile/build/` and `backend/target/`. A build is preparation rather than a
+system-flow pass. Smoke checks an already running backend for 200/200/401/404
+and matching JSON fields; it does not start or restart services.
+
+### Manual end-to-end demo
 
 1. Launch the app with `--dart-define-from-file=config/local.json` from mobile.
    Ensure `SUPRA_API_URL` is reachable from the device; localhost is device-local.

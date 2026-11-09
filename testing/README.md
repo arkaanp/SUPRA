@@ -37,3 +37,19 @@ provider accounts, transit schedules, UI/device checks and demo sign-in still
 need manual verification. See [test documentation](../docs/testing/00-integration.md).
 
 Recorded execution: [RESULTS.md](RESULTS.md).
+
+## Three testing steps
+
+1. **Unit testing:** run `python3 testing/scripts/run_checks.py` and inspect the
+   unit/widget assertions and analyzer log. Package totals also include component
+   integration checks.
+2. **Integration testing:** review the stand-in/client-contract results, then run
+   `python3 testing/scripts/run_checks.py --database` with a dedicated test URL.
+   Use the schema audit as supporting metadata evidence. The flag reruns the
+   base suites; it does not create an additional set of unit results.
+3. **System testing:** use `--builds` for build preparation, run
+   `python3 testing/scripts/smoke.py`, then follow the manual end-to-end procedure
+   in [04-test-procedure.md](../docs/testing/04-test-procedure.md).
+
+These are the three test stages. Static analysis, metadata inspection and builds
+support them; they are not additional testing stages.

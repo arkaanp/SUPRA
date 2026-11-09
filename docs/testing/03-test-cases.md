@@ -29,7 +29,13 @@ Common preconditions:
   `_test`; no application database is used.
 - No secrets, tokens, account emails, or private configuration are printed.
 
-## 2. Backend unit cases
+## Step 1 — Unit testing
+
+### Backend unit and router suite cases
+
+The backend suite also contains component integration checks (`UB-001`,
+`UB-007`–`UB-009`, `UB-019`, `UB-020`). Their results support Step 2;
+case IDs are retained for traceability and are not extra test counts.
 
 | ID | Scenario | Expected result | Priority | Status |
 |---|---|---|---|---|
@@ -56,7 +62,7 @@ Common preconditions:
 | `UB-021` | Chat message outside commute/environment scope, including prompt-injection phrasing | Deterministic refusal with `scope-guard`; provider is not called | P1 | NOT RUN — branch-only regression coverage; not merged |
 | `UB-022` | Chat condition context with valid values, AQI 501, or oversized status text | Bounded context accepted; out-of-range/oversized context rejected with 400 | P1 | NOT RUN — branch-only regression coverage; not merged |
 
-## 3. Mobile unit/widget cases
+### Mobile unit/widget cases
 
 | ID | Scenario | Expected result | Priority | Status |
 |---|---|---|---|---|
@@ -82,7 +88,7 @@ Common preconditions:
 | `UM-020` | Render Home, Assistant, Alerts, and Trip at 360×640 logical (16:9) | No `RenderFlex` overflow or clipped controls; Home location picker still opens | P0 | NOT RUN — branch-only regression coverage; not merged |
 | `UM-021` | Send a chat message with the latest condition snapshot | AQI, weather, temperature, status, source, observed time, and stale flag are sent as labelled context | P1 | NOT RUN — branch-only regression coverage; not merged |
 
-## 4. Integration cases
+## Step 2 — Integration testing
 
 | ID | Scenario | Expected result | Priority | Status |
 |---|---|---|---|---|
@@ -104,7 +110,7 @@ Common preconditions:
 | `IN-016` | Unauthenticated protected route, unknown route, wrong method | 401, JSON 404, JSON 405 | P1 | PASS |
 | `IN-017` | Verified-news evaluation for saved places | Unexpired incident within 3 km creates one notification per user/incident; outside-radius, expired, or unverified records are ignored | P1 | NOT RUN — branch-only regression coverage; not merged |
 
-## 5. System cases
+## Step 3 — System testing
 
 | ID | Scenario | Expected result | Priority | Status |
 |---|---|---|---|---|

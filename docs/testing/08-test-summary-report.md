@@ -19,6 +19,27 @@
 | Linux/web builds | Not rerun this cycle |
 | Authenticated user flows | Not run; account warning remains open |
 
+## Results by testing step
+
+### 1. Unit testing
+
+Module/model/widget assertions and analysis pass in the recorded package runs.
+The 30 backend and 62 Flutter totals include component tests; they are combined
+suite counts, not independently measured unit-only totals.
+
+### 2. Integration testing
+
+HTTP/JWKS/provider stand-ins and client-contract checks pass within those suites.
+Schema inspection confirms current feature metadata. The dedicated migration,
+CRUD and ownership database test was not run in this cycle, so this stage remains
+incomplete.
+
+### 3. System testing
+
+Running-backend smoke passes all four HTTP/JSON checks. Release builds were not
+rerun, and authenticated app/device flows remain unverified. The reported account
+banner remains open; backend smoke alone does not complete this stage.
+
 ## Demo scope
 
 Auth/recovery, profiles, trips/history, saved places/routines, maps/geocoding,

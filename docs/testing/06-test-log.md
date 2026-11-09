@@ -8,16 +8,16 @@
 
 Application baseline: `967a477`, Linux, local configured FVM SDK and Cargo.
 
-| ID | Check | Result |
-|---|---|---|
-| TL-001 | `cargo test --locked --offline` | 30 passed, 0 failed, one ignored database test |
-| TL-002 | Dedicated database integration | NOT RUN; no dedicated test URL configured |
-| TL-003 | `fvm flutter analyze` | No issues found |
-| TL-004 | `fvm flutter test --no-pub` | 62 passed, 0 failed |
-| TL-005 | Linux/web release builds | NOT RUN in this cycle |
-| TL-006 | `python3 testing/scripts/smoke.py` | PASS: JSON live 200, ready 200, trips 401, unknown route 404 |
-| TL-007 | `python3 testing/scripts/schema_audit.py --backend-env` | Trip/notification feature columns; saved_places, routine_trips, alert_decisions present |
-| TL-008 | Authenticated full application demo | NOT RUN; account warning reported by user |
+| ID | Testing step | Check | Result |
+|---|---|---|---|
+| TL-001 | 1. Unit + 2. component integration (combined suite) | `cargo test --locked --offline` | 30 passed, 0 failed, one ignored database test |
+| TL-002 | 2. Integration | Dedicated database integration | NOT RUN; no dedicated test URL configured |
+| TL-003 | 1. Unit (supporting analysis) | `fvm flutter analyze` | No issues found |
+| TL-004 | 1. Unit + 2. component integration (combined suite) | `fvm flutter test --no-pub` | 62 passed, 0 failed |
+| TL-005 | 3. System (build preparation) | Linux/web release builds | NOT RUN in this cycle |
+| TL-006 | 3. System (process smoke) | `python3 testing/scripts/smoke.py` | PASS: JSON live 200, ready 200, trips 401, unknown route 404 |
+| TL-007 | 2. Integration (supporting metadata) | `python3 testing/scripts/schema_audit.py --backend-env` | Trip/notification feature columns; saved_places, routine_trips, alert_decisions present |
+| TL-008 | 3. System (end-to-end) | Authenticated full application demo | NOT RUN; account warning reported by user |
 
 Initial restricted runs hit local socket and SDK-cache permissions; checks were
 rerun with the required environment access before the successful results above.
@@ -47,3 +47,11 @@ The new runner completed with exit 0: backend 30 passed/one ignored, Flutter
 The HTTP smoke passed all four JSON/status checks. Schema audit showed five
 successful migrations through `20261109000000` and the expected feature schema.
 See [shareable results](../../testing/RESULTS.md).
+
+## Stage outcome
+
+1. **Unit testing:** executed package suites and analysis passed.
+2. **Integration testing:** component stand-ins and schema inspection passed;
+   dedicated database test NOT RUN.
+3. **System testing:** backend smoke passed; builds and authenticated device
+   flows NOT RUN. No complete system-stage pass is claimed.

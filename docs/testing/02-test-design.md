@@ -4,7 +4,12 @@
 > Documentation imported from `docs/testing`; application changes on that branch
 > are excluded. Results below distinguish current checks from earlier branch evidence.
 
-## Boundaries
+## 1. Unit testing
+
+Test pure validation, parsers, models, rules and widgets with controlled fixtures.
+Use boundary values and state transitions; keep source tests in the packages.
+
+## 2. Integration testing
 
 Backend tests run handlers and adapters with local HTTP/JWKS stand-ins. Flutter
 tests use fake clients, injected loaders and widget fixtures. These establish
@@ -15,7 +20,14 @@ Database integration is opt-in and uses a separate disposable database.
 Readiness checks connectivity only; schema inspection checks metadata only.
 Neither verifies an authenticated profile/inbox/preferences transaction.
 
-## Techniques and data
+## 3. System testing
+
+Exercise the already running backend through HTTP smoke, then complete the
+manual demo on the target device with the configured services. Record account
+refresh, trip persistence and user isolation across the full stack. Builds only
+establish that packaging succeeds.
+
+## Techniques and data across all three steps
 
 - Boundary values: Jakarta coordinate envelope, weekday/departure/lead limits,
   waypoint counts, payload bounds and environmental rule thresholds.

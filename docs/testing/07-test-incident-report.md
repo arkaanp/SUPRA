@@ -4,6 +4,14 @@
 > Documentation imported from `docs/testing`; application changes on that branch
 > are excluded. Results below distinguish current checks from earlier branch evidence.
 
+## Incidents by testing step
+
+| Step | Current status |
+|---|---|
+| 1. Unit testing | No failing assertion in the recorded package checks |
+| 2. Integration testing | Dedicated DB run outstanding; account API trace needed for INC-001 |
+| 3. System testing | INC-001 account-refresh warning and INC-005 live demo coverage remain open |
+
 ## INC-001 — Account refresh unavailable
 
 **Status: open, exact failing request unconfirmed.** User reports the banner:

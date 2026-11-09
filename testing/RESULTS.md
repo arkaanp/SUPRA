@@ -22,3 +22,12 @@ than committed logs. This report is the shareable evidence summary.
 
 The account-refresh banner still requires an authenticated request trace. The
 HTTP and schema results alone do not close that incident.
+
+## Three-stage interpretation
+
+1. **Unit testing:** recorded package checks and analysis passed; aggregate suite
+   counts include component integration assertions.
+2. **Integration testing:** component checks and schema audit passed; dedicated
+   database integration was not run.
+3. **System testing:** HTTP smoke passed; release builds and full authenticated
+   UI/device checks were not run in this cycle.

@@ -10,15 +10,28 @@ Demonstrate repeatable backend and Flutter checks, visible test source, account
 boundaries, trip persistence, routing, conditions, assistant and alerts.
 Demo display modes are tested for usability; forecast accuracy is outside this cycle.
 
-## Levels
+## Three testing steps
 
-| Level | Scope | Gate |
-|---|---|---|
-| Backend unit/router | Validation, JWT/JWKS, errors, provider adapters, alert rules | All executed tests pass |
-| Flutter unit/widget | Auth, cache, maps, geocoding, routing, recommendations, Home, chat | All tests pass; analyzer clean |
-| Database integration | Migrations twice, CRUD and cross-user isolation | Dedicated disposable *_test database only |
-| Process smoke | Health, authentication gate, unknown route | Expected JSON status/code |
-| System demo | Real sign-in, account refresh, trips, preferences, recovery and providers | Record each manual outcome |
+### 1. Unit testing
+
+Check validation, parsers, model serialization, scheduling/recommendation rules,
+cache state and widgets in isolation. Flutter analysis is a supporting check.
+Exit: all executed unit assertions pass and analysis is clean.
+
+### 2. Integration testing
+
+Check router/auth/provider interactions with local HTTP/JWKS stand-ins and API
+client contracts. Run database migrations twice, CRUD and ownership assertions
+against a dedicated disposable `*_test` database. Schema metadata is supporting
+evidence only. Exit: component and dedicated database assertions pass; record
+missing environments as NOT RUN rather than treating unit results as a substitute.
+
+### 3. System testing
+
+Check the running backend with HTTP smoke, then sign-in, account refresh, trips,
+preferences, recovery, conditions, assistant and alerts in the complete app.
+Builds are preparation, not end-to-end evidence. Exit: smoke checks and required
+manual demo cases pass or have an explicitly recorded limitation.
 
 ## Demo acceptance
 
