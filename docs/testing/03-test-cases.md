@@ -4,7 +4,7 @@
 |---|---|
 | Test case set ID | `TCS-2026-11-09-01` |
 | Test cycle | `TC-2026-11-09-01` |
-| Branch / commit | `feat/migration-from-prototype` @ `42aec46` |
+| Branch / commit | `feat/migration-from-prototype` @ `5a5e45d` |
 | Date | 2026-11-09 |
 
 ## 1. Conventions
@@ -49,6 +49,8 @@ Common preconditions:
 | `UB-018` | Health readiness with reachable, closed, or slow pool | 200 only when DB is ready; bounded acquisition | P1 | PASS |
 | `UB-019` | Unknown route, wrong method, protected route without auth | JSON 404, JSON 405 with `Allow`, 401 before method handling | P1 | PASS |
 | `UB-020` | Valhalla and OTP real HTTP stand-ins | Mode-specific geometry/duration parsed; failures explicit | P0 | PASS |
+| `UB-021` | Chat message outside commute/environment scope, including prompt-injection phrasing | Deterministic refusal with `scope-guard`; provider is not called | P1 | PASS |
+| `UB-022` | Chat condition context with valid values, AQI 501, or oversized status text | Bounded context accepted; out-of-range/oversized context rejected with 400 | P1 | PASS |
 
 ## 3. Mobile unit/widget cases
 
@@ -70,6 +72,11 @@ Common preconditions:
 | `UM-014` | Explicit map selection and pin editing | Old pin invalidated; late remote results do not overwrite | P1 | PASS |
 | `UM-015` | Recovery password mismatch or shorter than 8 characters | Rejected with clear error; no password change | P1 | PARTIAL — length/state path implemented; mismatch assertion not dedicated |
 | `UM-016` | Assistant page without a client API key | No key prompt; no fictional context | P0 | PASS |
+| `UM-017` | Provider outage leaves only last-known values; one or more indicators missing | Rain, temperature, AQI, and traffic stay visible; missing values read `No data`; aged values read `STALE`; original observation time retained | P0 | PASS |
+| `UM-018` | Open Home with ML display off, then enable it with no model values | Off by default; enabling shows `ML unavailable`/pending, never a fabricated number | P0 | PASS |
+| `UM-019` | Persist the ML preference and expose the same toggle on Trip | Stored value restored; Trip toggle appears with route output; no prediction shows `ML AQI unavailable` | P1 | PASS |
+| `UM-020` | Render Home, Assistant, Alerts, and Trip at 360×640 logical (16:9) | No `RenderFlex` overflow or clipped controls; Home location picker still opens | P0 | PASS |
+| `UM-021` | Send a chat message with the latest condition snapshot | AQI, weather, temperature, status, source, observed time, and stale flag are sent as labelled context | P1 | PASS |
 
 ## 4. Integration cases
 
@@ -91,6 +98,7 @@ Common preconditions:
 | `IN-014` | Avatar upload validation and re-encoding | Invalid rejected; valid PNG output | P1 | PASS |
 | `IN-015` | Mobile API client auth header, origin restriction, error mapping | Bearer token sent; redirects refused; API errors retain status/message | P1 | PARTIAL — client tests pass; full HTTP server integration not run |
 | `IN-016` | Unauthenticated protected route, unknown route, wrong method | 401, JSON 404, JSON 405 | P1 | PASS |
+| `IN-017` | Verified-news evaluation for saved places | Unexpired incident within 3 km creates one notification per user/incident; outside-radius, expired, or unverified records are ignored | P1 | PARTIAL — implementation and shared dedup key present; live feed/DB fixture not exercised |
 
 ## 5. System cases
 
@@ -99,22 +107,30 @@ Common preconditions:
 | `SY-001` | Start web/Linux app with approved configuration | Login or shell renders; no missing-config crash | P0 | NOT RUN — no live approved configuration in this cycle |
 | `SY-002` | Sign in, sign out, expire session | Shell appears; state clears; re-auth required | P0 | NOT RUN |
 | `SY-003` | Request recovery email, open link or enter code, set password | Recovery screen; password updated; normal sign-in works | P0 | NOT RUN — live email/redirect/deep link requires approved account |
-| `SY-004` | Home with live then stale conditions | Three separate forecast fields; STALE labels; original times | P0 | NOT RUN — covered at widget level by `UM-010`/`UM-011` |
-| `SY-005` | Plan car/walk/motorcycle/transit; select history item; confirm | Provider route or explicit unavailable message; no synthetic route | P0 | NOT RUN |
+| `SY-004` | Home with live then stale conditions; toggle ML display | Three separate forecast fields; indicators stay visible; STALE labels and original times; ML output unavailable rather than invented | P0 | NOT RUN — covered at widget level by `UM-010`/`UM-011`/`UM-017`/`UM-018` |
+| `SY-005` | Plan car/walk/motorcycle/transit; select history item; confirm; toggle ML | Provider route or explicit unavailable message; no synthetic route; ML chip unavailable without a prediction | P0 | NOT RUN |
 | `SY-006` | Save/edit/delete places; create/edit routine; plan now | Ownership-safe CRUD; schedule/mode persisted | P1 | NOT RUN |
-| `SY-007` | Queue alert check; open inbox; end current-trip alerts | Queued status, inbox items, source links, finish works | P1 | NOT RUN |
+| `SY-007` | Queue alert check; open inbox; end current-trip alerts | Queued status, inbox items, source links, saved-place news, finish works | P1 | NOT RUN |
 | `SY-008` | Update profile and avatar | Valid avatar served; invalid rejected | P2 | NOT RUN |
 | `SY-009` | Disable network/provider during use | Last-known data shown as stale; no fabricated values | P0 | NOT RUN |
 | `SY-010` | Open map on Linux desktop | Raster basemap renders; selection works | P1 | NOT RUN — desktop widget test passes |
 | `SY-011` | Linux and web release builds | Both builds succeed | P0 | PASS |
 | `SY-012` | Start compiled backend with isolated DB; check health/auth/fallback | live 200, ready 200, unauthenticated 401, unknown 404 | P0 | PASS |
+| `SY-013` | Open Home, Assistant, Alerts, and Trip at a 16:9 phone ratio | No overlapping or clipped controls; indicators and toggles usable | P0 | NOT RUN — covered at widget level by `UM-020` |
+| `SY-014` | Ask a commute question, then an unrelated request, in the Assistant | Relevant answer; out-of-scope request refused; no fabricated readings | P1 | NOT RUN — guarded at backend unit level by `UB-021` |
 
 ## 6. Coverage notes
 
-- Backend unit cases are fully automated and all passed (30 tests; the ignored
-  database test is reported under `IN-001`).
-- Mobile unit/widget cases are automated; 62 tests passed. `PARTIAL` marks where
-  a related assertion exists but the exact scenario is not separately asserted.
+- Backend unit cases are fully automated: 32 passed, 1 ignored, 0 failed (33
+  discovered). The ignored database test is reported under `IN-001`.
+- Mobile unit/widget cases are automated: 72 passed, 0 failed. `PARTIAL` marks
+  where a related assertion exists but the exact scenario is not separately
+  asserted.
+- The feedback rerun added `UB-021` (scope guard), `UB-022` (condition-context
+  bounds), `UM-017`–`UM-021` (stale indicators, ML toggle/preference, 16:9
+  layout, Gemini context), and `IN-017` (saved-place verified news).
+- The new 16:9 layout case found and closed two real overflows in the Assistant
+  app bar and the Trip history header (`INC-006`).
 - Integration coverage is strongest for ownership, migrations, conditions,
   provider parsing, and routing adapters. Places/routines owner update/delete,
   new notification fields, deduplication, and alert-worker behavior need
@@ -122,3 +138,5 @@ Common preconditions:
 - System UI cases are not executed in this cycle because no approved live
   account/provider configuration was used. They remain P0/P1 release gates.
 - `SY-012` is a process-level smoke test, not a full UI system test.
+- Live ML values, a reviewed news feed, and Jakarta GTFS data are still absent;
+  no case may substitute fabricated values for them.

@@ -4,7 +4,7 @@
 |---|---|
 | Test design ID | `TD-2026-11-09-01` |
 | Test cycle | `TC-2026-11-09-01` |
-| Branch / commit | `feat/migration-from-prototype` @ `42aec46` |
+| Branch / commit | `feat/migration-from-prototype` @ `5a5e45d` |
 | Date | 2026-11-09 |
 | Related documents | [`01-test-plan.md`](01-test-plan.md), [`03-test-cases.md`](03-test-cases.md) |
 
@@ -18,6 +18,10 @@ The design derives test conditions from four sources:
 3. The database migration `20261109000000_commute_features.sql`.
 4. The user-facing requirement that forecasts show temperature, AQI, and weather
    separately, with no fabricated ML values.
+5. Tester feedback from the current review: visible rain/AQI/traffic/temperature
+   indicators, stale-first outage behavior, optional ML display, 16:9 layout,
+   Gemini condition reading, chat scope control, and verified-news relevance for
+   saved places.
 
 The design prioritizes the failures that produce misleading transportation or
 environmental advice: stale data presented as live, fabricated routes or
@@ -36,6 +40,8 @@ recommendations.
 | Contract testing | Axum response shapes; mobile `fromJson`/`toJson`; Valhalla and OTP response parsing; notification source/context |
 | Idempotency testing | Running SQLx migrations twice; repeated alert evaluation; notification `(user_id, event_key)` uniqueness |
 | Error guessing | Unapplied migration; schema drift; stale process vs current binary; Flutter nullable-switch compile failure; stale preferences fixtures |
+| Layout/viewport testing | Render each top-level screen at 360×640 logical (16:9) and assert no `RenderFlex` overflow; exercise the Home location picker at the same size |
+| Context-boundary testing | Condition snapshots are labelled with status/source/time/stale and treated as untrusted data; out-of-scope chat is refused before provider invocation |
 
 ## 3. Architecture and interfaces under test
 
@@ -47,11 +53,11 @@ recommendations.
 | `/api/routines` | Axum | Flutter | Routine CRUD with owned places and schedule |
 | `/api/mobility/plan` | Axum | Flutter | Mode-specific provider geometry, duration, distance, steps, provenance |
 | `/api/conditions/current` | Axum | Flutter | Three independent signals with status and timestamps |
-| `/api/alerts/evaluate` | Axum | Flutter | HTTP 202 queued evaluation |
-| `/api/users/{id}/notifications` | Axum | Flutter | Inbox with source URL, context, expiry |
+| `/api/alerts/evaluate` | Axum | Flutter | HTTP 202 queued evaluation; saved-place news and trip alerts |
+| `/api/users/{id}/notifications` | Axum | Flutter | Inbox with source URL, context, expiry, per-user incident deduplication |
 | `/api/users/{id}/preferences` | Axum | Flutter | Alert flags including relevant news |
 | `/api/trips/{id}/finish` | Axum | Flutter | End current-trip alert eligibility without deleting history |
-| `/api/agent/chat` | Axum → Gemini | Flutter | Backend-only model call; 503 on missing/failed provider |
+| `/api/agent/chat` | Axum → Gemini | Flutter | Backend-only model call; bounded condition context; deterministic scope refusal; 503 on missing/failed provider |
 
 ## 4. Unit test design
 
@@ -63,10 +69,10 @@ recommendations.
 | Validation | Required strings; confirmed-trip coordinate completeness; waypoint shape/count; mode enum; coordinate envelope | `UB-003`, `UB-004`, `UB-006` |
 | Error mapping | Row not found → 404; constraint violation → 400/409; internal error → sanitized 500 | `UB-005` |
 | Conditions | Provider success; missing credentials; 401/403/429; malformed/oversized; timeout; weather fallback without discarding healthy signals | `UB-007`–`UB-009` |
-| Alerts | WIB weekday and midnight boundaries; stale and forecast signals; PM2.5/rain/traffic thresholds; traffic confidence; incident validation/relevance | `UB-010`–`UB-013` |
+| Alerts | WIB weekday and midnight boundaries; stale and forecast signals; PM2.5/rain/traffic thresholds; traffic confidence; incident validation/relevance; saved-place 3 km relevance and per-user dedup keys | `UB-010`–`UB-013`, `IN-017` |
 | Mobility | Polyline decode success/failure; OTP non-transit rejection; Valhalla/OTP real HTTP stand-in | `UB-014`, `UB-015` |
 | Avatar | Filename-only, signature-only, non-image rejection; decode/resize/re-encode PNG | `UB-016` |
-| Agent | Credential-like input rejection; invalid history rejection; provider failure produces 503, not a simulated answer | `UB-017` |
+| Agent | Credential-like input rejection; invalid history rejection; provider failure produces 503, not a simulated answer; bounded condition context; deterministic scope guard | `UB-017`, `UB-021`, `UB-022` |
 | Router | Public health; JSON 404; method 405; auth before method errors | `UB-018`–`UB-020` |
 
 ### 4.2 Mobile
@@ -80,8 +86,11 @@ recommendations.
 | Recommendations | Fresh PM2.5/rain penalties; stale/missing values do not trigger current-risk advice; duration preference; packing items; traffic is explanatory only | `UM-008`, `UM-009` |
 | Forecast | Separate temperature, AQI, and weather fields; pending ML status | `UM-010` |
 | Stale data | Original timestamp retained; STALE labels; no advancement on partial failure | `UM-011` |
+| Indicators | Rain, temperature, AQI, and traffic remain visible with `No data` or `STALE` rather than disappearing | `UM-017` |
+| ML display | Off by default; explicit toggle; persisted preference; `ML unavailable` when no model value | `UM-018`, `UM-019` |
+| Layout | Home, Assistant, Alerts, and Trip render at 360×640 without overflow | `UM-020` |
 | Map/geocoding | Raster tiles render; explicit selection; invalid/no-match/outage behavior | `UM-012`, `UM-014` |
-| Assistant | No API-key prompt; no fabricated context | `UM-016` |
+| Assistant | No API-key prompt; no fabricated context; labelled conditions/STALE sent to backend | `UM-016`, `UM-021` |
 
 ## 5. Integration test design
 
@@ -103,6 +112,7 @@ the router with two locally signed identities.
 | Places | Create/read/update; cross-user list empty; cross-user update/delete denied | `IN-008` |
 | Routines | Create/list; cross-user list empty; cross-user update/delete/create denied | `IN-009` |
 | Alert endpoint | Manual check returns 202 `{queued:true}` | `IN-010` |
+| Saved-place news | Verified, unexpired incident within 3 km creates one notification per user/incident; outside/expired ignored | `IN-017` |
 | Account deletion | Owned trips are removed | `IN-005` |
 
 ### 5.2 Provider and client integration
@@ -127,14 +137,16 @@ the router with two locally signed identities.
 | App startup | Start web/Linux app with approved config | Login or shell renders; no missing-config crash | `SY-001` |
 | Sign-in/out | Valid sign-in, sign-out, expired session | Shell appears; session clears safely | `SY-002` |
 | Recovery | Request email, enter code/link, set password | Recovery screen; password updated; normal sign-in works | `SY-003` |
-| Home forecast | Load home with live and stale conditions | Temp, AQI, weather visible separately; STALE labels retain timestamps | `SY-004` |
-| Trip planning | Choose car/walk/motorcycle/transit; select a history item; confirm | Provider geometry or explicit unavailable message; no synthetic route | `SY-005` |
+| Home forecast | Load home with live and stale conditions; toggle ML display | Temp, AQI, weather visible separately; indicators remain; STALE labels retain timestamps; ML output unavailable rather than invented | `SY-004` |
+| Trip planning | Choose car/walk/motorcycle/transit; select a history item; confirm; toggle ML | Provider geometry or explicit unavailable message; no synthetic route; ML chip says unavailable when no prediction | `SY-005` |
 | Places/routines | Create/edit/delete place; create routine; plan now | Ownership-safe CRUD; schedule and mode persist | `SY-006` |
-| Alerts | Queue manual check; open inbox; end current-trip alerts | Queued status, inbox items, source links, finish works | `SY-007` |
+| Alerts | Queue manual check; open inbox; end current-trip alerts | Queued status, inbox items, source links, saved-place news, finish works | `SY-007` |
 | Profile/avatar | Update name; upload valid/invalid avatar | Valid avatar served; invalid rejected | `SY-008` |
 | Offline/provider outage | Disable network/provider | Last-known stale data shown; no fabricated values | `SY-009` |
 | Linux map | Open trip map | Raster basemap renders and selection works | `SY-010` |
 | Builds | Linux and web release | Both builds succeed | `SY-011` |
+| Chat scope | Ask a commute question, then an unrelated request | Relevant answer; out-of-scope request refused; no fabricated readings | `SY-014` |
+| Phone layout | Open Home, Assistant, Alerts, and Trip at 16:9 | No overlapping or clipped controls | `SY-013` |
 
 ## 7. Test data design
 
@@ -150,7 +162,9 @@ the router with two locally signed identities.
 | Places | home/work/school/custom; owned and cross-user IDs |
 | Trips | unconfirmed (no coordinates), confirmed (four coordinates), active, finished |
 | Route geometry | ≥2 valid points; one-point, non-finite, >1000 points, broken polyline |
-| Incidents | verified/unverified, future/expired, HTTPS/non-HTTPS, inside/outside 1.5 km corridor |
+| Incidents | verified/unverified, future/expired, HTTPS/non-HTTPS, inside/outside 1.5 km corridor, saved place inside/outside 3 km |
+| Condition context | available/stale/unavailable signals; AQI 0/88/500/501; bounded status/source/time strings |
+| Viewport | 360×640 logical (16:9 phone reference); 390×844 normal widget reference |
 | Auth | valid token, missing token, malformed token, wrong subject, expired token |
 
 ## 8. Environment design
@@ -173,6 +187,8 @@ requires private configuration. Its checks are documented as manual procedures.
 | Backend integration | `SUPRA_TEST_DATABASE_URL=<disposable-test-url> cargo test --locked -- --ignored` |
 | Flutter analyzer | `fvm flutter analyze` |
 | Flutter tests | `fvm flutter test` |
+| Flutter layout regression | `fvm flutter test test/layout_16_9_test.dart` |
+| Flutter feedback regressions | `fvm flutter test test/display_preferences_test.dart test/trip_display_preferences_test.dart test/home_screen_test.dart test/ai_assistant_test.dart` |
 | Linux build | `fvm flutter build linux` |
 | Web build | `fvm flutter build web` |
 | Backend smoke | Start compiled binary with isolated env; `curl` health/auth/fallback |
@@ -186,14 +202,19 @@ assertions. Integration tests receive only the disposable test database URL.
 | Requirement | Design conditions | Cases |
 |---|---|---|
 | `REQ-FORECAST` | Three independent fields; pending state | `UM-010`, `SY-004` |
+| `REQ-INDICATORS` | Always-visible indicators; `No data`; `STALE`; retained timestamps | `UM-011`, `UM-017`, `SY-004`, `SY-009` |
+| `REQ-MLTOGGLE` | Off by default; persisted opt-in; unavailable when absent | `UM-018`, `UM-019`, `SY-004`, `SY-005` |
+| `REQ-LAYOUT` | 16:9 viewport; no overflow on four top-level screens | `UM-020`, `SY-013` |
 | `REQ-STALE` | Freshness windows; timestamp retention; partial failure | `UB-007`, `UM-011`, `SY-004`, `SY-009` |
 | `REQ-RECOVERY` | Email → code → password state machine | `UM-002`, `UM-015`, `SY-003` |
 | `REQ-MODES` | Mode enum; provider geometry; OTP transit | `UB-014`, `UB-015`, `IN-012`, `SY-005` |
 | `REQ-RECOMMEND` | Decision table over duration/PM/rain/freshness | `UM-008`, `UM-009`, `SY-005` |
 | `REQ-PLACES` | Ownership; foreign keys; schedule bounds | `IN-008`, `IN-009`, `SY-006` |
-| `REQ-ALERTS` | Due window; freshness; dedup; feed validation | `UB-010`–`UB-013`, `IN-010`, `SY-007` |
+| `REQ-ALERTS` | Due window; freshness; dedup; feed validation; saved-place relevance | `UB-010`–`UB-013`, `IN-010`, `IN-017`, `SY-007` |
 | `REQ-HISTORY` | Confirmed events only; mode; finish | `IN-004`, `IN-005`, `SY-005` |
 | `REQ-GEMINI` | Backend-only; 503 on failure | `UB-017`, `IN-013` |
+| `REQ-CHAT-CONTEXT` | Bounded labelled context; stale flag; untrusted data | `UB-022`, `UM-021` |
+| `REQ-CHAT-SCOPE` | Deterministic refusal before model call | `UB-021`, `UM-016`, `SY-014` |
 | `REQ-AVATAR` | Content/size/dimension validation; re-encode | `UB-016`, `IN-014`, `SY-008` |
 | `REQ-MIGRATION` | Fresh + idempotent migration | `IN-001`, `IN-002` |
 | `REQ-REGRESSION` | Original bug reproductions | `UM-001`, `UM-012`, `UM-013`, `UM-014` |
@@ -206,8 +227,12 @@ and the three-field forecast. The following are intentionally not claimed as
 covered:
 
 - Live GTFS schedule correctness and real-time arrivals.
-- Live verified-news coverage and source reliability.
-- ML prediction values or accuracy.
+- Live verified-news coverage and source reliability; saved-place relevance is
+  implemented but not exercised against a reviewed live feed.
+- ML prediction values or accuracy; the toggle is verified only to request
+  display and to show unavailable when no value exists.
+- 16:9 behavior on physical devices and with platform font scaling; the local
+  regression uses a fixed 360×640 logical viewport.
 - Real Supabase recovery email delivery, redirect allowlists, and Android/iOS
   callback behavior.
 - Direct browser UI automation for every screen.

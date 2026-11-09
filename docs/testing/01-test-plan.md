@@ -5,7 +5,7 @@
 | Test plan ID | `TP-2026-11-09-01` |
 | Project | SUPRA |
 | Test cycle | `TC-2026-11-09-01` |
-| Branch / commit | `feat/migration-from-prototype` @ `42aec46` |
+| Branch / commit | `feat/migration-from-prototype` @ `5a5e45d` |
 | Plan date | 2026-11-09 |
 | Related documents | [`00-integration.md`](00-integration.md), [`02-test-design.md`](02-test-design.md), [`03-test-cases.md`](03-test-cases.md) |
 
@@ -17,6 +17,11 @@ adapters, and the main user flows added for password recovery, saved places and
 routines, walking/transit modes, recommendations, alerts, and the three-field
 forecast.
 
+The feedback rerun also covers tester-reported gaps: stale-first condition
+indicators that remain visible during outages, optional user-selected ML
+predictions on Home and Trip, 16:9 phone layout integrity, Gemini condition
+context, chat scope control, and verified-news relevance for saved places.
+
 The plan deliberately separates deterministic local evidence from live provider
 evidence. A passing local run proves contract and regression behavior; it does
 not prove that a live GTFS feed, news feed, Supabase recovery email, or ML
@@ -26,12 +31,12 @@ prediction source is configured.
 
 | Item | Location | Version / identifier |
 |---|---|---|
-| Backend source | `backend/src` | Commit `42aec46` |
+| Backend source | `backend/src` | Commit `5a5e45d` |
 | Database migrations | `backend/migrations` | Includes `20261109000000_commute_features.sql` |
-| Mobile source | `mobile/lib` | Commit `42aec46` |
-| Backend unit/integration tests | `backend/src/**/*.rs` | Commit `42aec46` |
-| Flutter tests | `mobile/test` | Commit `42aec46` |
-| Feature contracts | `backend/docs/commute-features.md`, `backend/docs/current-conditions.md` | Commit `42aec46` |
+| Mobile source | `mobile/lib` | Commit `5a5e45d` |
+| Backend unit/integration tests | `backend/src/**/*.rs` | Commit `5a5e45d` |
+| Flutter tests | `mobile/test` | Commit `5a5e45d` |
+| Feature contracts | `backend/docs/commute-features.md`, `backend/docs/current-conditions.md` | Commit `5a5e45d` |
 | Requirements and bug list | `guidelines/bugs-and-to-do.md` | Working copy |
 
 ## 3. Features to be tested
@@ -40,8 +45,11 @@ prediction source is configured.
    recovery by email code and recovery session.
 2. Current conditions: independent weather, air-quality, and traffic signals;
    stale readings retained with original timestamps; partial provider failure.
+   Rain, temperature, AQI, and traffic indicators stay visible with `No data`
+   when absent and `STALE` when aged.
 3. Forecast strip: separate temperature, AQI, and weather fields; explicit
-   pending state for future ML output; no fabricated values.
+   pending state for future ML output; no fabricated values. ML display is an
+   explicit, persisted user preference available on Home and Trip.
 4. Trip planning: car, motorcycle, walking, and public-transit selection;
    provider geometry, duration, distance, and provenance.
 5. Route recommendations: duration plus fresh PM2.5/rain preferences; stale or
@@ -51,12 +59,16 @@ prediction source is configured.
 7. Trip history: backend-confirmed events only, account scoping, mode
    persistence, current-trip alerts, and finish behavior.
 8. Alerts: due-window calculation, freshness rules, deduplication, manual
-   evaluation, background worker, incident-feed validation, relevance, and
-   expiry.
+   evaluation, background worker, incident-feed validation, relevance, expiry,
+   and relevant verified news within 3 km of a saved place.
 9. Avatar upload: content validation, size/dimension bounds, PNG re-encoding,
    public serving, and account-scoped cleanup.
 10. Original regressions: password field focus, Linux map rendering, explicit
     geocoding selection, backend-only Gemini, and honest empty states.
+11. Gemini condition context: labelled status/source/observed time/stale flag
+    sent as untrusted context; deterministic scope refusal before the model call.
+12. Phone layout integrity: no render overflow or hidden controls at a 360×640
+    logical 16:9 viewport on Home, Assistant, Alerts, and Trip.
 
 ## 4. Features not to be tested in this cycle
 
@@ -80,8 +92,9 @@ recorded as a residual risk, not as a pass.
 - Rust: exercise pure rules, validation, parsing, error mapping, auth claims,
   provider failure classification, alert timing, and freshness.
 - Flutter: exercise models, serializers, widget states, recommendation rules,
-  route mode values, recovery state, and map/forecast rendering with injected
-  fakes.
+  route mode values, recovery state, map/forecast rendering, stale indicator
+  labels, persisted ML display preference, chat condition context, and 16:9
+  layout with injected fakes.
 - Unit tests must not require a live database, live Supabase project, or live
   provider API.
 
@@ -101,8 +114,10 @@ recorded as a residual risk, not as a pass.
 - Run the Flutter application against the backend and configured Supabase
   project for approved manual flows.
 - Execute the P1 flows in [`03-test-cases.md`](03-test-cases.md): sign-in,
-  recovery, home forecast, trip planning, saved places/routines, alerts, and
-  profile.
+  recovery, home forecast, stale indicators, ML toggle, trip planning, saved
+  places/routines, alerts, chat scope, and profile.
+- Check the same screens at a 16:9 phone ratio and with larger text, including
+  the Assistant app bar, Trip history header, and Home AQI card.
 - Record blocked flows with the exact missing dependency.
 
 ### 5.4 Regression testing
@@ -174,8 +189,13 @@ documentation records only the variable names and placeholders.
 - Synthetic traffic speeds with confidence below and above 0.5.
 - Weekday/time combinations including Sunday 23:50 WIB and Monday 00:10 WIB.
 - Synthetic incident records with valid HTTPS source links, expired records,
-  unverified records, and out-of-area coordinates.
+  unverified records, out-of-area coordinates, and a saved place inside/outside
+  the 3 km news radius.
 - Synthetic route geometry with valid and deliberately broken polylines.
+- A 360×640 logical viewport (720×1280 physical at DPR 2) as the 16:9 phone
+  reference, plus a 390×844 reference for normal layout tests.
+- Condition-context payloads with available/stale/unavailable signals, bounded
+  numeric AQI, and oversized/out-of-range negative cases.
 
 No production user data is copied into test fixtures.
 
@@ -197,7 +217,9 @@ No production user data is copied into test fixtures.
 | Target database lacks the new migration | High until confirmed | Account and trip requests return 500 | Back up, run `cargo run --locked -- migrate`, retry, record in `INC-001` |
 | Live OTP/GTFS unavailable | High | Transit flow cannot be verified end to end | Contract-test the adapter; mark system case blocked |
 | News feed unavailable | High | Verified news alerts cannot be verified | Validate feed rules with synthetic records; mark live case blocked |
-| ML source unavailable | Certain | Forecast values remain empty | Treat empty values as correct; no fabrication |
+| ML source unavailable | Certain | Forecast values remain empty | Treat empty values as correct; toggle shows unavailable/pending, never fabricated values |
+| Small 16:9 screens or large text | Medium | Controls overlap or disappear | Automated 360×640 widget tests; recheck on device before release |
+| Ambiguous chat scope | Medium | Assistant gives off-topic or unsafe advice | Deterministic backend scope guard plus prompt constraints; test refusals |
 | Supabase recovery email/deep link untested | Medium | Recovery may fail on a real device | Manual live check with approved account |
 | Flutter startup lock | Medium | Test commands wait or fail | Serialize Flutter commands; rerun after the lock clears |
 | Provider rate limits | Medium | Route/condition calls fail | Use stand-ins for deterministic tests; respect documented limits |

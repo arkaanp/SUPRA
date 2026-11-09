@@ -4,7 +4,7 @@
 |---|---|
 | Procedure ID | `TPR-2026-11-09-01` |
 | Test cycle | `TC-2026-11-09-01` |
-| Branch / commit | `feat/migration-from-prototype` @ `42aec46` |
+| Branch / commit | `feat/migration-from-prototype` @ `5a5e45d` |
 | Date | 2026-11-09 |
 
 ## 1. Safety and privacy rules
@@ -52,8 +52,8 @@ binary while still using the locked dependency set.
 
 Expected/observed:
 
-- 31 tests discovered.
-- 30 passed.
+- 33 tests discovered.
+- 32 passed.
 - 1 ignored: `db_tests::migrated_schema_enforces_user_boundaries`.
 - 0 failed.
 
@@ -84,7 +84,7 @@ Expected/observed:
 
 - 1 test passed: `db_tests::migrated_schema_enforces_user_boundaries`.
 - The test applies the migrator twice, so idempotency is exercised.
-- 0 failed; 30 filtered out.
+- 0 failed; 32 filtered out.
 
 The test asserts, among other things:
 
@@ -108,10 +108,36 @@ fvm flutter test
 Expected/observed:
 
 - Analyzer: `No issues found!`
-- Tests: 62 passed, 0 failed.
+- Tests: 72 passed, 0 failed.
 
 If another Flutter command holds the startup lock, wait for it to finish or stop
 the unrelated run. Do not kill an active user session without approval.
+
+### 5.1 Focused feedback regression tests
+
+Run these when changing Home indicators, ML display, chat context, or responsive
+layout:
+
+```sh
+cd mobile
+fvm flutter test test/layout_16_9_test.dart
+fvm flutter test test/display_preferences_test.dart
+fvm flutter test test/trip_display_preferences_test.dart
+fvm flutter test test/home_screen_test.dart
+fvm flutter test test/ai_assistant_test.dart
+```
+
+Expected/observed:
+
+- `layout_16_9_test.dart`: 4 passed (Home, Assistant, Alerts, Trip at 360×640).
+- `display_preferences_test.dart`: 2 passed.
+- `trip_display_preferences_test.dart`: 1 passed.
+- `home_screen_test.dart`: 4 passed, including stale-first indicators and the ML
+  toggle.
+- `ai_assistant_test.dart`: 6 passed, including labelled condition context.
+
+A layout failure prints the overflowing widget and pixel amount. Fix the widget;
+do not delete the assertion or hide the overflow with a clip.
 
 ## 6. Release builds
 
@@ -188,14 +214,22 @@ record credentials or private endpoints in the log.
    - `SY-001` startup;
    - `SY-002` sign-in/out;
    - `SY-003` recovery;
-   - `SY-004` home forecast and stale behavior;
-   - `SY-005` trip planning and history;
+   - `SY-004` home forecast, stale indicators, and ML toggle;
+   - `SY-005` trip planning, ML display, and history;
    - `SY-006` places/routines;
-   - `SY-007` alerts;
-   - `SY-009` offline/provider outage.
+   - `SY-007` alerts and saved-place news;
+   - `SY-009` offline/provider outage;
+   - `SY-013` phone layout at 16:9;
+   - `SY-014` chat scope and condition context.
 4. For each case, record pass/fail, the visible message, and a sanitized
    screenshot or note.
-5. If a flow is blocked, record the missing dependency and stop; do not
+5. When testing the ML toggle, leave it off first and confirm no numeric future
+   prediction appears. Enable it and confirm any missing model output is labelled
+   unavailable, not invented.
+6. When testing stale data, keep the app open across a provider outage and
+   confirm original observation times remain unchanged and every affected
+   indicator says `STALE`.
+7. If a flow is blocked, record the missing dependency and stop; do not
    substitute invented data.
 
 ### 8.1 Target-database migration check for `INC-001`
@@ -252,6 +286,11 @@ previously passing result.
 - [ ] Ignored database test green on a fresh `*_test` database.
 - [ ] `fvm flutter analyze` clean.
 - [ ] `fvm flutter test` green.
+- [ ] `fvm flutter test test/layout_16_9_test.dart` green on all four screens.
+- [ ] ML display is off by default, persists when enabled, and never fabricates.
+- [ ] Stale indicators retain original timestamps and show `STALE`.
+- [ ] Chat scope guard refuses out-of-scope requests without a provider call.
+- [ ] Saved-place verified-news evaluation is checked with a reviewed feed or accepted as blocked.
 - [ ] Linux build succeeds.
 - [ ] Web build succeeds.
 - [ ] Backend smoke returns 200/200/401/404.

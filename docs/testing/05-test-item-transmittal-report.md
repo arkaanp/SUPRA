@@ -8,7 +8,7 @@
 | To | Test executor / reviewer |
 | Date | 2026-11-09 |
 | Branch | `feat/migration-from-prototype` |
-| Commit under test | `42aec46` |
+| Commit under test | `5a5e45d` |
 | Related plan | [`01-test-plan.md`](01-test-plan.md) |
 
 ## 1. Purpose
@@ -21,19 +21,32 @@ what the test results can establish.
 
 | Item ID | Item | Location | Version / note |
 |---|---|---|---|
-| `TI-001` | Backend application source | `backend/src` | Commit `42aec46` |
+| `TI-001` | Backend application source | `backend/src` | Commit `5a5e45d` |
 | `TI-002` | Database migrations | `backend/migrations` | Includes `20261109000000_commute_features.sql` |
-| `TI-003` | Backend unit and integration tests | `backend/src/**/*.rs` | Commit `42aec46` |
-| `TI-004` | Mobile application source | `mobile/lib` | Commit `42aec46` |
-| `TI-005` | Mobile tests | `mobile/test` | Commit `42aec46` |
-| `TI-006` | Feature contracts | `backend/docs/commute-features.md`, `backend/docs/current-conditions.md` | Commit `42aec46` |
+| `TI-003` | Backend unit and integration tests | `backend/src/**/*.rs` | Commit `5a5e45d` |
+| `TI-004` | Mobile application source | `mobile/lib` | Commit `5a5e45d` |
+| `TI-005` | Mobile tests | `mobile/test` | Commit `5a5e45d` |
+| `TI-006` | Feature contracts | `backend/docs/commute-features.md`, `backend/docs/current-conditions.md` | Commit `5a5e45d` |
 | `TI-007` | Test documentation set | `docs/testing` | This cycle |
 | `TI-008` | Linux release bundle | `mobile/build/linux/x64/release/bundle/supra_mobile_ui` | Built in this cycle |
 | `TI-009` | Web release bundle | `mobile/build/web` | Built in this cycle |
 
 ## 3. Changes relevant to testing
 
-- Forecast tiles expose temperature, AQI, and weather as separate fields.
+- Current-condition indicators stay visible during provider gaps: missing
+  values read `No data`, aged values read `STALE`, and original observation
+  timestamps are retained.
+- Forecast tiles expose temperature, AQI, and weather as separate fields; future
+  ML display is an explicit, persisted user preference on Home and Trip. When no
+  model value exists, the UI says unavailable/pending instead of inventing one.
+- Home, Assistant, Alerts, and Trip render without overflow at a 360×640 logical
+  (16:9) viewport; the Assistant app bar and Trip history header were corrected
+  after the new regression test found real overflows.
+- Gemini receives the last resolved condition snapshot as labelled, untrusted
+  context (status, source, observed time, stale flag), and a deterministic
+  backend scope guard refuses unrelated requests before the provider call.
+- Saved places are evaluated for verified news within 3 km, with per-user and
+  per-incident deduplication; this no longer depends on an active trip.
 - Password recovery supports email request, code verification, and password
   update, with recovery-session handling.
 - Saved places, routines, walking mode, and public-transit mode are present.
@@ -72,10 +85,10 @@ No values are recorded here.
 
 | Evidence | Result |
 |---|---|
-| Backend unit run | 30 passed, 1 ignored, 0 failed |
+| Backend unit run | 32 passed, 1 ignored, 0 failed |
 | Backend integration run | 1 passed, 0 failed on disposable PostgreSQL 18.6 |
 | Flutter analyzer | No issues found |
-| Flutter tests | 62 passed, 0 failed |
+| Flutter tests | 72 passed, 0 failed |
 | Linux build | Success |
 | Web build | Success |
 | Backend process smoke | live 200, ready 200, unauthenticated 401, unknown 404 |
@@ -88,8 +101,9 @@ Detailed evidence is in [`06-test-log.md`](06-test-log.md).
 |---|---|
 | Target database may not have `20261109000000_commute_features.sql` applied | Account refresh and trip confirmation can return 500; see `INC-001` |
 | No live OTP GraphQL endpoint or licensed Jakarta GTFS data | Public-transit system flow cannot be verified end to end |
-| No reviewed `NEWS_INCIDENTS_URL` feed | Live verified-news alerts cannot be verified end to end |
-| No ML prediction source | Forecast values remain empty by design; no accuracy claim |
+| No reviewed `NEWS_INCIDENTS_URL` feed | Saved-place news logic cannot be verified end to end, only its rules/code path |
+| No ML prediction source | Forecast/route ML values remain empty by design; the toggle shows unavailable/pending and no accuracy claim is made |
+| 16:9 verification is a fixed widget viewport | Physical-device rendering and platform font scaling are not covered |
 | Recovery email/redirect/deep-link configuration not verified live | Recovery model and UI paths are tested; live delivery is not |
 | No approved live test account in this cycle | Full application system tests are not run |
 | Postman CLI signed out/uninitialized | Cloud collection/mock/workspace tests unavailable |

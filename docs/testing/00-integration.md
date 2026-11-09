@@ -5,7 +5,7 @@
 | Project | SUPRA — Jakarta commute and environmental assistant |
 | Test cycle | `TC-2026-11-09-01` |
 | Branch under test | `feat/migration-from-prototype` |
-| Application commit | `42aec46` |
+| Application commit | `5a5e45d` |
 | Documentation date | 2026-11-09 |
 | Platform | Linux x86_64, Flutter 3.47.7, Dart 3.13.5, Rust 1.98.0, PostgreSQL 18.6 |
 
@@ -80,14 +80,19 @@ deterministic stand-in or explicit unavailability behavior exists.
 | Requirement ID | Requirement source | Primary cases | Status |
 |---|---|---|---|
 | `REQ-FORECAST` | User request: forecast must show temperature, AQI, and weather | `UM-010`, `SY-004` | Unit pass; system not run |
+| `REQ-INDICATORS` | Tester feedback: rain/AQI/traffic/temperature indicators must stay visible; missing values say `No data`; aged values say `STALE` | `UM-011`, `UM-017`, `SY-004`, `SY-009` | Unit/widget pass; system not run |
+| `REQ-MLTOGGLE` | Tester feedback: future ML predictions are optional and user-selectable on Home and Trip | `UM-018`, `UM-019`, `SY-004`, `SY-005` | Unit/widget pass; live ML source absent |
+| `REQ-LAYOUT` | Tester feedback: no overlapping UI at 16:9 phone ratios | `UM-020`, `SY-013` | Widget pass at 360×640; device system run not executed |
 | `REQ-STALE` | `guidelines/bugs-and-to-do.md`; genuine last-known data during outages | `UM-011`, `UB-007`, `SY-004` | Unit pass; system not run |
 | `REQ-RECOVERY` | Forgot-password option on login and profile | `UM-002`, `UM-015`, `SY-003` | Unit pass; live email/deep link not run |
 | `REQ-MODES` | Walking and public transport modes | `UB-014`, `UB-015`, `IN-012`, `SY-005` | Unit/stand-in pass; live GTFS not run |
 | `REQ-RECOMMEND` | Mode and packing recommendation from AQI/weather/traffic | `UM-008`, `UM-009`, `SY-005` | Unit pass; UI system not run |
 | `REQ-PLACES` | Saved places and routines | `IN-008`, `IN-009`, `SY-006` | Integration partial; UI system not run |
-| `REQ-ALERTS` | Environmental, traffic, and relevant news alerts | `UB-010`–`UB-013`, `IN-010`, `SY-007` | Unit pass; worker/feed/live UI not fully run |
+| `REQ-ALERTS` | Environmental, traffic, and relevant news alerts | `UB-010`–`UB-013`, `IN-010`, `IN-017`, `SY-007` | Unit pass; saved-place news evaluation partial; worker/feed/live UI not fully run |
 | `REQ-HISTORY` | Account-scoped, backend-confirmed trip history | `IN-004`, `IN-005`, `SY-005` | Integration partial; UI system not run |
 | `REQ-GEMINI` | Gemini is backend-only; no fabricated offline answers | `UB-017`, `IN-013` | Pass |
+| `REQ-CHAT-CONTEXT` | Gemini receives the last resolved conditions as labelled, untrusted context, including stale status | `UB-022`, `UM-021` | Pass |
+| `REQ-CHAT-SCOPE` | Chat politely refuses out-of-scope requests before calling Gemini | `UB-021`, `UM-016` | Pass |
 | `REQ-AVATAR` | Validated, ignored, configurable avatar storage | `UB-016`, `IN-014`, `SY-008` | Backend pass; UI system not run |
 | `REQ-MIGRATION` | Apply and verify the commute-features migration | `IN-001`, `IN-002` | Pass on disposable database |
 | `REQ-REGRESSION` | Original bug list: password focus, map, geocoding, history | `UM-001`, `UM-012`, `UM-013`, `UM-014` | Unit/widget pass; Linux system run not repeated |
@@ -96,14 +101,19 @@ deterministic stand-in or explicit unavailability behavior exists.
 
 | Check | Result | Evidence |
 |---|---|---|
-| Backend unit tests | 30 passed, 1 ignored, 0 failed | `06-test-log.md` TL-001 |
+| Backend unit tests | 32 passed, 1 ignored, 0 failed (33 discovered) | `06-test-log.md` TL-001 |
 | Backend migration/integration test | 1 passed, 0 failed | TL-002 |
 | Flutter analyzer | No issues found | TL-003 |
-| Flutter tests | 62 passed, 0 failed | TL-004 |
+| Flutter tests | 72 passed, 0 failed | TL-004 |
 | Linux release build | Success | TL-005 |
 | Web release build | Success | TL-006 |
 | Backend process smoke | live 200, ready 200, unauthenticated trips 401, unknown route 404 | TL-007 |
 | Full application system tests | Not executed — live account/provider configuration not available under the privacy constraint | TL-008 |
+
+The feedback rerun at `5a5e45d` added UI regression cases for stale-first
+indicators, the opt-in ML display, 16:9 layout, Gemini condition context, chat
+scope enforcement, and saved-place verified news. It also fixed two real 16:9
+overflows found by the new layout test (`INC-006`).
 
 ## 7. Open gaps and external blockers
 
