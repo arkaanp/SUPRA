@@ -8,12 +8,21 @@ import '../theme/app_theme.dart';
 class NotificationTile extends StatelessWidget {
   final AppNotification notification;
   final VoidCallback? onTap;
+  final VoidCallback? onReadNews;
 
-  const NotificationTile({super.key, required this.notification, this.onTap});
+  const NotificationTile({
+    super.key,
+    required this.notification,
+    this.onTap,
+    this.onReadNews,
+  });
 
   @override
   Widget build(BuildContext context) {
     final severity = notification.severity;
+    final isVerifiedNews =
+        notification.sourceUrl != null &&
+        notification.sourceUrl!.trim().isNotEmpty;
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       child: ListTile(
@@ -28,15 +37,47 @@ class NotificationTile extends StatelessWidget {
             shape: BoxShape.circle,
           ),
         ),
-        title: Text(
-          notification.title,
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-            fontSize: 14,
-            color: notification.isRead
-                ? const Color(0xFF475569)
-                : const Color(0xFF0F172A),
-          ),
+        title: Row(
+          children: [
+            if (isVerifiedNews) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                margin: const EdgeInsets.only(right: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFDCFCE7),
+                  borderRadius: BorderRadius.circular(5),
+                  border: Border.all(color: const Color(0xFF86EFAC)),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.verified, size: 11, color: Color(0xFF15803D)),
+                    SizedBox(width: 3),
+                    Text(
+                      'VERIFIED NEWS',
+                      style: TextStyle(
+                        fontSize: 9,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF15803D),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            Expanded(
+              child: Text(
+                notification.title,
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 13.5,
+                  color: notification.isRead
+                      ? const Color(0xFF475569)
+                      : const Color(0xFF0F172A),
+                ),
+              ),
+            ),
+          ],
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -45,11 +86,11 @@ class NotificationTile extends StatelessWidget {
             Text(
               notification.messageBody,
               style: TextStyle(
-                fontSize: 13,
+                fontSize: 12.5,
                 color: notification.isRead
                     ? const Color(0xFF64748B)
                     : const Color(0xFF334155),
-                height: 1.3,
+                height: 1.35,
               ),
             ),
             const SizedBox(height: 6),
@@ -58,27 +99,58 @@ class NotificationTile extends StatelessWidget {
                 'Expired report — kept for history',
                 style: TextStyle(fontSize: 11, color: Colors.grey),
               ),
-            if (notification.sourceUrl != null)
-              TextButton.icon(
-                icon: const Icon(Icons.open_in_new, size: 14),
-                label: const Text('Read source report'),
-                onPressed: () async {
-                  final uri = Uri.tryParse(notification.sourceUrl!);
-                  if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
-                    return;
-                  }
-                  try {
-                    if (!await launchUrl(uri)) {
-                      throw StateError('Source could not open');
-                    }
-                  } catch (_) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(notification.sourceUrl!)),
-                      );
-                    }
-                  }
-                },
+            if (isVerifiedNews)
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: [
+                  if (onReadNews != null)
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                      ),
+                      icon: const Icon(Icons.article_outlined, size: 14),
+                      label: const Text(
+                        'Baca Berita Terverifikasi',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      onPressed: onReadNews,
+                    ),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(
+                      visualDensity: VisualDensity.compact,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                    ),
+                    icon: const Icon(Icons.open_in_new, size: 13),
+                    label: const Text(
+                      'Read source report',
+                      style: TextStyle(fontSize: 11.5),
+                    ),
+                    onPressed: () async {
+                      final uri = Uri.tryParse(notification.sourceUrl!);
+                      if (uri == null ||
+                          uri.scheme != 'https' ||
+                          uri.host.isEmpty) {
+                        return;
+                      }
+                      try {
+                        if (!await launchUrl(uri)) {
+                          throw StateError('Source could not open');
+                        }
+                      } catch (_) {
+                        if (context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text(notification.sourceUrl!)),
+                          );
+                        }
+                      }
+                    },
+                  ),
+                ],
               ),
             Row(
               children: [

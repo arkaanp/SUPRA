@@ -166,7 +166,7 @@ class GeographicTileMapState extends State<GeographicTileMap> {
       ),
       Positioned(
         bottom: widget.attributionBottomInset + 4,
-        right: 4,
+        left: 6,
         child: Material(
           color: Colors.white,
           child: InkWell(

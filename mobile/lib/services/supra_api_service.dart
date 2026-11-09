@@ -157,6 +157,9 @@ class SupraService extends ChangeNotifier {
     final trips = (await api.request('GET', '/api/trips') as List)
         .map((v) => Trip.fromJson(v as Map<String, dynamic>))
         .toList();
+    try {
+      await api.request('POST', '/api/alerts/evaluate');
+    } catch (_) {}
     final alerts =
         (await api.request('GET', '/api/users/$id/notifications?limit=100')
                 as List)

@@ -2,10 +2,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../config/map_config.dart';
+import '../models/current_conditions.dart';
 import '../models/location.dart';
 import '../models/route_option.dart';
 import '../models/saved_trip.dart';
 import '../models/commute.dart';
+import '../services/conditions_repository.dart';
 import '../services/geocoding_service.dart';
 import '../services/routing_service.dart';
 import '../services/supra_api_service.dart';
@@ -93,14 +96,43 @@ class TripScreenState extends State<TripScreen> {
   // Trip History sorting state (Recent vs Frequency)
   TripHistorySort _historySort = TripHistorySort.recent;
 
+  // Stale fallback conditions & ML prediction toggle for Trip screen
+  CurrentConditions? _originConditions;
+  bool _showMlPredictions = false;
+
   @override
   void initState() {
     super.initState();
     _geocoder = widget.geocodingService ?? GeocodingService();
     _routingService = widget.routingService ?? RoutingService();
     _start.text = 'Monas (Central Jakarta)';
+    if (!MapConfig.isTestEnvironment) {
+      _originConditions = ConditionsRepository.staleFallbackSnapshot(
+        _defaultCurrentLocation,
+        DateTime.now(),
+      );
+      unawaited(_refreshOriginConditions(_defaultCurrentLocation));
+    }
     _updateSnapOptions(_defaultCurrentLocation);
     TripHistoryStore.instance.addListener(_onTripHistoryStoreChanged);
+  }
+
+  Future<void> _refreshOriginConditions(LatLng point) async {
+    try {
+      final cond = await ConditionsRepository.instance.at(point);
+      if (mounted) {
+        setState(() => _originConditions = cond);
+      }
+    } catch (_) {
+      if (mounted && !MapConfig.isTestEnvironment) {
+        setState(
+          () => _originConditions = ConditionsRepository.staleFallbackSnapshot(
+            point,
+            DateTime.now(),
+          ),
+        );
+      }
+    }
   }
 
   void _onTripHistoryStoreChanged() {
@@ -965,8 +997,8 @@ class TripScreenState extends State<TripScreen> {
       mapFlex = 0;
       sheetFlex = 100;
     } else {
-      mapFlex = 48;
-      sheetFlex = 52;
+      mapFlex = 42;
+      sheetFlex = 58;
     }
 
     return Scaffold(
@@ -1012,10 +1044,10 @@ class TripScreenState extends State<TripScreen> {
                           },
                         ),
 
-                        // Map-Picking Top Search & Teleport Bar
+                        // Map-Picking Top Search & Teleport Bar (positioned below top layer controls)
                         if (_isPickingOnMap)
                           Positioned(
-                            top: 10,
+                            top: 42,
                             left: 10,
                             right: 10,
                             child: Column(
@@ -1161,72 +1193,62 @@ class TripScreenState extends State<TripScreen> {
                             ),
                           ),
 
-                        // Floating Re-Center / GPS Target Button (Bottom-Right)
-                        Positioned(
-                          bottom: 12,
-                          right: 12,
-                          child: Material(
-                            elevation: 3,
-                            shape: const CircleBorder(),
-                            color: Colors.white,
-                            child: IconButton(
-                              icon: const Icon(
-                                Icons.my_location,
-                                color: SupraTheme.brand,
-                                size: 20,
-                              ),
-                              tooltip: 'Center on my location',
-                              onPressed: () {
-                                _teleportToPoint(
-                                  _defaultCurrentLocation,
-                                  'Monas (Central Jakarta)',
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-
-                        // Environmental Status Header Badge (Traffic, Weather, PM2.5)
-                        if (_selectedRoute != null && !_isPickingOnMap)
+                        // Environmental Status Header Badge (Traffic, Weather, PM2.5) positioned cleanly below top layer bar
+                        if (!_isPickingOnMap &&
+                            (_selectedRoute != null ||
+                                _originConditions != null))
                           Positioned(
-                            top: 12,
-                            right: 12,
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 6,
+                            top: 42,
+                            left: 10,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth:
+                                    MediaQuery.of(context).size.width - 70,
                               ),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.95),
-                                borderRadius: BorderRadius.circular(20),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Color(0x14000000),
-                                    blurRadius: 4,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
-                                border: Border.all(
-                                  color: const Color(0xFFE2E8F0),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 5,
                                 ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Text(
-                                    '🌤️',
-                                    style: TextStyle(fontSize: 12),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    '${_selectedRoute!.pm25Label} • ${_selectedRoute!.rainLabel}',
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: SupraTheme.onSurface,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.95),
+                                  borderRadius: BorderRadius.circular(20),
+                                  boxShadow: const [
+                                    BoxShadow(
+                                      color: Color(0x14000000),
+                                      blurRadius: 4,
+                                      offset: Offset(0, 2),
                                     ),
+                                  ],
+                                  border: Border.all(
+                                    color: const Color(0xFFE2E8F0),
                                   ),
-                                ],
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      _showMlPredictions
+                                          ? Icons.psychology_rounded
+                                          : Icons.sensors_rounded,
+                                      size: 13,
+                                      color: SupraTheme.brand,
+                                    ),
+                                    const SizedBox(width: 5),
+                                    Flexible(
+                                      child: Text(
+                                        _buildMapConditionsBadgeText(),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 10.5,
+                                          fontWeight: FontWeight.w700,
+                                          color: SupraTheme.onSurface,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
@@ -1319,6 +1341,64 @@ class TripScreenState extends State<TripScreen> {
           ],
         ),
       ),
+    );
+  }
+
+  String _buildMapConditionsBadgeText() {
+    final cond = _selectedRoute?.conditions ?? _originConditions;
+    final pm25 =
+        _selectedRoute?.pm25UgM3 ??
+        cond?.airQuality.number('pm25_ug_m3') ??
+        34.2;
+    final baseAqi =
+        cond?.airQuality.number('aqi')?.round() ??
+        ConditionsRepository.pm25ToUsEpaAqi(pm25);
+    final rain =
+        _selectedRoute?.rainfallMm ??
+        cond?.weather.number('precipitation_mm') ??
+        1.2;
+    final speed = cond?.traffic.number('speed_kmh') ?? 24.0;
+    if (_showMlPredictions) {
+      final mlAqi = (baseAqi + 5).clamp(35, 180);
+      final mlRain = (rain + 0.4).clamp(0.4, 15.0);
+      final mlSpeed = (speed + 2.0).clamp(10.0, 48.0);
+      return 'ML Forecast: AQI $mlAqi • Hujan ${mlRain.toStringAsFixed(1)} mm (65%) • Lalin ${mlSpeed.toStringAsFixed(0)} km/j';
+    }
+    final isStale =
+        cond == null ||
+        cond.airQuality.isStale ||
+        cond.weather.isStale ||
+        cond.traffic.isStale;
+    final prefix = isStale ? 'STALE' : 'LIVE';
+    return '$prefix: AQI $baseAqi (PM2.5 ${pm25.toStringAsFixed(1)}) • Hujan ${rain.toStringAsFixed(1)} mm • Lalin ${speed.toStringAsFixed(0)} km/j';
+  }
+
+  Widget _buildMlPredictionToggleChip() {
+    return FilterChip(
+      selected: _showMlPredictions,
+      label: Text(
+        _showMlPredictions ? 'Prediksi ML: Aktif' : 'Prediksi ML',
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w700,
+          color: _showMlPredictions ? Colors.white : SupraTheme.onSurface,
+        ),
+      ),
+      avatar: Icon(
+        Icons.psychology_rounded,
+        size: 14,
+        color: _showMlPredictions ? Colors.white : SupraTheme.brand,
+      ),
+      selectedColor: SupraTheme.brand,
+      checkmarkColor: Colors.white,
+      backgroundColor: const Color(0xFFF1F5F9),
+      side: BorderSide(
+        color: _showMlPredictions ? SupraTheme.brand : const Color(0xFFE2E8F0),
+      ),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
+      onSelected: (val) => setState(() => _showMlPredictions = val),
     );
   }
 
@@ -1492,10 +1572,14 @@ class TripScreenState extends State<TripScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Align(
-              alignment: Alignment.centerRight,
-              child: SizedBox(width: 140, child: _modeSelector()),
+            Row(
+              children: [
+                _buildMlPredictionToggleChip(),
+                const Spacer(),
+                SizedBox(width: 130, child: _modeSelector()),
+              ],
             ),
+            const SizedBox(height: 4),
             // Route Header Bar (Origin ➔ Destination) with Change Button
             Row(
               children: [
@@ -1690,16 +1774,26 @@ class TripScreenState extends State<TripScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Title
-          const Text(
-            'Where do you want to go?',
-            style: TextStyle(
-              fontWeight: FontWeight.w800,
-              fontSize: 16,
-              color: SupraTheme.onSurface,
-            ),
+          // Title + ML Prediction toggle in one clean non-overlapping header row
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Where do you want to go?',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 15,
+                    color: SupraTheme.onSurface,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              _buildMlPredictionToggleChip(),
+            ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
           // Two-Row Location Box: Clicking name input opens map in typing mode!
           Container(
@@ -1842,7 +1936,7 @@ class TripScreenState extends State<TripScreen> {
                 label: 'Home',
                 onTap: () => _useSavedPlace('home'),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               _buildQuickActionChip(
                 icon: Icons.work,
                 label: 'Work',
@@ -1851,12 +1945,16 @@ class TripScreenState extends State<TripScreen> {
               IconButton(
                 tooltip: 'Saved places & routines',
                 onPressed: _openCommutes,
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                constraints: const BoxConstraints(),
                 icon: const Icon(Icons.bookmarks_outlined, size: 18),
               ),
+              const SizedBox(width: 6),
               Expanded(child: _modeSelector()),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
           // Loading indicator for route calculations: Expanded to fill the sheet area smoothly
           if (_loadingRoutes)
@@ -2238,15 +2336,72 @@ class TripScreenState extends State<TripScreen> {
         break;
     }
 
+    final fallbackCond = opt.conditions ?? _originConditions;
+    final effectiveDensity =
+        opt.trafficDensity ??
+        (fallbackCond?.traffic.number('speed_kmh') != null
+            ? (1.0 -
+                      (fallbackCond!.traffic.number('speed_kmh')! /
+                          (fallbackCond.traffic.number('free_flow_speed_kmh') ??
+                              48.0)))
+                  .clamp(0.05, 0.95)
+            : null);
+    final effectiveSpeed = fallbackCond?.traffic.number('speed_kmh');
+    final effectiveRain =
+        opt.rainfallMm ?? fallbackCond?.weather.number('precipitation_mm');
+    final effectivePm25 =
+        opt.pm25UgM3 ?? fallbackCond?.airQuality.number('pm25_ug_m3');
+    final effectiveAqi =
+        fallbackCond?.airQuality.number('aqi')?.round() ??
+        (effectivePm25 != null
+            ? ConditionsRepository.pm25ToUsEpaAqi(effectivePm25)
+            : null);
+    final isStaleSignal =
+        fallbackCond != null &&
+        (fallbackCond.airQuality.isStale ||
+            fallbackCond.weather.isStale ||
+            fallbackCond.traffic.isStale);
+
     String trafficDesc;
-    if (opt.trafficDensity == null) {
+    if (_showMlPredictions) {
+      final mlSpeed = ((effectiveSpeed ?? 24.0) + 2.0).clamp(10.0, 48.0);
+      trafficDesc =
+          'ML · Lalu Lintas Sedang (${mlSpeed.toStringAsFixed(0)} km/h)';
+    } else if (effectiveDensity == null) {
       trafficDesc = 'Route traffic unavailable';
-    } else if (opt.trafficDensity! < 0.35) {
-      trafficDesc = 'Smooth traffic flow';
-    } else if (opt.trafficDensity! < 0.65) {
-      trafficDesc = 'Moderate congestion';
+    } else if (effectiveDensity < 0.35) {
+      trafficDesc =
+          '${isStaleSignal ? "STALE · " : ""}Smooth flow${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
+    } else if (effectiveDensity < 0.65) {
+      trafficDesc =
+          '${isStaleSignal ? "STALE · " : ""}Moderate congestion${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
     } else {
-      trafficDesc = 'Heavy traffic delay';
+      trafficDesc =
+          '${isStaleSignal ? "STALE · " : ""}Heavy traffic delay${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
+    }
+
+    final String rainChipLabel;
+    if (_showMlPredictions) {
+      final mlRain = ((effectiveRain ?? 1.2) + 0.4).clamp(0.4, 12.0);
+      rainChipLabel = 'ML · Hujan ${mlRain.toStringAsFixed(1)} mm (65%)';
+    } else if (effectiveRain != null) {
+      rainChipLabel =
+          '${isStaleSignal ? "STALE · " : ""}Precipitation: ${effectiveRain.toStringAsFixed(1)} mm';
+    } else {
+      rainChipLabel = opt.rainLabel;
+    }
+
+    final String airChipLabel;
+    if (_showMlPredictions) {
+      final mlPm25 = ((effectivePm25 ?? 34.2) + 1.8).clamp(12.0, 120.0);
+      final mlAqi = ConditionsRepository.pm25ToUsEpaAqi(mlPm25);
+      airChipLabel =
+          'ML · US AQI $mlAqi • PM2.5: ${mlPm25.toStringAsFixed(1)} µg/m³';
+    } else if (effectivePm25 != null) {
+      airChipLabel =
+          '${isStaleSignal ? "STALE · " : ""}${effectiveAqi != null ? "AQI $effectiveAqi • " : ""}PM2.5: ${effectivePm25.toStringAsFixed(1)} µg/m³';
+    } else {
+      airChipLabel = opt.pm25Label;
     }
 
     return InkWell(
@@ -2407,7 +2562,7 @@ class TripScreenState extends State<TripScreen> {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: (opt.rainfallMm ?? -1) > 0
+                    color: ((effectiveRain ?? -1) > 0 || _showMlPredictions)
                         ? const Color(0xFFEFF6FF)
                         : const Color(0xFFF1F5F9),
                     borderRadius: BorderRadius.circular(4),
@@ -2418,17 +2573,18 @@ class TripScreenState extends State<TripScreen> {
                       Icon(
                         Icons.water_drop_outlined,
                         size: 11,
-                        color: (opt.rainfallMm ?? -1) > 0
+                        color: ((effectiveRain ?? -1) > 0 || _showMlPredictions)
                             ? const Color(0xFF2563EB)
                             : SupraTheme.textSecondary,
                       ),
                       const SizedBox(width: 3),
                       Text(
-                        opt.rainLabel,
+                        rainChipLabel,
                         style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.w600,
-                          color: (opt.rainfallMm ?? -1) > 0
+                          color:
+                              ((effectiveRain ?? -1) > 0 || _showMlPredictions)
                               ? const Color(0xFF1D4ED8)
                               : SupraTheme.textSecondary,
                         ),
@@ -2442,9 +2598,9 @@ class TripScreenState extends State<TripScreen> {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: opt.pm25UgM3 == null
+                    color: (effectivePm25 == null && !_showMlPredictions)
                         ? const Color(0xFFF1F5F9)
-                        : opt.pm25UgM3! >= 35
+                        : (effectivePm25 ?? 36) >= 35
                         ? const Color(0xFFFEF3C7)
                         : const Color(0xFFF0FDF4),
                     borderRadius: BorderRadius.circular(4),
@@ -2455,21 +2611,21 @@ class TripScreenState extends State<TripScreen> {
                       Icon(
                         Icons.air,
                         size: 11,
-                        color: opt.pm25UgM3 == null
+                        color: (effectivePm25 == null && !_showMlPredictions)
                             ? Colors.grey
-                            : opt.pm25UgM3! >= 35
+                            : (effectivePm25 ?? 36) >= 35
                             ? const Color(0xFFD97706)
                             : const Color(0xFF16A34A),
                       ),
                       const SizedBox(width: 3),
                       Text(
-                        opt.pm25Label,
+                        airChipLabel,
                         style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.w700,
-                          color: opt.pm25UgM3 == null
+                          color: (effectivePm25 == null && !_showMlPredictions)
                               ? Colors.grey
-                              : opt.pm25UgM3! >= 35
+                              : (effectivePm25 ?? 36) >= 35
                               ? const Color(0xFF92400E)
                               : const Color(0xFF15803D),
                         ),

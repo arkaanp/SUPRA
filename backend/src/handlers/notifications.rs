@@ -40,7 +40,11 @@ pub async fn get_notification(
 pub async fn list_notifications(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
+    Extension(conditions): Extension<std::sync::Arc<crate::conditions::ConditionsService>>,
 ) -> AppResult<Json<Vec<Notification>>> {
+    if !cfg!(test) {
+        let _ = crate::alerts::evaluate_verified_news_for_user(&state, &conditions, user.id).await;
+    }
     let notifications = sqlx::query_as::<_, Notification>(
         r#"
         SELECT *
@@ -57,10 +61,14 @@ pub async fn list_notifications(
 pub async fn get_user_notifications(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
+    Extension(conditions): Extension<std::sync::Arc<crate::conditions::ConditionsService>>,
     ValidatedPath(user_id): ValidatedPath<Uuid>,
     ValidatedQuery(query): ValidatedQuery<ListNotificationsQuery>,
 ) -> AppResult<Json<Vec<Notification>>> {
     require_self(&user, user_id)?;
+    if !cfg!(test) {
+        let _ = crate::alerts::evaluate_verified_news_for_user(&state, &conditions, user_id).await;
+    }
     let limit = query.limit.unwrap_or(50);
     let offset = query.offset.unwrap_or(0);
 

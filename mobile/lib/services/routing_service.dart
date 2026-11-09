@@ -79,6 +79,7 @@ class RoutingService {
       throw const FormatException('Invalid provider route');
     }
     final snapshot = await conditions.at(start);
+    final trafficDensity = _computeTrafficDensity(snapshot);
     return [
       RouteOption(
         mode: mode,
@@ -92,6 +93,7 @@ class RoutingService {
         rainfallMm: snapshot.weather.kind == 'provider_forecast'
             ? null
             : snapshot.weather.number('precipitation_mm'),
+        trafficDensity: trafficDensity,
         recommendationReason:
             '${result['source']} · fetched ${result['fetched_at']}. '
             '${mode == TransportMode.publicTransit ? 'GTFS itinerary; not a live arrival guarantee.' : 'Mode-specific geometry and provider duration; not a live-traffic ETA.'}',
@@ -174,6 +176,7 @@ class RoutingService {
       final rain = snapshot.weather.kind == 'provider_forecast'
           ? null
           : snapshot.weather.number('precipitation_mm');
+      final trafficDensity = _computeTrafficDensity(snapshot);
       return [
         RouteOption(
           mode: TransportMode.car,
@@ -197,10 +200,21 @@ class RoutingService {
           protectiveMeasures: const [],
           pm25UgM3: pm,
           rainfallMm: rain,
+          trafficDensity: trafficDensity,
         ),
       ];
     } finally {
       if (client == null) httpClient.close();
     }
+  }
+
+  static double? _computeTrafficDensity(dynamic snapshot) {
+    final traffic = snapshot.traffic;
+    if (traffic == null || !traffic.hasData) return null;
+    final speed = traffic.number('speed_kmh');
+    if (speed == null) return null;
+    final freeFlow = traffic.number('free_flow_speed_kmh') ?? 48.0;
+    if (freeFlow <= 0) return null;
+    return (1.0 - (speed / freeFlow)).clamp(0.05, 0.95);
   }
 }

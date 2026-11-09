@@ -25,9 +25,10 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
-  Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
-  if (!window.Create(L"supra_mobile_ui", origin, size)) {
+  // Default to a 9:16 portrait mobile phone screen ratio (16:9 phone aspect ratio)
+  Win32Window::Point origin(60, 24);
+  Win32Window::Size size(405, 720);
+  if (!window.Create(L"SUPRA", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

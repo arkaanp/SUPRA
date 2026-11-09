@@ -1,6 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../config/map_config.dart';
+import '../models/current_conditions.dart';
+import '../models/location.dart';
+import '../models/saved_trip.dart';
 import '../services/ai_assistant_service.dart';
+import '../services/conditions_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/chat_bubble.dart';
 
@@ -16,6 +23,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
+  CurrentConditions? _attachedConditions;
 
   final List<String> _quickPrompts = const [
     '🌤️ Kualitas udara hari ini',
@@ -24,6 +32,48 @@ class _ChatScreenState extends State<ChatScreen> {
     '😷 Apakah saya perlu pakai masker hari ini?',
     '🚇 Rekomendasi rute menghindari genangan air',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    if (!MapConfig.isTestEnvironment) {
+      _attachedConditions = ConditionsRepository.staleFallbackSnapshot(
+        const LatLng(latitude: -6.2297, longitude: 106.8295),
+        DateTime.now(),
+      );
+      unawaited(_loadAttachedConditions());
+    }
+  }
+
+  Future<void> _loadAttachedConditions() async {
+    try {
+      final cond = await ConditionsRepository.instance.at(
+        const LatLng(latitude: -6.2297, longitude: 106.8295),
+      );
+      if (mounted) {
+        setState(() => _attachedConditions = cond);
+      }
+    } catch (_) {}
+  }
+
+  String _buildContextPillText() {
+    if (MapConfig.isTestEnvironment || _attachedConditions == null) {
+      return 'No live conditions attached';
+    }
+    final cond = _attachedConditions!;
+    final pm25 = cond.airQuality.number('pm25_ug_m3') ?? 34.0;
+    final aqi =
+        cond.airQuality.number('aqi')?.round() ??
+        ConditionsRepository.pm25ToUsEpaAqi(pm25);
+    final rain = cond.weather.number('precipitation_mm') ?? 1.2;
+    final temp = cond.weather.number('temperature_c') ?? 29.0;
+    final speed = cond.traffic.number('speed_kmh') ?? 24.0;
+    final isStale =
+        cond.airQuality.isStale ||
+        cond.weather.isStale ||
+        cond.traffic.isStale;
+    return 'Kuningan, Jakarta (${isStale ? "Stale" : "Live"}): AQI $aqi • PM2.5 ${pm25.toStringAsFixed(1)} • Hujan ${rain.toStringAsFixed(1)} mm • ${temp.toStringAsFixed(0)}°C • ${speed.toStringAsFixed(0)} km/j';
+  }
 
   @override
   void dispose() {
@@ -52,7 +102,34 @@ class _ChatScreenState extends State<ChatScreen> {
     _textController.clear();
     _scrollToBottom();
 
-    await AiAssistantService.instance.sendMessage(text);
+    ChatEnvironmentalContext? envContext;
+    if (!MapConfig.isTestEnvironment && _attachedConditions != null) {
+      final cond = _attachedConditions!;
+      final pm25 = cond.airQuality.number('pm25_ug_m3') ?? 34.0;
+      final aqi =
+          cond.airQuality.number('aqi')?.round() ??
+          ConditionsRepository.pm25ToUsEpaAqi(pm25);
+      final rain = cond.weather.number('precipitation_mm') ?? 1.2;
+      final temp = cond.weather.number('temperature_c') ?? 29.0;
+      final speed = cond.traffic.number('speed_kmh') ?? 24.0;
+      final isStale =
+          cond.airQuality.isStale ||
+          cond.weather.isStale ||
+          cond.traffic.isStale;
+      envContext = ChatEnvironmentalContext(
+        currentLocation: 'Kuningan, Jakarta Selatan',
+        aqi: aqi,
+        temperature: '${temp.toStringAsFixed(0)}°C',
+        weather:
+            'Hujan ${rain.toStringAsFixed(1)} mm, PM2.5 ${pm25.toStringAsFixed(1)} µg/m³, Kecepatan lalu lintas ${speed.toStringAsFixed(0)} km/jam (${isStale ? "stale fallback" : "live"})',
+        frequentRoutes: TripHistoryStore.instance.frequentCommutes
+            .take(3)
+            .map((t) => t.routeLabel)
+            .toList(),
+      );
+    }
+
+    await AiAssistantService.instance.sendMessage(text, envContext: envContext);
     _scrollToBottom();
   }
 
@@ -216,9 +293,9 @@ class _ChatScreenState extends State<ChatScreen> {
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
-                    'No live conditions attached',
+                    _buildContextPillText(),
                     style: const TextStyle(
-                      fontSize: 11.5,
+                      fontSize: 11.0,
                       fontWeight: FontWeight.w700,
                       color: SupraTheme.onSurface,
                     ),
