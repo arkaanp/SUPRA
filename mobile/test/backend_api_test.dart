@@ -85,6 +85,7 @@ void main() {
       'alert_unhealthy_aqi': true,
       'alert_heavy_rain': false,
       'alert_severe_traffic': true,
+      'alert_relevant_news': true,
     };
     expect(NotificationPreference.fromJson(flags).toJson(), flags);
   });

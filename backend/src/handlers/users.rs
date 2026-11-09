@@ -7,14 +7,66 @@ use axum::{
     Json,
     body::Bytes,
     extract::{Extension, Path, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
 use std::path::PathBuf;
 use uuid::Uuid;
 
 fn avatars_dir() -> PathBuf {
-    PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/uploads/avatars"))
+    std::env::var_os("AVATAR_STORAGE_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("uploads/avatars"))
+}
+
+fn public_origin() -> AppResult<String> {
+    let origin =
+        std::env::var("PUBLIC_BASE_URL").unwrap_or_else(|_| "http://localhost:3000".into());
+    let url = reqwest::Url::parse(&origin).map_err(|_| AppError::Unavailable)?;
+    if !matches!(url.scheme(), "https" | "http")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || url.path() != "/"
+    {
+        return Err(AppError::Unavailable);
+    }
+    Ok(origin.trim_end_matches('/').to_owned())
+}
+
+fn normalize_avatar(bytes: &[u8]) -> AppResult<Vec<u8>> {
+    use std::io::Cursor;
+    let mut reader = image::ImageReader::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|_| AppError::bad_request("Invalid image"))?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(4096);
+    limits.max_image_height = Some(4096);
+    limits.max_alloc = Some(64 * 1024 * 1024);
+    reader.limits(limits);
+    let image = reader
+        .decode()
+        .map_err(|_| AppError::bad_request("Invalid or oversized avatar image"))?;
+    let mut output = Cursor::new(Vec::new());
+    image
+        .thumbnail(512, 512)
+        .write_to(&mut output, image::ImageFormat::Png)
+        .map_err(|_| AppError::bad_request("Could not normalize image"))?;
+    Ok(output.into_inner())
+}
+
+async fn remove_owned_avatar(url: Option<&str>, origin: &str, user: Uuid) {
+    if let Some(name) = url.and_then(|s| s.strip_prefix(&format!("{origin}/uploads/avatars/"))) {
+        if name.starts_with(&format!("{user}_"))
+            && !name.contains('/')
+            && !name.contains('\\')
+            && !name.contains("..")
+        {
+            let _ = tokio::fs::remove_file(avatars_dir().join(name)).await;
+        }
+    }
 }
 
 pub async fn create_user(
@@ -145,55 +197,40 @@ pub async fn update_profile(
 pub async fn upload_avatar(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
-    headers: HeaderMap,
     bytes: Bytes,
 ) -> AppResult<Json<User>> {
     if bytes.is_empty() {
         return Err(AppError::bad_request("Avatar image body cannot be empty"));
     }
     if bytes.len() > 5 * 1024 * 1024 {
-        return Err(AppError::bad_request(
-            "Avatar image must be at most 5 MB",
-        ));
+        return Err(AppError::bad_request("Avatar image must be at most 5 MB"));
     }
 
-    let ext: String = if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
-        "png".to_string()
-    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
-        "jpg".to_string()
-    } else if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
-        "webp".to_string()
-    } else if bytes.starts_with(b"GIF8") {
-        "gif".to_string()
-    } else {
-        headers
-            .get("x-file-name")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|name| name.rsplit('.').next())
-            .map(|e| e.to_ascii_lowercase())
-            .filter(|e| matches!(e.as_str(), "png" | "jpg" | "jpeg" | "webp" | "gif"))
-            .unwrap_or_else(|| "png".to_string())
-    };
+    let origin = public_origin()?;
+    let bytes = tokio::task::spawn_blocking(move || normalize_avatar(&bytes))
+        .await
+        .map_err(|_| AppError::Unavailable)??;
+    let mut tx = state.pool.begin().await?;
+    // Serialize replacement for an existing profile, including concurrent uploads.
+    let previous: Option<String> =
+        sqlx::query_scalar("SELECT avatar_url FROM users WHERE id = $1 FOR UPDATE")
+            .bind(user.id)
+            .fetch_one(&mut *tx)
+            .await?;
 
     let dir = avatars_dir();
     tokio::fs::create_dir_all(&dir)
         .await
         .map_err(|_| AppError::bad_request("Failed to prepare avatar storage directory"))?;
 
-    let timestamp = chrono::Utc::now().timestamp_millis();
-    let filename = format!("{}_{}.{}", user.id, timestamp, ext);
+    let filename = format!("{}_{}.png", user.id, Uuid::new_v4());
     let file_path = dir.join(&filename);
 
     tokio::fs::write(&file_path, &bytes)
         .await
         .map_err(|_| AppError::bad_request("Failed to save uploaded avatar"))?;
 
-    let host = headers
-        .get(header::HOST)
-        .and_then(|h| h.to_str().ok())
-        .filter(|h| !h.trim().is_empty())
-        .unwrap_or("127.0.0.1:3000");
-    let avatar_url = format!("http://{host}/uploads/avatars/{filename}");
+    let avatar_url = format!("{origin}/uploads/avatars/{filename}");
 
     let updated = sqlx::query_as::<_, User>(
         r#"
@@ -208,8 +245,17 @@ pub async fn upload_avatar(
     .bind(user.id)
     .bind(user.email)
     .bind(avatar_url)
-    .fetch_one(&state.pool)
-    .await?;
+    .fetch_one(&mut *tx)
+    .await;
+    let updated = match updated {
+        Ok(updated) => updated,
+        Err(error) => {
+            let _ = tokio::fs::remove_file(&file_path).await;
+            return Err(error.into());
+        }
+    };
+    tx.commit().await?;
+    remove_owned_avatar(previous.as_deref(), &origin, user.id).await;
 
     Ok(Json(updated))
 }
@@ -244,6 +290,7 @@ pub async fn serve_avatar(Path(filename): Path<String>) -> Result<Response, AppE
         [
             (header::CONTENT_TYPE, content_type),
             (header::CACHE_CONTROL, "public, max-age=86400"),
+            (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
         ],
         bytes,
     )
@@ -257,12 +304,16 @@ pub async fn delete_user(
 ) -> AppResult<Json<serde_json::Value>> {
     require_self(&user, id)?;
     // Deletes the app profile, not the Supabase Auth account.
-    let result = sqlx::query("DELETE FROM users WHERE id = $1")
-        .bind(user.id)
-        .execute(&state.pool)
-        .await?;
-    if result.rows_affected() == 0 {
+    let previous: Option<Option<String>> =
+        sqlx::query_scalar("DELETE FROM users WHERE id = $1 RETURNING avatar_url")
+            .bind(user.id)
+            .fetch_optional(&state.pool)
+            .await?;
+    if previous.is_none() {
         return Err(AppError::NotFound);
+    }
+    if let Ok(origin) = public_origin() {
+        remove_owned_avatar(previous.flatten().as_deref(), &origin, user.id).await;
     }
 
     Ok(Json(serde_json::json!({ "status": "deleted" })))
@@ -272,12 +323,16 @@ pub async fn delete_account(
     State(state): State<AppState>,
     Extension(user): Extension<AuthUser>,
 ) -> AppResult<Json<serde_json::Value>> {
-    let result = sqlx::query("DELETE FROM users WHERE id = $1")
-        .bind(user.id)
-        .execute(&state.pool)
-        .await?;
-    if result.rows_affected() == 0 {
+    let previous: Option<Option<String>> =
+        sqlx::query_scalar("DELETE FROM users WHERE id = $1 RETURNING avatar_url")
+            .bind(user.id)
+            .fetch_optional(&state.pool)
+            .await?;
+    if previous.is_none() {
         return Err(AppError::NotFound);
+    }
+    if let Ok(origin) = public_origin() {
+        remove_owned_avatar(previous.flatten().as_deref(), &origin, user.id).await;
     }
 
     // Best-effort sync with Supabase Auth Admin API if SUPABASE_SERVICE_ROLE_KEY is configured.
@@ -304,4 +359,33 @@ pub async fn delete_account(
     }
 
     Ok(Json(serde_json::json!({ "status": "deleted" })))
+}
+
+#[cfg(test)]
+mod avatar_tests {
+    use super::*;
+    #[test]
+    fn rejects_filename_only_signature_only_and_non_image_uploads() {
+        for bytes in [
+            b"not an image".as_slice(),
+            b"\x89PNG\r\n\x1a\n",
+            b"GIF89a",
+            b"\xff\xd8\xff",
+        ] {
+            assert!(normalize_avatar(bytes).is_err());
+        }
+    }
+    #[test]
+    fn decodes_resizes_and_reencodes_avatar_as_png() {
+        let image = image::DynamicImage::new_rgb8(1024, 768);
+        let mut input = std::io::Cursor::new(Vec::new());
+        image.write_to(&mut input, image::ImageFormat::Png).unwrap();
+        let bytes = normalize_avatar(input.get_ref()).unwrap();
+        let output = image::load_from_memory(&bytes).unwrap();
+        assert_eq!((output.width(), output.height()), (512, 384));
+        assert_eq!(
+            image::guess_format(&bytes).unwrap(),
+            image::ImageFormat::Png
+        );
+    }
 }

@@ -1,196 +1,99 @@
 import 'package:flutter/material.dart';
 
+import 'current_conditions.dart';
 import 'location.dart';
 
-/// Display mode for map environmental indicators.
-enum EnvironmentalOverlayMode {
-  all,
-  airQuality,
-  rain,
-}
+enum EnvironmentalOverlayMode { all, airQuality, rain }
 
-/// Represents a distinct environmental region (e.g. Jakarta Selatan, Cibinong, Kota Bogor)
-/// with area polygon boundaries, live PM2.5 particulate pollution, rainfall precipitation,
-/// severity color gradations, and contextual health advisories.
+/// A geographic lookup anchor. A nearby station is not a measured area polygon.
 class EnvironmentalZone {
   final String id;
   final String name;
   final LatLng center;
   final double radiusKm;
   final List<LatLng> polygonBounds;
-  final double pm25;
-  final double rainfallMm;
-  final double rainProbability;
+  final double? pm25;
+  final double? rainfallMm;
+  final double? rainProbability;
   final bool isRaining;
   final bool isCloudy;
-  final double windDirectionDegrees; // Meteorological angle: 0 = N, 90 = E, 180 = S, 270 = W
-  final double windSpeedKmh;
+  final double? windDirectionDegrees;
+  final double? windSpeedKmh;
   final String? weatherDescription;
-
+  final CurrentConditions? conditions;
   const EnvironmentalZone({
     required this.id,
     required this.name,
     required this.center,
-    this.radiusKm = 5.0,
+    this.radiusKm = 5,
     this.polygonBounds = const [],
-    required this.pm25,
-    required this.rainfallMm,
-    this.rainProbability = 0.0,
+    this.pm25,
+    this.rainfallMm,
+    this.rainProbability,
     this.isRaining = false,
     this.isCloudy = false,
-    this.windDirectionDegrees = 90.0,
-    this.windSpeedKmh = 12.0,
+    this.windDirectionDegrees,
+    this.windSpeedKmh,
     this.weatherDescription,
+    this.conditions,
   });
 
-  /// AQI category based on US EPA / Indonesian ISPU standards.
-  String get aqiCategory {
-    if (pm25 <= 12.0) return 'Good';
-    if (pm25 <= 35.4) return 'Moderate';
-    if (pm25 <= 55.4) return 'Unhealthy for Sensitive Groups';
-    if (pm25 <= 150.4) return 'Unhealthy';
-    if (pm25 <= 250.4) return 'Very Unhealthy';
-    return 'Hazardous';
-  }
+  String get aqiCategory => pm25 == null ? 'Unavailable' : 'PM2.5, not AQI';
+  // No unsupported area-wide interpolation from a single station sample.
+  Color get pm25Color => Colors.transparent;
+  Color get rainColor => Colors.transparent;
+  Color get compositeAreaColor => Colors.transparent;
+  Color get solidAqiColor => pm25 == null ? Colors.grey : Colors.blueGrey;
 
-  /// Calculates the area fill color for air pollution.
-  /// Rule: "and the color should get darker the more bad it is."
-  /// Opacity is tuned to be ultra-low and barely visible (0.015 – 0.065)
-  /// so underlying streets, geography, and basemap features stay completely crisp.
-  Color get pm25Color {
-    if (pm25 <= 12.0) {
-      // Good: Green (lightest barely visible tint)
-      return const Color(0xFF22C55E).withValues(alpha: 0.015);
-    } else if (pm25 <= 35.4) {
-      // Moderate: Amber / Yellow
-      return const Color(0xFFEAB308).withValues(alpha: 0.020);
-    } else if (pm25 <= 55.4) {
-      // Unhealthy for Sensitive Groups: Deep Orange
-      return const Color(0xFFF97316).withValues(alpha: 0.028);
-    } else if (pm25 <= 150.4) {
-      // Unhealthy: Red (progressively darker red as PM2.5 climbs from 55 to 150)
-      final factor = ((pm25 - 55.4) / 95.0).clamp(0.0, 1.0);
-      final r = (239 - (factor * 75)).round(); // 239 -> 164 (dark ruby red)
-      final g = (68 - (factor * 42)).round();   // 68 -> 26
-      final b = (68 - (factor * 42)).round();   // 68 -> 26
-      final alpha = (0.035 * 255 + factor * 0.015 * 255).round(); // ~0.035 to 0.050
-      return Color.fromARGB(alpha, r, g, b);
-    } else if (pm25 <= 250.4) {
-      // Very Unhealthy: Deep Dark Purple
-      final factor = ((pm25 - 150.4) / 100.0).clamp(0.0, 1.0);
-      final r = (107 - (factor * 40)).round(); // 107 -> 67
-      final g = (33 - (factor * 20)).round();   // 33 -> 13
-      final b = (168 - (factor * 60)).round();  // 168 -> 108
-      final alpha = (0.045 * 255 + factor * 0.015 * 255).round(); // ~0.045 to 0.060
-      return Color.fromARGB(alpha, r, g, b);
-    } else {
-      // Hazardous: Deep Dark Maroon
-      return const Color(0xFF4C0519).withValues(alpha: 0.065);
-    }
-  }
-
-  /// Solid border / badge color matching the AQI severity.
-  Color get solidAqiColor {
-    if (pm25 <= 12.0) return const Color(0xFF16A34A);
-    if (pm25 <= 35.4) return const Color(0xFFCA8A04);
-    if (pm25 <= 55.4) return const Color(0xFFEA580C);
-    if (pm25 <= 150.4) {
-      final factor = ((pm25 - 55.4) / 95.0).clamp(0.0, 1.0);
-      return Color.fromARGB(
-        255,
-        (220 - factor * 70).round(),
-        (38 - factor * 25).round(),
-        (38 - factor * 25).round(),
-      );
-    }
-    if (pm25 <= 250.4) return const Color(0xFF6B21A8);
-    return const Color(0xFF4C0519);
-  }
-
-  /// Atmospheric translucent blue for rain areas, getting darker with rainfall rate.
-  /// Opacity is kept barely visible (0.025 – 0.050) so roads remain visible underneath.
-  Color get rainColor {
-    if (!isRaining && rainfallMm <= 0.2) return Colors.transparent;
-    final intensity = (rainfallMm / 10.0).clamp(0.0, 1.0);
-    final r = (37 - (intensity * 20)).round();
-    final g = (99 - (intensity * 40)).round();
-    final b = (235 - (intensity * 45)).round();
-    final alpha = (0.025 * 255 + intensity * 0.025 * 255).round(); // ~0.025 to 0.050
-    return Color.fromARGB(alpha, r, g, b);
-  }
-
-  /// Combined visual color for the area on the map.
-  Color get compositeAreaColor {
-    if ((isRaining || rainfallMm > 0.5) && rainfallMm > 0.2) {
-      return Color.alphaBlend(rainColor, pm25Color);
-    }
-    return pm25Color;
-  }
-
-  /// Returns human-readable 8-point compass cardinal direction (e.g. N, NE, E, SE, S, SW, W, NW).
   String get cardinalWindDirection {
-    final deg = (windDirectionDegrees % 360 + 360) % 360;
-    if (deg >= 337.5 || deg < 22.5) return 'N';
-    if (deg < 67.5) return 'NE';
-    if (deg < 112.5) return 'E';
-    if (deg < 157.5) return 'SE';
-    if (deg < 202.5) return 'S';
-    if (deg < 247.5) return 'SW';
-    if (deg < 292.5) return 'W';
-    return 'NW';
+    if (windDirectionDegrees == null) return 'Unavailable';
+    final d = (windDirectionDegrees! % 360 + 360) % 360;
+    return [
+      'N',
+      'NE',
+      'E',
+      'SE',
+      'S',
+      'SW',
+      'W',
+      'NW',
+    ][((d + 22.5) / 45).floor() % 8];
   }
 
-  /// Concise weather description (Rainy, Cloudy, or Sunny).
-  String get weatherSummary {
-    if (weatherDescription != null && weatherDescription!.isNotEmpty) {
-      return weatherDescription!;
-    }
-    if (isRaining || rainfallMm > 0.5) return 'Rainy';
-    if (isCloudy) return 'Cloudy';
-    return 'Sunny';
-  }
+  String get weatherSummary =>
+      '${conditions?.weather.agedAt(DateTime.now()).isStale == true ? "STALE · " : ""}'
+      '${weatherDescription ?? (rainfallMm == null ? 'Weather unavailable' : 'Precipitation ${rainfallMm!.toStringAsFixed(1)} mm')}';
+  String get descriptiveLabel =>
+      '$name · $weatherSummary · '
+      '${pm25 == null ? "PM2.5 unavailable" : "Station PM2.5 ${pm25!.toStringAsFixed(1)} µg/m³ (not AQI)"}'
+      '${conditions == null ? "" : " · ${conditions!.airQuality.source}: ${conditions!.airQuality.status}"}';
+  String get healthAdvisory =>
+      'Location sample only, not area-wide exposure. '
+      '${conditions == null ? "Current conditions unavailable." : "${conditions!.airQuality.message} ${conditions!.weather.message} "
+                "Retrieved ${conditions!.retrievedAt.toUtc().toIso8601String()}. "
+                "Air valid at ${conditions!.airQuality.validAt?.toUtc().toIso8601String() ?? 'unavailable'}; "
+                "weather ${conditions!.weather.source}/${conditions!.weather.kind ?? 'unavailable'} "
+                "valid at ${conditions!.weather.validAt?.toUtc().toIso8601String() ?? 'unavailable'}."}';
 
-  /// Human-readable descriptive text showing weather condition, wind, PM2.5 and rain.
-  String get descriptiveLabel {
-    final hasRain = isRaining || rainfallMm > 0.5;
-    final weatherText = hasRain
-        ? '🌧️ ${rainfallMm.toStringAsFixed(1)} mm'
-        : (isCloudy ? '☁️ Cloudy' : '☀️ Sunny');
-    final windText = '💨 $cardinalWindDirection ${windSpeedKmh.toStringAsFixed(0)} km/h';
-    return '$name · $weatherText · $windText · ${pm25.toStringAsFixed(0)} µg/m³ ($aqiCategory)';
-  }
-
-  /// Contextual health and protection advisory for this region.
-  String get healthAdvisory {
-    final hasRain = isRaining || rainfallMm > 0.5;
-    if (pm25 >= 55.5) {
-      return 'Air quality is Unhealthy (${pm25.toStringAsFixed(0)} µg/m³). Wear an N95 respirator mask outdoors. Keep car windows closed with AC recirculation ON.';
-    } else if (pm25 >= 35.5) {
-      return 'Elevated PM2.5 (${pm25.toStringAsFixed(0)} µg/m³). Sensitive groups should reduce prolonged outdoor exertion. Motorcyclists should wear face masks.';
-    } else if (hasRain) {
-      return 'Active rainfall (${rainfallMm.toStringAsFixed(1)} mm). Wet pavement and slippery markings. Equip rain gear and increase following distance.';
-    } else {
-      return 'Air quality is acceptable. Safe for outdoor commuting and open ventilation.';
-    }
-  }
-
-  /// Checks if a geographic coordinate falls inside this zone's polygon bounds.
   bool contains(LatLng point) {
-    if (polygonBounds.length < 3) {
-      return center.distanceTo(point) <= radiusKm;
+    if (polygonBounds.length < 3) return center.distanceTo(point) <= radiusKm;
+    var inside = false;
+    for (
+      int i = 0, j = polygonBounds.length - 1;
+      i < polygonBounds.length;
+      j = i++
+    ) {
+      final a = polygonBounds[i], b = polygonBounds[j];
+      if ((a.latitude > point.latitude) != (b.latitude > point.latitude) &&
+          point.longitude <
+              (b.longitude - a.longitude) *
+                      (point.latitude - a.latitude) /
+                      (b.latitude - a.latitude) +
+                  a.longitude) {
+        inside = !inside;
+      }
     }
-    bool inside = false;
-    for (int i = 0, j = polygonBounds.length - 1; i < polygonBounds.length; j = i++) {
-      final xi = polygonBounds[i].longitude;
-      final yi = polygonBounds[i].latitude;
-      final xj = polygonBounds[j].longitude;
-      final yj = polygonBounds[j].latitude;
-
-      final intersect = ((yi > point.latitude) != (yj > point.latitude)) &&
-          (point.longitude < (xj - xi) * (point.latitude - yi) / (yj - yi) + xi);
-      if (intersect) inside = !inside;
-    }
-    return inside || (center.distanceTo(point) <= (radiusKm * 0.8));
+    return inside;
   }
 
   EnvironmentalZone copyWith({
@@ -202,21 +105,21 @@ class EnvironmentalZone {
     double? windDirectionDegrees,
     double? windSpeedKmh,
     String? weatherDescription,
-  }) {
-    return EnvironmentalZone(
-      id: id,
-      name: name,
-      center: center,
-      radiusKm: radiusKm,
-      polygonBounds: polygonBounds,
-      pm25: pm25 ?? this.pm25,
-      rainfallMm: rainfallMm ?? this.rainfallMm,
-      rainProbability: rainProbability ?? this.rainProbability,
-      isRaining: isRaining ?? this.isRaining,
-      isCloudy: isCloudy ?? this.isCloudy,
-      windDirectionDegrees: windDirectionDegrees ?? this.windDirectionDegrees,
-      windSpeedKmh: windSpeedKmh ?? this.windSpeedKmh,
-      weatherDescription: weatherDescription ?? this.weatherDescription,
-    );
-  }
+    CurrentConditions? conditions,
+  }) => EnvironmentalZone(
+    id: id,
+    name: name,
+    center: center,
+    radiusKm: radiusKm,
+    polygonBounds: polygonBounds,
+    pm25: pm25 ?? this.pm25,
+    rainfallMm: rainfallMm ?? this.rainfallMm,
+    rainProbability: rainProbability ?? this.rainProbability,
+    isRaining: isRaining ?? this.isRaining,
+    isCloudy: isCloudy ?? this.isCloudy,
+    windDirectionDegrees: windDirectionDegrees ?? this.windDirectionDegrees,
+    windSpeedKmh: windSpeedKmh ?? this.windSpeedKmh,
+    weatherDescription: weatherDescription ?? this.weatherDescription,
+    conditions: conditions ?? this.conditions,
+  );
 }

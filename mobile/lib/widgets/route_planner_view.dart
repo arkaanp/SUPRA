@@ -179,19 +179,18 @@ class RoutePlannerView extends StatelessWidget {
             _buildEnvChip(
               icon: Icons.air,
               color: _aqiColor(selectedOption.pm25UgM3),
-              label:
-                  'PM2.5: ${selectedOption.pm25UgM3.toStringAsFixed(0)} µg/m³ · ${selectedOption.aqiCategory}',
+              label: selectedOption.pm25Label,
             ),
             _buildEnvChip(
-              icon: selectedOption.rainfallMm > 0
+              icon: (selectedOption.rainfallMm ?? -1) > 0
                   ? Icons.water_drop
                   : Icons.wb_sunny_outlined,
-              color: selectedOption.rainfallMm > 0
+              color: selectedOption.rainfallMm == null
+                  ? Colors.grey
+                  : selectedOption.rainfallMm! > 0
                   ? SupraTheme.rain
                   : SupraTheme.aqiGood,
-              label: selectedOption.rainfallMm > 0
-                  ? 'Rain: ${selectedOption.rainfallMm.toStringAsFixed(1)} mm (${(selectedOption.rainProbability * 100).round()}%)'
-                  : 'Weather: Clear',
+              label: selectedOption.rainLabel,
             ),
             _buildEnvChip(
               icon: Icons.traffic,
@@ -202,13 +201,17 @@ class RoutePlannerView extends StatelessWidget {
         ),
 
         const SizedBox(height: 12),
+        Text(
+          selectedOption.provenanceLabel,
+          style: const TextStyle(fontSize: 11, color: SupraTheme.textSecondary),
+        ),
 
         // 4. Contextual Health Advisory & Protective Measures Card
         Card(
           elevation: 0,
           color:
               selectedOption.mode == TransportMode.motorcycle &&
-                  selectedOption.pm25UgM3 >= 35.0
+                  (selectedOption.pm25UgM3 ?? -1) >= 35.0
               ? const Color(0xFFFFFBEB)
               : const Color(0xFFF8FAFC),
           shape: RoundedRectangleBorder(
@@ -216,7 +219,7 @@ class RoutePlannerView extends StatelessWidget {
             side: BorderSide(
               color:
                   selectedOption.mode == TransportMode.motorcycle &&
-                      selectedOption.pm25UgM3 >= 35.0
+                      (selectedOption.pm25UgM3 ?? -1) >= 35.0
                   ? const Color(0xFFFDE68A)
                   : SupraTheme.divider,
             ),
@@ -235,7 +238,7 @@ class RoutePlannerView extends StatelessWidget {
                       size: 18,
                       color:
                           selectedOption.mode == TransportMode.motorcycle &&
-                              selectedOption.pm25UgM3 >= 35.0
+                              (selectedOption.pm25UgM3 ?? -1) >= 35.0
                           ? const Color(0xFFB45309)
                           : SupraTheme.brand,
                     ),
@@ -248,7 +251,7 @@ class RoutePlannerView extends StatelessWidget {
                           fontSize: 12,
                           color:
                               selectedOption.mode == TransportMode.motorcycle &&
-                                  selectedOption.pm25UgM3 >= 35.0
+                                  (selectedOption.pm25UgM3 ?? -1) >= 35.0
                               ? const Color(0xFF92400E)
                               : SupraTheme.onSurface,
                         ),
@@ -450,14 +453,16 @@ class RoutePlannerView extends StatelessWidget {
     );
   }
 
-  Color _aqiColor(double pm25) {
+  Color _aqiColor(double? pm25) {
+    if (pm25 == null) return Colors.grey;
     if (pm25 <= 12.0) return SupraTheme.aqiGood;
     if (pm25 <= 35.4) return SupraTheme.aqiModerate;
     if (pm25 <= 55.4) return SupraTheme.aqiUsg;
     return SupraTheme.aqiUnhealthy;
   }
 
-  Color _trafficColor(double density) {
+  Color _trafficColor(double? density) {
+    if (density == null) return Colors.grey;
     if (density < 0.35) return SupraTheme.trafficFree;
     if (density < 0.65) return SupraTheme.trafficModerate;
     return SupraTheme.trafficHeavy;

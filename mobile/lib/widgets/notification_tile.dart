@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../models/notification.dart';
 import '../theme/app_theme.dart';
@@ -52,6 +53,33 @@ class NotificationTile extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 6),
+            if (notification.expiresAt?.isBefore(DateTime.now()) == true)
+              const Text(
+                'Expired report — kept for history',
+                style: TextStyle(fontSize: 11, color: Colors.grey),
+              ),
+            if (notification.sourceUrl != null)
+              TextButton.icon(
+                icon: const Icon(Icons.open_in_new, size: 14),
+                label: const Text('Read source report'),
+                onPressed: () async {
+                  final uri = Uri.tryParse(notification.sourceUrl!);
+                  if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
+                    return;
+                  }
+                  try {
+                    if (!await launchUrl(uri)) {
+                      throw StateError('Source could not open');
+                    }
+                  } catch (_) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text(notification.sourceUrl!)),
+                      );
+                    }
+                  }
+                },
+              ),
             Row(
               children: [
                 Container(

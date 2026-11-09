@@ -23,9 +23,12 @@ pub async fn create_trip(
 ) -> AppResult<Json<Trip>> {
     let trip = sqlx::query_as::<_, Trip>(
         r#"
-        INSERT INTO trips (user_id, name, start_location, destination, planned_departure)
-        VALUES ($1, $2, $3, $4, $5)
-        RETURNING id, user_id, name, start_location, destination, planned_departure, created_at
+        INSERT INTO trips (user_id, name, start_location, destination, planned_departure,
+            start_latitude, start_longitude, destination_latitude, destination_longitude, confirmed_at,
+            transport_mode, active_until, route_waypoints)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $10 THEN now() ELSE NULL END,
+            $11, CASE WHEN $10 THEN now()+interval '4 hours' ELSE NULL END, $12)
+        RETURNING *
         "#,
     )
     .bind(user.id)
@@ -33,6 +36,13 @@ pub async fn create_trip(
     .bind(payload.start_location)
     .bind(payload.destination)
     .bind(payload.planned_departure)
+    .bind(payload.start_latitude)
+    .bind(payload.start_longitude)
+    .bind(payload.destination_latitude)
+    .bind(payload.destination_longitude)
+    .bind(payload.confirmed)
+    .bind(payload.transport_mode)
+    .bind(payload.route_waypoints.unwrap_or_else(|| serde_json::json!([])))
     .fetch_one(&state.pool)
     .await?;
 
@@ -46,7 +56,7 @@ pub async fn get_trip(
 ) -> AppResult<Json<Trip>> {
     let trip = sqlx::query_as::<_, Trip>(
         r#"
-        SELECT id, user_id, name, start_location, destination, planned_departure, created_at
+        SELECT *
         FROM trips WHERE id = $1 AND user_id = $2
         "#,
     )
@@ -67,8 +77,11 @@ pub async fn list_trips(
         require_self(&user, id)?;
     }
     let trips = sqlx::query_as::<_, Trip>(
-        "SELECT id, user_id, name, start_location, destination, planned_departure, created_at FROM trips WHERE user_id = $1 ORDER BY planned_departure ASC"
-    ).bind(user.id).fetch_all(&state.pool).await?;
+        "SELECT * FROM trips WHERE user_id = $1 ORDER BY created_at DESC",
+    )
+    .bind(user.id)
+    .fetch_all(&state.pool)
+    .await?;
     Ok(Json(trips))
 }
 
@@ -80,7 +93,7 @@ pub async fn get_user_trips(
     require_self(&user, user_id)?;
     let trips = sqlx::query_as::<_, Trip>(
         r#"
-        SELECT id, user_id, name, start_location, destination, planned_departure, created_at
+        SELECT *
         FROM trips WHERE user_id = $1
         ORDER BY planned_departure ASC
         "#,
@@ -106,7 +119,7 @@ pub async fn update_trip(
             destination = COALESCE($3, destination),
             planned_departure = COALESCE($4, planned_departure)
         WHERE id = $5 AND user_id = $6
-        RETURNING id, user_id, name, start_location, destination, planned_departure, created_at
+        RETURNING *
         "#,
     )
     .bind(payload.name)

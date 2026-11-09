@@ -7,7 +7,6 @@ import 'package:supra_mobile_ui/screens/map_screen.dart';
 import 'package:supra_mobile_ui/widgets/interactive_location_map.dart';
 import 'package:supra_mobile_ui/widgets/current_conditions_panel.dart';
 import 'package:supra_mobile_ui/screens/trip_screen.dart';
-import 'package:supra_mobile_ui/widgets/supra_map.dart';
 
 void main() {
   group('MapConfig & MapLibre basemap tests', () {
@@ -89,17 +88,14 @@ void main() {
       },
     );
 
-    test(
-      'greaterJakartaLandmarks contains only real public places and no McDonald\'s entries',
-      () {
-        expect(
-          greaterJakartaLandmarks.any(
-            (lm) => lm.name.toLowerCase().contains('mcdonald'),
-          ),
-          isFalse,
-        );
-      },
-    );
+    test('greaterJakartaLandmarks contains only real public places and no McDonald\'s entries', () {
+      expect(
+        greaterJakartaLandmarks.any(
+          (lm) => lm.name.toLowerCase().contains('mcdonald'),
+        ),
+        isFalse,
+      );
+    });
   });
 
   group('InteractiveLocationMap widget tests', () {
@@ -115,7 +111,7 @@ void main() {
       );
 
       expect(find.byType(InteractiveLocationMap), findsOneWidget);
-      expect(find.text('Vector Map'), findsOneWidget);
+      expect(find.text('Test canvas (no basemap)'), findsOneWidget);
       expect(find.byIcon(Icons.location_on), findsOneWidget);
       expect(
         find.textContaining('Lat: -6.2000, Lon: 106.8200'),
@@ -287,12 +283,12 @@ void main() {
         ),
         findsOneWidget,
       );
-      // And BMKG adm4 for Bundaran HI was auto-filled
+      // No inferred village code from a nearby landmark.
       expect(
         find.byWidgetPredicate(
           (w) => w is TextField && w.controller?.text == '31.71.03.1001',
         ),
-        findsOneWidget,
+        findsNothing,
       );
     });
 
@@ -328,41 +324,43 @@ void main() {
   });
 
   group('TripScreen map integration tests', () {
-    testWidgets('Start and destination fields have map picker icons and allow selection', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        const MaterialApp(home: Scaffold(body: TripScreen())),
-      );
+    testWidgets(
+      'Start and destination fields have map picker icons and allow selection',
+      (tester) async {
+        await tester.pumpWidget(
+          const MaterialApp(home: Scaffold(body: TripScreen())),
+        );
 
-      expect(find.byTooltip('Select start location on map'), findsNothing);
-      expect(find.byTooltip('Select on map'), findsWidgets);
+        expect(find.byTooltip('Select start location on map'), findsNothing);
+        expect(find.byTooltip('Select on map'), findsWidgets);
 
-      // Tap the first map icon (for start location)
-      await tester.tap(find.byTooltip('Select on map').first);
-      await tester.pumpAndSettle();
+        // Tap the first map icon (for start location)
+        await tester.tap(find.byTooltip('Select on map').first);
+        await tester.pumpAndSettle();
 
-      expect(find.text('Select start location on map'), findsOneWidget);
-      expect(find.text('Nearest Locations:'), findsOneWidget);
+        expect(find.text('Select start location on map'), findsOneWidget);
+        expect(find.text('Nearest Locations:'), findsOneWidget);
 
-      // Tap Monas from the nearest locations list
-      await tester.tap(find.widgetWithText(ListTile, 'Monas').first);
-      await tester.pump();
+        // Tap Monas from the nearest locations list
+        await tester.tap(find.widgetWithText(ListTile, 'Monas').first);
+        await tester.pump();
 
-      // Confirm start location
-      await tester.tap(find.text('Confirm location'));
-      await tester.pumpAndSettle();
+        // Confirm start location
+        await tester.tap(find.text('Confirm location'));
+        await tester.pumpAndSettle();
 
-      // Start field now contains Monas, and Show Route button is present
-      expect(
-        find.byWidgetPredicate(
-          (w) =>
-              w is TextField && (w.controller?.text.contains('Monas') ?? false),
-        ),
-        findsOneWidget,
-      );
-      expect(find.text('Show Route'), findsOneWidget);
-    });
+        // Start field now contains Monas, and Show Route button is present
+        expect(
+          find.byWidgetPredicate(
+            (w) =>
+                w is TextField &&
+                (w.controller?.text.contains('Monas') ?? false),
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('Show Route'), findsOneWidget);
+      },
+    );
 
     testWidgets(
       'Map picking mode allows typing to teleport map with predictive suggestions',
@@ -379,12 +377,13 @@ void main() {
         final searchField = find.byWidgetPredicate(
           (w) =>
               w is TextField &&
-              (w.decoration?.hintText?.contains('teleport') ?? false),
+              (w.decoration?.hintText?.contains('Search start') ?? false),
         );
         expect(searchField, findsOneWidget);
 
         // Predictive test: Type "cibi" -> Cibinong City Mall should be predicted!
         await tester.enterText(searchField, 'cibi');
+        await tester.pump(const Duration(milliseconds: 350));
         await tester.pumpAndSettle();
 
         expect(find.textContaining('Cibinong City Mall'), findsWidgets);
@@ -419,9 +418,13 @@ void main() {
         expect(find.text('Where do you want to go?'), findsOneWidget);
 
         // User picks destination by clicking the destination input field
-        await tester.tap(find.byWidgetPredicate(
-          (w) => w is TextField && (w.decoration?.hintText?.contains('Cibinong') ?? false),
-        ));
+        await tester.tap(
+          find.byWidgetPredicate(
+            (w) =>
+                w is TextField &&
+                (w.decoration?.hintText?.contains('Cibinong') ?? false),
+          ),
+        );
         await tester.pumpAndSettle();
 
         // Now picking mode is active for destination!
@@ -450,9 +453,13 @@ void main() {
         );
 
         // Click destination text input container
-        await tester.tap(find.byWidgetPredicate(
-          (w) => w is TextField && (w.decoration?.hintText?.contains('Cibinong') ?? false),
-        ));
+        await tester.tap(
+          find.byWidgetPredicate(
+            (w) =>
+                w is TextField &&
+                (w.decoration?.hintText?.contains('Cibinong') ?? false),
+          ),
+        );
         await tester.pumpAndSettle();
 
         // Should now be in map picking mode for destination
@@ -462,12 +469,13 @@ void main() {
         final searchField = find.byWidgetPredicate(
           (w) =>
               w is TextField &&
-              (w.decoration?.hintText?.contains('teleport') ?? false),
+              (w.decoration?.hintText?.contains('Search destination') ?? false),
         );
         expect(searchField, findsOneWidget);
 
         // Type "scbd"
         await tester.enterText(searchField, 'scbd');
+        await tester.pump(const Duration(milliseconds: 350));
         await tester.pumpAndSettle();
 
         // Select SCBD from suggestions -> Automatically chooses destination!
@@ -498,24 +506,23 @@ void main() {
         await tester.tap(find.text('Show Route'));
         await tester.pumpAndSettle();
 
-        // After Show Route is clicked, road-accurate waypoints are supplied
+        // Offline/headless mode must not substitute fabricated road geometry.
         final mapAfterRoute = tester.widget<InteractiveLocationMap>(
           find.byType(InteractiveLocationMap),
         );
-        expect(mapAfterRoute.routeWaypoints, isNotNull);
-        expect(mapAfterRoute.routeWaypoints!.length, greaterThan(2));
+        expect(mapAfterRoute.routeWaypoints, isNull);
 
-        // Routes calculated: Car and Motorcycle shown, public transit removed
+        // No fake modes or confirmation are offered when routing is unavailable.
         expect(
           find.textContaining('Car (Automobile)', skipOffstage: false),
-          findsOneWidget,
+          findsNothing,
         );
         expect(
           find.textContaining('Motorcycle (Two-Wheeler)', skipOffstage: false),
-          findsOneWidget,
+          findsNothing,
         );
         expect(find.textContaining('Transjakarta'), findsNothing);
-        expect(find.text('Confirm'), findsOneWidget);
+        expect(find.textContaining('Route unavailable.'), findsOneWidget);
       },
     );
 
@@ -599,7 +606,7 @@ void main() {
       expect(find.textContaining('Motorcycle'), findsWidgets);
 
       // Tap map to inspect
-      await tester.tap(find.byType(SupraMap));
+      await tester.tap(find.byType(InteractiveLocationMap));
       await tester.pump();
 
       expect(find.textContaining('Kemang → Sudirman CBD'), findsOneWidget);

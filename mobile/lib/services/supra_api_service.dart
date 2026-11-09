@@ -8,8 +8,12 @@ import '../config/app_config.dart';
 import '../models/notification.dart';
 import '../models/notification_preference.dart';
 import '../models/trip.dart';
+import '../models/location.dart';
+import '../models/saved_trip.dart';
+import 'ai_assistant_service.dart';
 import '../models/user.dart';
 import '../models/current_conditions.dart';
+import '../models/commute.dart';
 import 'authenticated_client.dart';
 import 'backend_api.dart';
 
@@ -28,8 +32,18 @@ class SupraService extends ChangeNotifier {
   User? _currentUser;
   User? get currentUser => _currentUser;
   bool get isLoggedIn => _currentUser != null;
+  bool _recoveringPassword = false;
+  bool get recoveringPassword => _recoveringPassword;
   final List<Trip> _trips = [];
   List<Trip> get trips => List.unmodifiable(_trips);
+  final Set<String> _finishedTripIds = {};
+  List<Trip> get activeTrips => _trips
+      .where(
+        (t) =>
+            t.activeUntil?.isAfter(DateTime.now()) == true &&
+            !_finishedTripIds.contains(t.id),
+      )
+      .toList();
   final List<AppNotification> _notifications = [];
   List<AppNotification> get notifications => List.unmodifiable(_notifications);
   NotificationPreference _preferences = const NotificationPreference();
@@ -40,11 +54,23 @@ class SupraService extends ChangeNotifier {
   void initializeAuth(supabase.SupabaseClient client) {
     _authSubscription?.cancel();
     _supabase = client;
+    final initialUri = Uri.base;
+    if (initialUri.queryParameters['type'] == 'recovery' ||
+        initialUri.fragment.contains('type=recovery')) {
+      _recoveringPassword = true;
+    }
     _applySession(client.auth.currentSession);
     _authSubscription = client.auth.onAuthStateChange.listen(
-      (event) => _applySession(event.session),
+      (event) {
+        if (event.event == supabase.AuthChangeEvent.passwordRecovery) {
+          _recoveringPassword = true;
+        }
+        _applySession(event.session);
+      },
       onError: (Object error, StackTrace trace) {
-        if (client.auth.currentSession == null) _applySession(null);
+        if (client.auth.currentSession == null) {
+          _applySession(null);
+        }
       },
     );
   }
@@ -58,6 +84,7 @@ class SupraService extends ChangeNotifier {
   void _applySession(supabase.Session? session) {
     final previous = _currentUser?.id;
     final user = session?.user;
+    if (user == null) _recoveringPassword = false;
     _currentUser = user == null
         ? null
         : User(
@@ -73,7 +100,10 @@ class SupraService extends ChangeNotifier {
             createdAt: DateTime.parse(user.createdAt),
           );
     if (previous != _currentUser?.id) {
+      TripHistoryStore.instance.bindUser(_currentUser?.id);
+      AiAssistantService.instance.bindUser(_currentUser?.id);
       _trips.clear();
+      _finishedTripIds.clear();
       _notifications.clear();
       _preferences = const NotificationPreference();
       _ready = false;
@@ -121,6 +151,7 @@ class SupraService extends ChangeNotifier {
     if (profileResponse is Map<String, dynamic> &&
         profileResponse.containsKey('id') &&
         profileResponse.containsKey('full_name')) {
+      _requireSameUser(id);
       _currentUser = User.fromJson(profileResponse);
     }
     final trips = (await api.request('GET', '/api/trips') as List)
@@ -140,6 +171,7 @@ class SupraService extends ChangeNotifier {
     _trips
       ..clear()
       ..addAll(trips);
+    TripHistoryStore.instance.syncWithServiceTrips(_trips);
     _notifications
       ..clear()
       ..addAll(alerts);
@@ -170,32 +202,28 @@ class SupraService extends ChangeNotifier {
     return updated;
   });
 
-  Future<User> uploadAvatar(List<int> bytes, String fileName) =>
-      _withApi((api, id) async {
-        final updated = User.fromJson(
-          await api.uploadBytes(
-                '/api/profile/avatar',
-                bytes,
-                fileName: fileName,
-              )
-              as Map<String, dynamic>,
+  Future<User> uploadAvatar(List<int> bytes, String fileName) => _withApi((
+    api,
+    id,
+  ) async {
+    final updated = User.fromJson(
+      await api.uploadBytes('/api/profile/avatar', bytes, fileName: fileName)
+          as Map<String, dynamic>,
+    );
+    _requireSameUser(id);
+    _currentUser = updated;
+    notifyListeners();
+    try {
+      if (updated.avatarUrl != null) {
+        await _auth.updateUser(
+          supabase.UserAttributes(data: {'avatar_url': updated.avatarUrl}),
         );
-        _requireSameUser(id);
-        _currentUser = updated;
-        notifyListeners();
-        try {
-          if (updated.avatarUrl != null) {
-            await _auth.updateUser(
-              supabase.UserAttributes(
-                data: {'avatar_url': updated.avatarUrl},
-              ),
-            );
-          }
-        } catch (_) {
-          // Best-effort sync with Supabase Auth metadata; DB is source of truth.
-        }
-        return updated;
-      });
+      }
+    } catch (_) {
+      // Best-effort sync with Supabase Auth metadata; DB is source of truth.
+    }
+    return updated;
+  });
 
   Future<void> deleteAccount() async {
     await _withApi((api, id) async {
@@ -256,10 +284,47 @@ class SupraService extends ChangeNotifier {
     _applySession(null);
   }
 
-  Future<void> createTrip({
+  Future<void> requestPasswordRecovery(String email) async {
+    final address = email.trim();
+    if (!address.contains('@')) throw StateError('Enter your email address.');
+    const redirect = String.fromEnvironment('RECOVERY_REDIRECT_URL');
+    await _auth.resetPasswordForEmail(
+      address,
+      redirectTo: redirect.isEmpty ? null : redirect,
+    );
+  }
+
+  Future<void> verifyRecoveryCode(String email, String code) async {
+    final result = await _auth.verifyOTP(
+      email: email.trim(),
+      token: code.trim(),
+      type: supabase.OtpType.recovery,
+    );
+    if (result.session == null) {
+      throw StateError('Recovery code did not establish a session.');
+    }
+    _recoveringPassword = true;
+    _applySession(result.session);
+  }
+
+  Future<void> completePasswordRecovery(String password) async {
+    if (!_recoveringPassword || _auth.currentSession == null) {
+      throw StateError('Verify your recovery link or code first.');
+    }
+    if (password.length < 8) throw StateError('Use at least 8 characters.');
+    await _auth.updateUser(supabase.UserAttributes(password: password));
+    _recoveringPassword = false;
+    notifyListeners();
+  }
+
+  Future<Trip> createTrip({
     required String start,
     required String destination,
     required DateTime departure,
+    required LatLng startPoint,
+    required LatLng destPoint,
+    String mode = 'car',
+    List<LatLng> routeWaypoints = const [],
   }) => _withApi((api, id) async {
     final trip = Trip.fromJson(
       await api.request('POST', '/api/trips', {
@@ -267,18 +332,123 @@ class SupraService extends ChangeNotifier {
         'start_location': start,
         'destination': destination,
         'planned_departure': departure.toUtc().toIso8601String(),
+        'start_latitude': startPoint.latitude,
+        'start_longitude': startPoint.longitude,
+        'destination_latitude': destPoint.latitude,
+        'destination_longitude': destPoint.longitude,
+        'confirmed': true,
+        'transport_mode': mode,
+        if (routeWaypoints.isNotEmpty)
+          'route_waypoints': [
+            for (var i = 0; i < routeWaypoints.length; i++)
+              if (i == 0 ||
+                  i == routeWaypoints.length - 1 ||
+                  i %
+                          ((routeWaypoints.length / 998).ceil().clamp(
+                            1,
+                            routeWaypoints.length,
+                          )) ==
+                      0)
+                {
+                  'lat': routeWaypoints[i].latitude,
+                  'lng': routeWaypoints[i].longitude,
+                },
+          ],
       }) as Map<String, dynamic>,
     );
     _requireSameUser(id);
     _trips.insert(0, trip);
+    TripHistoryStore.instance.syncWithServiceTrips(_trips);
     notifyListeners();
+    return trip;
   });
 
   Future<void> deleteTrip(String tripId) => _withApi((api, id) async {
     await api.request('DELETE', '/api/trips/$tripId');
     _requireSameUser(id);
     _trips.removeWhere((trip) => trip.id == tripId);
+    TripHistoryStore.instance.syncWithServiceTrips(_trips);
     notifyListeners();
+  });
+
+  Future<void> finishTrip(String tripId) => _withApi((api, id) async {
+    await api.request('PUT', '/api/trips/$tripId/finish');
+    _requireSameUser(id);
+    _finishedTripIds.add(tripId);
+    notifyListeners();
+  });
+  Future<List<SavedPlace>> getSavedPlaces() => _withApi((api, id) async {
+    final values = await api.request('GET', '/api/places') as List;
+    _requireSameUser(id);
+    return values
+        .map((v) => SavedPlace.fromJson(v as Map<String, dynamic>))
+        .toList();
+  });
+  Future<void> savePlace({
+    String? placeId,
+    required String label,
+    required String kind,
+    required LatLng point,
+  }) => _withApi((api, id) async {
+    await api.request(
+      placeId == null ? 'POST' : 'PUT',
+      placeId == null ? '/api/places' : '/api/places/$placeId',
+      {
+        'label': label.trim(),
+        'kind': kind,
+        'latitude': point.latitude,
+        'longitude': point.longitude,
+      },
+    );
+    _requireSameUser(id);
+  });
+  Future<void> deletePlace(String placeId) => _withApi((api, id) async {
+    await api.request('DELETE', '/api/places/$placeId');
+    _requireSameUser(id);
+  });
+  Future<List<RoutineTrip>> getRoutines() => _withApi((api, id) async {
+    final values = await api.request('GET', '/api/routines') as List;
+    _requireSameUser(id);
+    return values
+        .map((v) => RoutineTrip.fromJson(v as Map<String, dynamic>))
+        .toList();
+  });
+  Future<void> saveRoutine(Map<String, dynamic> payload, {String? routineId}) =>
+      _withApi((api, id) async {
+        await api.request(
+          routineId == null ? 'POST' : 'PUT',
+          routineId == null ? '/api/routines' : '/api/routines/$routineId',
+          payload,
+        );
+        _requireSameUser(id);
+      });
+  Future<void> deleteRoutine(String routineId) => _withApi((api, id) async {
+    await api.request('DELETE', '/api/routines/$routineId');
+    _requireSameUser(id);
+  });
+  Future<Map<String, dynamic>> planMobility(
+    LatLng start,
+    LatLng destination,
+    String mode,
+  ) => _withApi((api, id) async {
+    final result = await api.request('POST', '/api/mobility/plan', {
+      'mode': mode,
+      'origin': {'latitude': start.latitude, 'longitude': start.longitude},
+      'destination': {
+        'latitude': destination.latitude,
+        'longitude': destination.longitude,
+      },
+    }) as Map<String, dynamic>;
+    _requireSameUser(id);
+    return result;
+  });
+  Future<Map<String, dynamic>> evaluateAlerts() => _withApi((api, id) async {
+    final result = await api.request(
+      'POST',
+      '/api/alerts/evaluate',
+    ) as Map<String, dynamic>;
+    _requireSameUser(id);
+    return result;
   });
 
   Future<List<AppNotification>> getNotifications() => _withApi((api, id) async {
@@ -336,24 +506,20 @@ class SupraService extends ChangeNotifier {
     required String message,
     List<Map<String, dynamic>>? history,
     Map<String, dynamic>? context,
-    String? apiKeyOverride,
-  }) =>
-      _withApi((api, id) async {
-        final payload = <String, dynamic>{
-          'message': message,
-          if (history != null && history.isNotEmpty) 'history': history,
-          if (context != null && context.isNotEmpty) 'context': context,
-          if (apiKeyOverride != null && apiKeyOverride.trim().isNotEmpty)
-            'api_key_override': apiKeyOverride.trim(),
-        };
-        final response = await api.request(
-          'POST',
-          '/api/agent/chat',
-          payload,
-        ) as Map<String, dynamic>;
-        _requireSameUser(id);
-        return response;
-      });
+  }) => _withApi((api, id) async {
+    final payload = <String, dynamic>{
+      'message': message,
+      if (history != null && history.isNotEmpty) 'history': history,
+      if (context != null && context.isNotEmpty) 'context': context,
+    };
+    final response = await api.request(
+      'POST',
+      '/api/agent/chat',
+      payload,
+    ) as Map<String, dynamic>;
+    _requireSameUser(id);
+    return response;
+  });
 
   @visibleForTesting
   void setTripsForTesting(List<Trip> trips) {

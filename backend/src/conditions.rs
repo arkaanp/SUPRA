@@ -231,7 +231,7 @@ impl ConditionsService {
         }
     }
 
-    async fn lookup(&self, q: &ConditionsQuery) -> ConditionsResponse {
+    pub(crate) async fn lookup(&self, q: &ConditionsQuery) -> ConditionsResponse {
         async fn bounded(
             source: &'static str,
             f: impl std::future::Future<Output = Signal>,
@@ -256,7 +256,7 @@ impl ConditionsService {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct Signal {
     pub status: &'static str,
     pub source: &'static str,
@@ -279,14 +279,14 @@ impl Signal {
     }
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct ConditionsResponse {
-    latitude: f64,
-    longitude: f64,
-    retrieved_at: DateTime<Utc>,
-    weather: Signal,
-    air_quality: Signal,
-    traffic: Signal,
+    pub latitude: f64,
+    pub longitude: f64,
+    pub retrieved_at: DateTime<Utc>,
+    pub weather: Signal,
+    pub air_quality: Signal,
+    pub traffic: Signal,
 }
 
 pub async fn current(

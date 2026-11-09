@@ -25,7 +25,7 @@ pub async fn get_notification(
 ) -> AppResult<Json<Notification>> {
     let notification = sqlx::query_as::<_, Notification>(
         r#"
-        SELECT id, user_id, title, message_body, severity, sent_at, is_read
+        SELECT *
         FROM notifications WHERE id = $1 AND user_id = $2
         "#,
     )
@@ -43,7 +43,7 @@ pub async fn list_notifications(
 ) -> AppResult<Json<Vec<Notification>>> {
     let notifications = sqlx::query_as::<_, Notification>(
         r#"
-        SELECT id, user_id, title, message_body, severity, sent_at, is_read
+        SELECT *
         FROM notifications WHERE user_id = $1 ORDER BY sent_at DESC
         "#,
     )
@@ -67,7 +67,7 @@ pub async fn get_user_notifications(
     let notifications = if query.unread_only.unwrap_or(false) {
         sqlx::query_as::<_, Notification>(
             r#"
-            SELECT id, user_id, title, message_body, severity, sent_at, is_read
+            SELECT *
             FROM notifications
             WHERE user_id = $1 AND is_read = FALSE
             ORDER BY sent_at DESC
@@ -82,7 +82,7 @@ pub async fn get_user_notifications(
     } else {
         sqlx::query_as::<_, Notification>(
             r#"
-            SELECT id, user_id, title, message_body, severity, sent_at, is_read
+            SELECT *
             FROM notifications
             WHERE user_id = $1
             ORDER BY sent_at DESC
@@ -109,7 +109,7 @@ pub async fn mark_notification_read(
         UPDATE notifications
         SET is_read = TRUE
         WHERE id = $1 AND user_id = $2
-        RETURNING id, user_id, title, message_body, severity, sent_at, is_read
+        RETURNING *
         "#,
     )
     .bind(id)

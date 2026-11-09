@@ -1,10 +1,13 @@
+mod alerts;
 mod auth;
+mod commutes;
 mod conditions;
 mod db;
 #[cfg(test)]
 mod db_tests;
 mod error;
 mod handlers;
+mod mobility;
 mod models;
 mod routes;
 mod validation;
@@ -65,6 +68,8 @@ async fn main() {
         std::env::var("SUPABASE_JWT_AUDIENCE").unwrap_or_else(|_| "authenticated".into());
     let verifier =
         auth::AuthVerifier::new(&supabase_url, &audience).expect("Invalid Supabase configuration");
+    let conditions = std::sync::Arc::new(conditions::ConditionsService::from_env());
+    alerts::start(state.clone(), conditions);
     let app: Router = create_router(state, verifier).layer(CorsLayer::permissive());
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));

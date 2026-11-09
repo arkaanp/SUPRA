@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show Supabase, UserAttributes;
+import 'package:supabase_flutter/supabase_flutter.dart'
+    show Supabase, UserAttributes;
 
 import 'package:supra_mobile_ui/models/notification_preference.dart';
 import 'package:supra_mobile_ui/services/supra_api_service.dart';
+
+import 'password_recovery_screen.dart';
+import 'commutes_screen.dart';
 
 /// Settings: profile + notification preferences (ERD entity
 /// NOTIFICATION_PREFERENCE) that drive Agent 2 alert rules.
@@ -111,8 +115,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               actions: [
                 TextButton(
-                  onPressed:
-                      submitting ? null : () => Navigator.of(dialogContext).pop(),
+                  onPressed: submitting
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
                   child: const Text('Cancel'),
                 ),
                 ElevatedButton(
@@ -132,8 +137,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             if (dialogContext.mounted) {
                               ScaffoldMessenger.of(dialogContext).showSnackBar(
                                 SnackBar(
-                                  content:
-                                      Text('Failed to update profile: $error'),
+                                  content: Text(
+                                    'Failed to update profile: $error',
+                                  ),
                                 ),
                               );
                             }
@@ -269,16 +275,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
                           final userEmail =
                               SupraService.instance.currentUser?.email ??
-                                  Supabase.instance.client.auth.currentUser
-                                      ?.email ??
-                                  '';
+                              Supabase
+                                  .instance
+                                  .client
+                                  .auth
+                                  .currentUser
+                                  ?.email ??
+                              '';
 
                           try {
                             await Supabase.instance.client.auth
                                 .signInWithPassword(
-                              email: userEmail,
-                              password: currentPasswordController.text,
-                            );
+                                  email: userEmail,
+                                  password: currentPasswordController.text,
+                                );
                           } catch (_) {
                             setDialogState(() {
                               submitting = false;
@@ -310,7 +320,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ScaffoldMessenger.of(dialogContext).showSnackBar(
                                 SnackBar(
                                   content: Text(
-                                      'Failed to change password: $error'),
+                                    'Failed to change password: $error',
+                                  ),
                                 ),
                               );
                             }
@@ -388,8 +399,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             if (dialogContext.mounted) {
                               ScaffoldMessenger.of(dialogContext).showSnackBar(
                                 SnackBar(
-                                  content:
-                                      Text('Failed to delete account: $error'),
+                                  content: Text(
+                                    'Failed to delete account: $error',
+                                  ),
                                 ),
                               );
                             }
@@ -420,7 +432,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final user = SupraService.instance.currentUser;
     final hasAvatar = user?.avatarUrl != null && user!.avatarUrl!.isNotEmpty;
 
-    final cardShape = theme.cardTheme.shape ??
+    final cardShape =
+        theme.cardTheme.shape ??
         RoundedRectangleBorder(borderRadius: BorderRadius.circular(16));
     final cardColor = theme.cardTheme.color ?? colorScheme.surface;
     final cardElevation = theme.cardTheme.elevation ?? 0;
@@ -476,8 +489,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             children: [
                               CircleAvatar(
                                 radius: 30,
-                                backgroundColor:
-                                    colorScheme.primary.withValues(alpha: 0.15),
+                                backgroundColor: colorScheme.primary.withValues(
+                                  alpha: 0.15,
+                                ),
                                 backgroundImage: hasAvatar
                                     ? NetworkImage(user.avatarUrl!)
                                     : null,
@@ -491,15 +505,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         ),
                                       )
                                     : !hasAvatar
-                                        ? Text(
-                                            user?.initials ?? '?',
-                                            style:
-                                                textTheme.titleLarge?.copyWith(
-                                              color: colorScheme.primary,
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          )
-                                        : null,
+                                    ? Text(
+                                        user?.initials ?? '?',
+                                        style: textTheme.titleLarge?.copyWith(
+                                          color: colorScheme.primary,
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      )
+                                    : null,
                               ),
                               Positioned(
                                 bottom: -4,
@@ -621,10 +634,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(
-                    Icons.lock_outline,
-                    color: colorScheme.primary,
-                  ),
+                  leading: Icon(Icons.lock_outline, color: colorScheme.primary),
                   title: Text(
                     'Change Password',
                     style: textTheme.bodyLarge?.copyWith(
@@ -638,16 +648,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   onTap: _showChangePasswordDialog,
                 ),
+                ListTile(
+                  leading: Icon(Icons.lock_reset, color: colorScheme.primary),
+                  title: const Text('Forgot password?'),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => PasswordRecoveryScreen(
+                        initialEmail: user?.email ?? '',
+                      ),
+                    ),
+                  ),
+                ),
+                ListTile(
+                  leading: Icon(
+                    Icons.bookmarks_outlined,
+                    color: colorScheme.primary,
+                  ),
+                  title: const Text('Saved places & routines'),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const CommutesScreen(),
+                    ),
+                  ),
+                ),
                 Divider(
                   height: 1,
                   color: colorScheme.outlineVariant.withValues(alpha: 0.5),
                 ),
                 ListTile(
                   contentPadding: EdgeInsets.zero,
-                  leading: Icon(
-                    Icons.delete_outline,
-                    color: colorScheme.error,
-                  ),
+                  leading: Icon(Icons.delete_outline, color: colorScheme.error),
                   title: Text(
                     'Delete Account',
                     style: textTheme.bodyLarge?.copyWith(
@@ -655,10 +685,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       color: colorScheme.error,
                     ),
                   ),
-                  trailing: Icon(
-                    Icons.chevron_right,
-                    color: colorScheme.error,
-                  ),
+                  trailing: Icon(Icons.chevron_right, color: colorScheme.error),
                   onTap: _showDeleteAccountDialog,
                 ),
               ],
@@ -726,8 +753,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   value: _prefs.alertUnhealthyAqi,
-                  onChanged:
-                      _saving ? null : (v) => _update(alertUnhealthyAqi: v),
+                  onChanged: _saving
+                      ? null
+                      : (v) => _update(alertUnhealthyAqi: v),
                 ),
                 Divider(
                   height: 1,
@@ -773,8 +801,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                   ),
                   value: _prefs.alertSevereTraffic,
-                  onChanged:
-                      _saving ? null : (v) => _update(alertSevereTraffic: v),
+                  onChanged: _saving
+                      ? null
+                      : (v) => _update(alertSevereTraffic: v),
+                ),
+                SwitchListTile(
+                  title: const Text('Relevant verified news'),
+                  subtitle: const Text(
+                    'Route-relevant disruptions from configured trusted sources.',
+                  ),
+                  value: _prefs.alertRelevantNews,
+                  onChanged: _saving
+                      ? null
+                      : (v) => _update(alertRelevantNews: v),
                 ),
               ],
             ),
@@ -809,11 +848,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
     bool? alertUnhealthyAqi,
     bool? alertHeavyRain,
     bool? alertSevereTraffic,
+    bool? alertRelevantNews,
   }) async {
     final next = _prefs.copyWith(
       alertUnhealthyAqi: alertUnhealthyAqi,
       alertHeavyRain: alertHeavyRain,
       alertSevereTraffic: alertSevereTraffic,
+      alertRelevantNews: alertRelevantNews,
     );
     setState(() {
       _prefs = next;

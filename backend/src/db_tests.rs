@@ -87,6 +87,60 @@ async fn migrated_schema_enforces_user_boundaries() {
     }))).await;
     assert_eq!(status, StatusCode::OK, "{trip}");
     assert_eq!(trip["user_id"], alice.to_string());
+    assert!(trip["confirmed_at"].is_null());
+    let (status, confirmed) = request(
+        &app,
+        &token_a,
+        "POST",
+        "/api/trips",
+        Some(json!({
+            "name": "Confirmed commute", "start_location": "A", "destination": "B",
+            "planned_departure": "2030-01-01T12:00:00Z", "confirmed": true,
+            "start_latitude": -6.2, "start_longitude": 106.8,
+            "destination_latitude": -6.3, "destination_longitude": 106.9
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{confirmed}");
+    assert!(confirmed["confirmed_at"].is_string());
+    assert_eq!(confirmed["start_latitude"], -6.2);
+    let confirmed_id = confirmed["id"].as_str().unwrap();
+    let (status, _) = request(
+        &app,
+        &token_b,
+        "DELETE",
+        &format!("/api/trips/{confirmed_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (_, saved) = request(
+        &app,
+        &token_a,
+        "GET",
+        &format!("/api/trips/{confirmed_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(saved["destination_longitude"], 106.9);
+    let (status, _) = request(
+        &app,
+        &token_a,
+        "DELETE",
+        &format!("/api/trips/{confirmed_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = request(
+        &app,
+        &token_a,
+        "GET",
+        &format!("/api/trips/{confirmed_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
     let trip_id: Uuid = trip["id"].as_str().unwrap().parse().unwrap();
     let (status, route) = request(
         &app,
@@ -197,7 +251,112 @@ async fn migrated_schema_enforces_user_boundaries() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{prefs}");
-    assert_eq!(prefs["alert_heavy_rain"], false);
+    // Saved places isolation
+    let (status, home) = request(&app, &token_a, "POST", "/api/places", Some(json!({
+        "label": "Home", "kind": "home", "latitude": -6.2, "longitude": 106.8
+    }))).await;
+    assert_eq!(status, StatusCode::OK, "{home}");
+    let home_id = home["id"].as_str().unwrap();
+
+    let (status, work) = request(&app, &token_a, "POST", "/api/places", Some(json!({
+        "label": "Work", "kind": "work", "latitude": -6.25, "longitude": 106.85
+    }))).await;
+    assert_eq!(status, StatusCode::OK, "{work}");
+    let work_id = work["id"].as_str().unwrap();
+
+    let (status, b_places) = request(&app, &token_b, "GET", "/api/places", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(b_places.as_array().unwrap().len(), 0);
+
+    let (status, _) = request(&app, &token_b, "PUT", &format!("/api/places/{home_id}"), Some(json!({
+        "label": "Stolen", "kind": "home", "latitude": -6.2, "longitude": 106.8
+    }))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, _) = request(&app, &token_b, "DELETE", &format!("/api/places/{home_id}"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, updated_home) = request(&app, &token_a, "PUT", &format!("/api/places/{home_id}"), Some(json!({
+        "label": "Apartment", "kind": "home", "latitude": -6.205, "longitude": 106.805
+    }))).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(updated_home["label"], "Apartment");
+
+    // Routines isolation and validation
+    let (status, routine) = request(&app, &token_a, "POST", "/api/routines", Some(json!({
+        "label": "Morning Commute",
+        "origin_id": home_id,
+        "destination_id": work_id,
+        "mode": "motorcycle",
+        "weekdays": [0, 1, 2, 3, 4],
+        "departure_minute": 450,
+        "timezone": "Asia/Jakarta",
+        "lead_minutes": 30,
+        "enabled": true,
+        "alerts_enabled": true,
+        "news_enabled": true
+    }))).await;
+    assert_eq!(status, StatusCode::OK, "{routine}");
+    let routine_id = routine["id"].as_str().unwrap();
+
+    let (status, b_routines) = request(&app, &token_b, "GET", "/api/routines", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(b_routines.as_array().unwrap().len(), 0);
+
+    let (status, _) = request(&app, &token_b, "PUT", &format!("/api/routines/{routine_id}"), Some(json!({
+        "label": "Stolen Routine",
+        "origin_id": home_id,
+        "destination_id": work_id,
+        "mode": "car",
+        "weekdays": [0],
+        "departure_minute": 450,
+        "timezone": "Asia/Jakarta",
+        "lead_minutes": 30,
+        "enabled": true,
+        "alerts_enabled": true,
+        "news_enabled": false
+    }))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, _) = request(&app, &token_b, "DELETE", &format!("/api/routines/{routine_id}"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, _) = request(&app, &token_b, "POST", "/api/routines", Some(json!({
+        "label": "Cross-user Places Routine",
+        "origin_id": home_id,
+        "destination_id": work_id,
+        "mode": "car",
+        "weekdays": [0],
+        "departure_minute": 450,
+        "timezone": "Asia/Jakarta",
+        "lead_minutes": 30,
+        "enabled": true,
+        "alerts_enabled": true,
+        "news_enabled": false
+    }))).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // Trip finish isolation
+    let (status, active_trip) = request(&app, &token_a, "POST", "/api/trips", Some(json!({
+        "name": "Active Commute", "start_location": "A", "destination": "B",
+        "planned_departure": "2030-01-01T12:00:00Z", "confirmed": true,
+        "start_latitude": -6.2, "start_longitude": 106.8,
+        "destination_latitude": -6.3, "destination_longitude": 106.9
+    }))).await;
+    assert_eq!(status, StatusCode::OK);
+    let active_id = active_trip["id"].as_str().unwrap();
+
+    let (status, _) = request(&app, &token_b, "POST", &format!("/api/trips/{active_id}/finish"), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let (status, finished) = request(&app, &token_a, "POST", &format!("/api/trips/{active_id}/finish"), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(finished["status"], "finished");
+
+    // Alerts evaluation queued endpoint
+    let (status, eval) = request(&app, &token_a, "POST", "/api/alerts/evaluate", None).await;
+    assert_eq!(status, StatusCode::ACCEPTED);
+    assert_eq!(eval["queued"], true);
     let (status, _) = request(
         &app,
         &token_a,

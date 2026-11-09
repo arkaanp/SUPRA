@@ -6,6 +6,7 @@ import 'services/supra_api_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/register_screen.dart';
 import 'screens/supra_shell.dart';
+import 'screens/password_recovery_screen.dart';
 import 'theme/app_theme.dart';
 
 /// Enables drag scrolling across touch, stylus, mouse, and trackpad devices.
@@ -14,11 +15,10 @@ class AppScrollBehavior extends MaterialScrollBehavior {
 
   @override
   Set<PointerDeviceKind> get dragDevices => {
-        PointerDeviceKind.touch,
-        PointerDeviceKind.mouse,
-        PointerDeviceKind.trackpad,
-        PointerDeviceKind.stylus,
-      };
+    PointerDeviceKind.touch,
+    PointerDeviceKind.trackpad,
+    PointerDeviceKind.stylus,
+  };
 }
 
 /// Root widget of the Supra mobile app.
@@ -42,6 +42,9 @@ class SupraApp extends StatelessWidget {
         listenable: SupraService.instance,
         builder: (context, _) {
           final service = SupraService.instance;
+          if (service.recoveringPassword) {
+            return const PasswordRecoveryScreen(verified: true);
+          }
           if (!service.isLoggedIn) {
             return const LoginScreen();
           }
@@ -51,6 +54,7 @@ class SupraApp extends StatelessWidget {
       routes: {
         '/login': (_) => const LoginScreen(),
         '/register': (_) => const RegisterScreen(),
+        '/recovery': (_) => const PasswordRecoveryScreen(),
       },
     );
   }

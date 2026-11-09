@@ -1,13 +1,13 @@
-import 'dart:math';
 import 'dart:ui';
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../models/current_conditions.dart';
-import '../models/environmental_zone.dart';
 import '../models/location.dart';
 import '../models/saved_trip.dart';
 import '../models/trip.dart';
-import '../services/environmental_service.dart';
+import '../services/conditions_repository.dart';
 import '../services/supra_api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/interactive_location_map.dart';
@@ -18,8 +18,9 @@ class HourlyForecast {
   final IconData weatherIcon;
   final Color weatherColor;
   final String weatherCondition;
-  final int temperatureC;
-  final int aqi;
+  final int? temperatureC;
+  final int? aqi;
+  final String status;
   final String aqiCategory;
   final Color aqiBgColor;
   final Color aqiTextColor;
@@ -34,6 +35,7 @@ class HourlyForecast {
     required this.aqiCategory,
     required this.aqiBgColor,
     required this.aqiTextColor,
+    this.status = 'ML pending',
   });
 }
 
@@ -47,11 +49,13 @@ class HourlyForecast {
 class HomeScreen extends StatefulWidget {
   final void Function(Trip? trip)? onNavigateToTrip;
   final VoidCallback? onNavigateToAlerts;
+  final ConditionsRepository? conditions;
 
   const HomeScreen({
     super.key,
     this.onNavigateToTrip,
     this.onNavigateToAlerts,
+    this.conditions,
   });
 
   @override
@@ -61,18 +65,25 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   // Default to Kuningan, Jakarta as showcased in the Figma design specification.
   String _selectedLocationName = 'Kuningan, Jakarta';
-  LatLng _selectedLocation = const LatLng(latitude: -6.2297, longitude: 106.8295);
+  LatLng _selectedLocation = const LatLng(
+    latitude: -6.2297,
+    longitude: 106.8295,
+  );
   String? _selectedAdm4 = '31.74.02.1001';
 
   bool _loading = false;
   CurrentConditions? _liveConditions;
-  EnvironmentalZone? _currentZone;
+  int _requestGeneration = 0;
+  Timer? _freshnessTimer;
   final ScrollController _hourlyScrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _refreshAll();
+    _freshnessTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
     TripHistoryStore.instance.addListener(_onTripHistoryStoreChanged);
   }
 
@@ -84,57 +95,37 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     TripHistoryStore.instance.removeListener(_onTripHistoryStoreChanged);
     _hourlyScrollController.dispose();
+    _freshnessTimer?.cancel();
     super.dispose();
   }
 
   Future<void> _refreshAll() async {
+    final generation = ++_requestGeneration;
+    final point = _selectedLocation;
     setState(() => _loading = true);
     try {
-      // 1. Refresh account state (profile, trips, notifications)
-      await SupraService.instance.loadAccount();
-
-      // 2. Resolve matching environmental zone
-      final zone = EnvironmentalService.findZoneAt(_selectedLocation) ??
-          EnvironmentalService.getCanonicalZones().first;
-      _currentZone = zone;
-
-      // 3. Attempt to fetch live conditions from backend
-      try {
-        final cond = await SupraService.instance.getCurrentConditions(
-          _selectedLocation.latitude,
-          _selectedLocation.longitude,
-          _selectedAdm4,
-        );
-        _liveConditions = cond;
-      } catch (_) {
-        // Fallback gracefully to zone calculations if offline/backend unreachable
+      final conditions =
+          await (widget.conditions ?? ConditionsRepository.instance).at(
+            point,
+            adm4: _selectedAdm4,
+            refresh: true,
+          );
+      if (mounted && generation == _requestGeneration) {
+        setState(() => _liveConditions = conditions);
       }
-    } catch (_) {
-      // Keep existing cached state on refresh error
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && generation == _requestGeneration) {
+        setState(() => _loading = false);
+      }
     }
   }
 
-  /// Calculates US EPA AQI from PM2.5 concentration.
-  int _pm25ToAqi(double pm25) {
-    if (pm25 <= 12.0) {
-      return ((50 - 0) / (12.0 - 0.0) * (pm25 - 0.0) + 0).round();
-    } else if (pm25 <= 35.4) {
-      return ((100 - 51) / (35.4 - 12.1) * (pm25 - 12.1) + 51).round();
-    } else if (pm25 <= 55.4) {
-      return ((150 - 101) / (55.4 - 35.5) * (pm25 - 35.5) + 101).round();
-    } else if (pm25 <= 150.4) {
-      return ((200 - 151) / (150.4 - 55.5) * (pm25 - 55.5) + 151).round();
-    } else if (pm25 <= 250.4) {
-      return ((300 - 201) / (250.4 - 150.5) * (pm25 - 150.5) + 201).round();
-    } else {
-      return ((500 - 301) / (500.4 - 250.5) * (pm25 - 250.5) + 301).clamp(0, 500).round();
-    }
-  }
+  String _wib(DateTime value) =>
+      '${value.toUtc().add(const Duration(hours: 7)).toIso8601String().substring(0, 16).replaceAll('T', ' ')} WIB';
 
   /// Returns AQI styling and category details.
-  (String category, Color badgeBg, Color badgeText, String advisory) _getAqiMeta(int aqi) {
+  (String category, Color badgeBg, Color badgeText, String advisory)
+  _getAqiMeta(int aqi) {
     if (aqi <= 50) {
       return (
         'Good',
@@ -180,8 +171,9 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Generates progressive hourly forecasts for the next 12 hours.
-  List<HourlyForecast> _generateHourlyForecasts(int currentAqi, int count) {
+  /// Retain the original forecast strip for future ML output. Only the Now slot
+  /// may contain an observed/modelled temperature; future slots are not fabricated.
+  List<HourlyForecast> _generateHourlyForecasts(int? currentAqi, int count) {
     final now = DateTime.now();
     final forecasts = <HourlyForecast>[];
 
@@ -192,59 +184,47 @@ class _HomeScreenState extends State<HomeScreen> {
           ? 'Now'
           : '${hourNum % 12 == 0 ? 12 : hourNum % 12} ${hourNum >= 12 ? 'PM' : 'AM'}';
 
-      // Diurnal temperature & weather progression for Greater Jakarta
-      int temp = 31;
-      IconData icon = Icons.wb_sunny_rounded;
-      Color iconColor = const Color(0xFFF59E0B);
-      String condition = 'Sunny';
-
-      if (hourNum >= 11 && hourNum <= 13) {
-        temp = 32;
-        icon = Icons.wb_sunny_rounded;
-        iconColor = const Color(0xFFF59E0B);
-        condition = 'Sunny';
-      } else if (hourNum >= 14 && hourNum <= 16) {
-        temp = 31;
-        icon = Icons.cloud_queue_rounded;
-        iconColor = const Color(0xFF64748B);
-        condition = 'Partly Cloudy';
-      } else if (hourNum >= 17 && hourNum <= 19) {
-        temp = 29;
-        icon = Icons.umbrella_rounded;
-        iconColor = const Color(0xFF3B82F6);
-        condition = 'Light Rain';
-      } else if (hourNum >= 20 || hourNum <= 6) {
-        temp = 27;
-        icon = Icons.nightlight_round;
-        iconColor = const Color(0xFF6366F1);
-        condition = 'Clear Night';
-      } else {
-        temp = 29;
-        icon = Icons.wb_sunny_rounded;
-        iconColor = const Color(0xFFF59E0B);
-        condition = 'Sunny';
-      }
-
-      // Atmospheric AQI curve based on rush hour traffic accumulation
-      int hourlyAqi = currentAqi;
-      if (i > 0) {
-        final drift = ((sin((hourNum - 8) / 3.0) * 12).round());
-        hourlyAqi = (currentAqi + (i * 2) + drift).clamp(35, 180);
-      }
-
-      final meta = _getAqiMeta(hourlyAqi);
+      final current = i == 0;
+      final weather = _liveConditions?.agedAt(now).weather;
+      final description = weather?.data?['description'] as String?;
+      final code = weather?.number('weather_code')?.toInt();
+      final (weatherText, weatherIcon) = switch (code ?? -1) {
+        0 => ('Clear', Icons.wb_sunny_rounded),
+        1 || 2 => ('Partly cloudy', Icons.cloud_queue_rounded),
+        3 => ('Cloudy', Icons.cloud_rounded),
+        45 || 48 => ('Fog', Icons.foggy),
+        >= 51 && <= 57 => ('Drizzle', Icons.grain),
+        >= 61 && <= 67 || >= 80 && <= 82 => ('Rain', Icons.umbrella_rounded),
+        >= 71 && <= 77 || 85 || 86 => ('Snow', Icons.ac_unit),
+        >= 95 && <= 99 => ('Thunderstorm', Icons.thunderstorm),
+        _ => (description ?? 'Weather —', Icons.help_outline),
+      };
+      final temp = current && weather?.kind != 'provider_forecast'
+          ? weather?.number('temperature_c')?.round()
+          : null;
 
       forecasts.add(
         HourlyForecast(
           time: timeStr,
-          weatherIcon: icon,
-          weatherColor: iconColor,
-          weatherCondition: condition,
+          weatherIcon: current && weather?.kind != 'provider_forecast'
+              ? weatherIcon
+              : Icons.hourglass_empty_rounded,
+          weatherColor: const Color(0xFF64748B),
+          weatherCondition: current && weather?.kind != 'provider_forecast'
+              ? weatherText
+              : 'Weather —',
           temperatureC: temp,
-          aqi: hourlyAqi,
-          aqiCategory: meta.$1,
-          aqiBgColor: meta.$2,
-          aqiTextColor: meta.$3,
+          aqi: current ? currentAqi : null,
+          aqiCategory: 'No prediction',
+          aqiBgColor: const Color(0xFFF1F5F9),
+          aqiTextColor: const Color(0xFF64748B),
+          status: current
+              ? (temp == null
+                    ? 'No data'
+                    : weather?.isStale == true
+                    ? 'Stale'
+                    : 'Latest')
+              : 'ML pending',
         ),
       );
     }
@@ -302,7 +282,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 8),
                 const Text(
                   'Select a key Greater Jakarta destination or pick custom coordinates on the interactive map.',
-                  style: TextStyle(color: SupraTheme.textSecondary, fontSize: 13),
+                  style: TextStyle(
+                    color: SupraTheme.textSecondary,
+                    fontSize: 13,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 OutlinedButton.icon(
@@ -317,9 +300,11 @@ class _HomeScreenState extends State<HomeScreen> {
                       final nearest = findNearestLandmark(picked);
                       setState(() {
                         _selectedLocation = picked;
-                        _selectedLocationName = nearest?.name ??
+                        _selectedLocationName =
+                            nearest?.name ??
                             'Lat: ${picked.latitude.toStringAsFixed(3)}, Lon: ${picked.longitude.toStringAsFixed(3)}';
-                        _selectedAdm4 = nearest?.adm4;
+                        _selectedAdm4 = null;
+                        _liveConditions = null;
                       });
                       _refreshAll();
                     }
@@ -407,14 +392,22 @@ class _HomeScreenState extends State<HomeScreen> {
                         dense: true,
                         contentPadding: EdgeInsets.zero,
                         leading: Icon(
-                          isSelected ? Icons.check_circle : Icons.location_city_outlined,
-                          color: isSelected ? SupraTheme.brand : SupraTheme.textSecondary,
+                          isSelected
+                              ? Icons.check_circle
+                              : Icons.location_city_outlined,
+                          color: isSelected
+                              ? SupraTheme.brand
+                              : SupraTheme.textSecondary,
                         ),
                         title: Text(
                           item.name,
                           style: TextStyle(
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            color: isSelected ? SupraTheme.brand : SupraTheme.onSurface,
+                            fontWeight: isSelected
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                            color: isSelected
+                                ? SupraTheme.brand
+                                : SupraTheme.onSurface,
                           ),
                         ),
                         subtitle: Text(item.area),
@@ -424,6 +417,7 @@ class _HomeScreenState extends State<HomeScreen> {
                             _selectedLocationName = item.name;
                             _selectedLocation = item.point;
                             _selectedAdm4 = item.adm4;
+                            _liveConditions = null;
                           });
                           _refreshAll();
                         },
@@ -521,7 +515,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           color: SupraTheme.brand.withValues(alpha: 0.1),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(Icons.air_rounded, color: SupraTheme.brand, size: 22),
+                        child: const Icon(
+                          Icons.air_rounded,
+                          color: SupraTheme.brand,
+                          size: 22,
+                        ),
                       ),
                       const SizedBox(width: 10),
                       const Expanded(
@@ -572,7 +570,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
                               color: b.$4,
                               borderRadius: BorderRadius.circular(8),
@@ -746,7 +747,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 3,
+                            ),
                             decoration: BoxDecoration(
                               color: r.$4,
                               borderRadius: BorderRadius.circular(8),
@@ -802,45 +806,38 @@ class _HomeScreenState extends State<HomeScreen> {
     final service = SupraService.instance;
     final unreadCount = service.notifications.where((n) => !n.isRead).length;
 
-    // Determine current values (prefer live, fallback to zone defaults)
-    final zone = _currentZone ??
-        EnvironmentalService.findZoneAt(_selectedLocation) ??
-        EnvironmentalService.getCanonicalZones().first;
-
-    final liveAir = _liveConditions?.airQuality.data;
-    final liveWeather = _liveConditions?.weather.data;
-    final liveTraffic = _liveConditions?.traffic.data;
-
-    // PM2.5 and AQI computation
-    final double pm25 = (liveAir?['pm25_ug_m3'] as num?)?.toDouble() ?? zone.pm25;
-    // If Kuningan default or moderate baseline, default to 72 as seen in wireframe
-    final int currentAqi = (_selectedLocationName.contains('Kuningan') && liveAir == null)
-        ? 72
-        : _pm25ToAqi(pm25);
-
-    final aqiMeta = _getAqiMeta(currentAqi);
-
-    // Weather & Rain
-    final double rainMm =
-        (liveWeather?['precipitation_mm'] as num?)?.toDouble() ?? zone.rainfallMm;
-    final String weatherLabel = rainMm > 0.5
-        ? 'Rainy'
-        : (liveWeather?['description'] as String?) ?? 'Rain';
-    final String rainValue = rainMm > 0.0
-        ? '${rainMm.toStringAsFixed(1)} mm'
-        : '35%'; // Matching the Figma 35% probability specification
-
-    // Traffic
-    final String trafficValue = (liveTraffic?['confidence'] != null)
-        ? (liveTraffic?['speed_kmh'] != null && (liveTraffic!['speed_kmh'] as num) < 20
-            ? 'Heavy'
-            : 'Moderate')
-        : 'Heavy';
-
-    // Temperature (Replacing Wind in Today's Air Quality card)
-    final double tempC =
-        (liveWeather?['temperature_c'] as num?)?.toDouble() ?? 29.0;
-    final String tempValue = '${tempC.toStringAsFixed(0)}°C';
+    final snapshot = _liveConditions?.agedAt(DateTime.now());
+    final air = snapshot?.airQuality;
+    final weather = snapshot?.weather;
+    final traffic = snapshot?.traffic;
+    final pm25 = air?.number('pm25_ug_m3');
+    // Only display a supplied, identified AQI; never convert an instantaneous PM sample.
+    final currentAqi = air?.data?['aqi_standard'] == 'US EPA'
+        ? air?.number('aqi')?.round()
+        : null;
+    final aqiMeta = currentAqi == null
+        ? (
+            pm25 == null ? 'No cached data' : 'PM2.5',
+            const Color(0xFFF1F5F9),
+            const Color(0xFF475569),
+            pm25 == null
+                ? 'No cached reading for this location yet. Pull to refresh.'
+                : 'Nearby station PM2.5, not an AQI or an ML prediction.',
+          )
+        : _getAqiMeta(currentAqi);
+    final rain = weather?.number('precipitation_mm');
+    final rainValue = rain == null ? '—' : '${rain.toStringAsFixed(1)} mm';
+    final weatherLabel = weather?.isStale == true
+        ? 'Rain · STALE'
+        : weather?.kind == 'provider_forecast'
+        ? 'Rain forecast'
+        : 'Rain';
+    final speed = traffic?.number('speed_kmh');
+    final trafficValue = speed == null
+        ? '—'
+        : '${speed.toStringAsFixed(0)} km/h';
+    final temp = weather?.number('temperature_c');
+    final tempValue = temp == null ? '—' : '${temp.toStringAsFixed(0)}°C';
 
     // Forecast items: always next 12 hours (13 items total: Now + 12 hours ahead)
     final forecastItems = _generateHourlyForecasts(currentAqi, 13);
@@ -874,15 +871,33 @@ class _HomeScreenState extends State<HomeScreen> {
               // 2. TODAY'S AIR QUALITY CURVED CARD
               // -------------------------------------------------------------
               _buildTodaysAirQualityCard(
-                aqi: currentAqi,
-                category: aqiMeta.$1,
-                categoryBg: aqiMeta.$2,
+                value:
+                    currentAqi?.toString() ?? pm25?.toStringAsFixed(1) ?? '—',
+                category:
+                    '${air?.isStale == true ? "STALE · " : ""}${aqiMeta.$1}',
+                categoryBg: air?.isStale == true
+                    ? const Color(0xFFFEF3C7)
+                    : aqiMeta.$2,
                 categoryText: aqiMeta.$3,
-                advisory: aqiMeta.$4,
+                advisory: air?.isStale == true
+                    ? 'Last-known reading — not current. ${aqiMeta.$4}'
+                    : aqiMeta.$4,
+                sourceLabel:
+                    '${currentAqi == null ? "PM2.5 µg/m³" : "US AQI"} · ${air?.source ?? "No source yet"}'
+                    '${air?.validAt == null ? "" : "\nObserved ${_wib(air!.validAt!)}"}'
+                    '${air?.receivedAt == null ? "" : "\nFetched ${_wib(air!.receivedAt!)}"}',
                 weatherLabel: weatherLabel,
                 rainValue: rainValue,
                 trafficValue: trafficValue,
                 tempValue: tempValue,
+                trafficLabel: traffic?.isStale == true
+                    ? 'Traffic · STALE'
+                    : 'Traffic',
+                tempLabel: weather?.isStale == true
+                    ? 'Temp · STALE'
+                    : weather?.kind == 'provider_forecast'
+                    ? 'Temp forecast'
+                    : 'Temp',
               ),
 
               const SizedBox(height: 28),
@@ -970,7 +985,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: _showLocationPicker,
                 borderRadius: BorderRadius.circular(6),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 2,
+                    horizontal: 2,
+                  ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -1072,7 +1090,7 @@ class _HomeScreenState extends State<HomeScreen> {
   ///   Middle: Traffic symbol, Traffic, value
   ///   Right: Thermometer symbol, Temp, value
   Widget _buildTodaysAirQualityCard({
-    required int aqi,
+    required String value,
     required String category,
     required Color categoryBg,
     required Color categoryText,
@@ -1081,6 +1099,9 @@ class _HomeScreenState extends State<HomeScreen> {
     required String rainValue,
     required String trafficValue,
     required String tempValue,
+    required String sourceLabel,
+    required String trafficLabel,
+    required String tempLabel,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -1126,7 +1147,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         shape: BoxShape.circle,
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(0xFFFBBF24).withValues(alpha: 0.5),
+                            color: const Color(0xFFFBBF24)
+                                .withValues(alpha: 0.5),
                             blurRadius: 16,
                           ),
                         ],
@@ -1197,7 +1219,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   children: [
                     // Big Number
                     Text(
-                      '$aqi',
+                      value,
                       style: const TextStyle(
                         fontSize: 54,
                         fontWeight: FontWeight.w800,
@@ -1209,41 +1231,43 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(width: 14),
 
                     // Right side divided into two parts: top is category, bottom is source
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        // Top: Category Pill Badge (e.g. Moderate)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: categoryBg,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Text(
-                            category,
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: categoryText,
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Top: Category Pill Badge (e.g. Moderate)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 4,
+                            ),
+                            decoration: BoxDecoration(
+                              color: categoryBg,
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: Text(
+                              category,
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: categoryText,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 4),
+                          const SizedBox(height: 4),
 
-                        // Bottom: Source
-                        Text(
-                          'US AQI · Station Sensors',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w500,
-                            color: Colors.white.withValues(alpha: 0.75),
+                          // Bottom: Source
+                          Text(
+                            sourceLabel,
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w500,
+                              color: Colors.white.withValues(alpha: 0.75),
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -1295,7 +1319,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     Expanded(
                       child: _buildMetricItem(
                         icon: Icons.traffic_rounded,
-                        topLabel: 'Traffic',
+                        topLabel: trafficLabel,
                         bottomValue: trafficValue,
                       ),
                     ),
@@ -1311,7 +1335,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     Expanded(
                       child: _buildMetricItem(
                         icon: Icons.thermostat_rounded,
-                        topLabel: 'Temp',
+                        topLabel: tempLabel,
                         bottomValue: tempValue,
                       ),
                     ),
@@ -1359,13 +1383,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Flexible(
-                      child: Text(
-                        topLabel,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.white.withValues(alpha: 0.8),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          topLabel,
+                          maxLines: 1,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w500,
+                            color: Colors.white.withValues(alpha: 0.8),
+                          ),
                         ),
                       ),
                     ),
@@ -1437,7 +1464,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   SizedBox(height: 2),
                   Text(
-                    'Combined local weather, air quality & temperature predictions',
+                    'ML predictions will appear here when available',
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
@@ -1505,7 +1532,7 @@ class _HomeScreenState extends State<HomeScreen> {
             },
           ),
           child: SizedBox(
-            height: 136,
+            height: 178,
             child: ListView.separated(
               controller: _hourlyScrollController,
               scrollDirection: Axis.horizontal,
@@ -1515,86 +1542,115 @@ class _HomeScreenState extends State<HomeScreen> {
               itemCount: forecastItems.length,
               separatorBuilder: (_, _) => const SizedBox(width: 12),
               itemBuilder: (context, index) {
-              final item = forecastItems[index];
-              return Container(
-                width: 84,
-                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: index == 0
-                        ? SupraTheme.brand.withValues(alpha: 0.3)
-                        : const Color(0xFFE2E8F0),
-                    width: index == 0 ? 1.5 : 1.0,
+                final item = forecastItems[index];
+                return Container(
+                  width: 84,
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 12,
+                    horizontal: 8,
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.03),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: index == 0
+                          ? SupraTheme.brand.withValues(alpha: 0.3)
+                          : const Color(0xFFE2E8F0),
+                      width: index == 0 ? 1.5 : 1.0,
                     ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    // 1. Time (Now, +1 hr, etc.)
-                    Text(
-                      item.time,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: index == 0 ? FontWeight.bold : FontWeight.w500,
-                        color: index == 0 ? SupraTheme.brand : const Color(0xFF64748B),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.03),
+                        blurRadius: 6,
+                        offset: const Offset(0, 2),
                       ),
-                    ),
-
-                    // 2. Weather shown by a symbol
-                    Icon(
-                      item.weatherIcon,
-                      size: 26,
-                      color: item.weatherColor,
-                    ),
-
-                    // 3. Temperature
-                    Text(
-                      '${item.temperatureC}°',
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A),
-                      ),
-                    ),
-
-                    // 4. AQI Prediction Badge
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 2,
-                      ),
-                      decoration: BoxDecoration(
-                        color: item.aqiBgColor,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        'AQI ${item.aqi}',
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      // 1. Time (Now, +1 hr, etc.)
+                      Text(
+                        item.time,
                         style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          color: item.aqiTextColor,
+                          fontSize: 12,
+                          fontWeight: index == 0
+                              ? FontWeight.bold
+                              : FontWeight.w500,
+                          color: index == 0
+                              ? SupraTheme.brand
+                              : const Color(0xFF64748B),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              );
-            },
+
+                      // 2. Weather shown by a symbol
+                      Icon(
+                        item.weatherIcon,
+                        size: 26,
+                        color: item.weatherColor,
+                      ),
+
+                      Text(
+                        item.weatherCondition,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          color: SupraTheme.textSecondary,
+                        ),
+                      ),
+                      // 3. Temperature
+                      Text(
+                        item.temperatureC == null
+                            ? 'Temp —'
+                            : '${item.temperatureC}°C',
+                        style: const TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+
+                      Text(
+                        item.aqi == null ? 'AQI —' : 'AQI ${item.aqi}',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      // State is separate from temperature, AQI and weather.
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 2,
+                        ),
+                        decoration: BoxDecoration(
+                          color: item.aqiBgColor,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            item.status,
+                            maxLines: 1,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: item.aqiTextColor,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
           ),
         ),
-      ),
-    ],
-  );
-}
+      ],
+    );
+  }
 
   Widget _buildHourlyNavArrow({
     required IconData icon,
@@ -1626,11 +1682,9 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Synchronized with TripHistoryStore (same store used by TripScreen).
   /// Tapping any saved trip triggers navigation to TripScreen and shows the route.
   Widget _buildRecentTripsSection(SupraService service) {
-    if (service.trips.isNotEmpty) {
-      TripHistoryStore.instance.syncWithServiceTrips(service.trips);
-    }
-    final recentTrips =
-        TripHistoryStore.instance.getSortedTrips(TripHistorySort.recent);
+    final recentTrips = TripHistoryStore.instance.getSortedTrips(
+      TripHistorySort.recent,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1689,8 +1743,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       Text(
-                        'Save your daily routes to get instant environmental forecasts and route recommendations.',
-                        style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                        'Confirm a trip to add it to your history. ML forecasts will be added in the future.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF64748B),
+                        ),
                       ),
                     ],
                   ),
@@ -1800,8 +1857,16 @@ class _SupraLogoPainter extends CustomPainter {
     canvas.drawPath(path, paintLine);
 
     // Nodes
-    canvas.drawCircle(Offset(size.width * 0.25, size.height * 0.28), 2.2, paintDot);
-    canvas.drawCircle(Offset(size.width * 0.75, size.height * 0.72), 2.2, paintDot);
+    canvas.drawCircle(
+      Offset(size.width * 0.25, size.height * 0.28),
+      2.2,
+      paintDot,
+    );
+    canvas.drawCircle(
+      Offset(size.width * 0.75, size.height * 0.72),
+      2.2,
+      paintDot,
+    );
   }
 
   @override

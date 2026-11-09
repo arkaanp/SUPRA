@@ -29,12 +29,37 @@ pub(crate) fn create_router_with_conditions(
         .fallback(|| async { crate::error::AppError::NotFound })
         .method_not_allowed_fallback(|| async { crate::error::AppError::MethodNotAllowed })
         .layer(axum::Extension(conditions))
+        .layer(axum::Extension(std::sync::Arc::new(
+            crate::mobility::MobilityService::from_env(),
+        )))
         .with_state(state)
 }
 
 fn protected_routes(verifier: crate::auth::AuthVerifier) -> Router<AppState> {
     Router::new()
         .route("/api/conditions/current", get(crate::conditions::current))
+        .route("/api/mobility/plan", post(crate::mobility::plan))
+        .route("/api/alerts/evaluate", post(crate::alerts::evaluate_user))
+        .route(
+            "/api/places",
+            get(crate::commutes::list_places).post(crate::commutes::create_place),
+        )
+        .route(
+            "/api/places/{id}",
+            put(crate::commutes::update_place).delete(crate::commutes::delete_place),
+        )
+        .route(
+            "/api/routines",
+            get(crate::commutes::list_routines).post(crate::commutes::create_routine),
+        )
+        .route(
+            "/api/routines/{id}",
+            put(crate::commutes::update_routine).delete(crate::commutes::delete_routine),
+        )
+        .route(
+            "/api/trips/{id}/finish",
+            put(crate::commutes::finish_trip).post(crate::commutes::finish_trip),
+        )
         // ====================================================================
         // Users & Profile
         // ====================================================================
@@ -42,7 +67,10 @@ fn protected_routes(verifier: crate::auth::AuthVerifier) -> Router<AppState> {
             "/api/profile",
             get(users::get_profile).put(users::update_profile),
         )
-        .route("/api/profile/avatar", post(users::upload_avatar))
+        .route(
+            "/api/profile/avatar",
+            post(users::upload_avatar).layer(axum::extract::DefaultBodyLimit::max(5 * 1024 * 1024)),
+        )
         .route("/api/account", delete(users::delete_account))
         .route(
             "/api/users",
