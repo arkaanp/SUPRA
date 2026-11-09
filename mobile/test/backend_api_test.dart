@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -39,6 +40,25 @@ void main() {
       );
     },
   );
+
+  test('Trip and avatar timeouts preserve uncertain save outcome without raw exceptions', () async {
+    final client = MockClient((_) => Completer<http.Response>().future);
+    addTearDown(client.close);
+    final api = BackendApi(
+      client: client,
+      baseUrl: 'http://localhost:3000',
+      requestTimeout: const Duration(milliseconds: 10),
+      uploadTimeout: const Duration(milliseconds: 10),
+    );
+    final expected = isA<ApiException>()
+        .having((e) => e.status, 'status', 504)
+        .having((e) => e.message, 'message', contains('Refresh to check'));
+    await expectLater(api.request('POST', '/api/trips', {}), throwsA(expected));
+    await expectLater(
+      api.uploadBytes('/api/profile/avatar', [1]),
+      throwsA(expected),
+    );
+  });
 
   test('Invalid backend responses are not accepted as data', () async {
     final client = MockClient((_) async => http.Response('not JSON', 502));

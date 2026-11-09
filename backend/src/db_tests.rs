@@ -76,6 +76,20 @@ async fn migrated_schema_enforces_user_boundaries() {
         assert_eq!(profile["id"], id.to_string());
         assert!(profile.get("password_hash").is_none());
     }
+    // Exercise the real upload transaction and profile response, not just image parsing.
+    let mut png = std::io::Cursor::new(Vec::new());
+    image::DynamicImage::new_rgb8(16, 16)
+        .write_to(&mut png, image::ImageFormat::Png).unwrap();
+    let upload = Request::builder().method("POST").uri("/api/profile/avatar")
+        .header("authorization", format!("Bearer {token_a}"))
+        .header("content-type", "application/octet-stream")
+        .body(Body::from(png.into_inner())).unwrap();
+    let response = tokio::time::timeout(std::time::Duration::from_secs(2),
+        app.clone().oneshot(upload)).await.expect("avatar upload should finish promptly").unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let profile: Value = serde_json::from_slice(&to_bytes(response.into_body(), 1024*1024).await.unwrap()).unwrap();
+    assert!(profile["avatar_url"].as_str().unwrap().ends_with(".png"));
+
     let (status, _) = request(&app, &token_a, "GET", &format!("/api/users/{bob}"), None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, profiles) = request(&app, &token_a, "GET", "/api/users", None).await;

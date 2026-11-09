@@ -57,3 +57,13 @@ UI/device rendering and complete cross-account demo need manual verification.
 Compile/analyzer/fixture corrections and 16:9 fixes in the source documentation
 belong to their recorded branch revisions. See the original incident report via
 Git history; the docs-only merge does not deliver additional app fixes.
+
+## INC-001 update — timeout fixes applied
+
+The desktop session stored before the fix was expired; authenticated reads with
+it returned 401. After backend rebuild and Flutter restart, the session refreshed
+and profile/trip reads returned 200. This supports a shared authentication-path
+contribution to the reported trip/upload/account timeouts; the exact original
+stall was not captured. Refresh transport and JWT/DB waits are bounded, and
+provider evaluation is removed from inbox reads. Isolated avatar/trip integration
+passes. Keep the incident open pending the user's upload and trip retries.

@@ -53,3 +53,24 @@ Recorded execution: [RESULTS.md](RESULTS.md).
 
 These are the three test stages. Static analysis, metadata inspection and builds
 support them; they are not additional testing stages.
+
+## Timeout investigation and isolated database reproduction
+
+```sh
+python3 testing/scripts/account_diagnostics.py
+python3 testing/scripts/database_diagnostics.py --backend-env
+python3 testing/scripts/run_database_tests.py
+```
+
+The account script reads the existing Linux app session from its local preferences
+and times authenticated profile, trip, inbox and preference GET requests. It
+prints status/duration only, redacts user IDs, never refreshes the token itself,
+and returns nonzero for failed reads. An expired session can return 401; restart
+or sign in through the app rather than exporting tokens into a terminal.
+
+Database diagnostics show aggregate waits/locks and trigger names, without
+account rows or SQL text. The isolated test runner requires PostgreSQL tools
+(`initdb`, `pg_ctl`, `createdb`); it provisions a new loopback-only cluster under
+`testing/evidence/`, runs the ignored integration test, then stops the cluster.
+It retains logs/data for demonstration and never connects to the app database.
+The integration test now exercises avatar upload as well as confirmed-trip CRUD.

@@ -57,7 +57,7 @@ impl AuthVerifier {
             issuer,
             audience: audience.to_owned(),
             client: reqwest::Client::builder()
-                .timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(3))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()?,
             cache: Arc::default(),
@@ -151,7 +151,16 @@ pub async fn authenticate(
         .and_then(|h| h.strip_prefix("Bearer "))
         .filter(|s| !s.is_empty());
     let user = match token {
-        Some(token) => verifier.verify(token).await.ok(),
+        Some(token) => {
+            match tokio::time::timeout(Duration::from_secs(4), verifier.verify(token)).await {
+                // This deadline also bounds waiting behind another JWKS refresh.
+                Err(_) => return crate::error::AppError::Unavailable.into_response(),
+                Ok(Err(error)) if error.downcast_ref::<reqwest::Error>().is_some() => {
+                    return crate::error::AppError::Unavailable.into_response();
+                }
+                Ok(result) => result.ok(),
+            }
+        }
         None => None,
     };
     match user {
@@ -348,6 +357,43 @@ mod tests {
         .unwrap();
         assert!(verifier.verify(&symmetric).await.is_err());
         attacker_server.abort();
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn failed_jwks_network_is_unavailable_not_invalid_session() {
+        let (mut verifier, key, server) = fixture().await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let slow = Router::new().route(
+            "/jwks",
+            get(|| async {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                Json(json!({"keys": []}))
+            }),
+        );
+        let slow_server = tokio::spawn(async move { axum::serve(listener, slow).await.unwrap() });
+        verifier.jwks_url = format!("http://{address}/jwks");
+        verifier.client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(30))
+            .build()
+            .unwrap();
+        let app = Router::new()
+            .route("/", get(|| async { "ok" }))
+            .layer(axum::middleware::from_fn_with_state(verifier, authenticate));
+        let req = Request::builder()
+            .uri("/")
+            .header(
+                header::AUTHORIZATION,
+                format!("Bearer {}", token(&claims(), &key, "test-key")),
+            )
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(
+            app.oneshot(req).await.unwrap().status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        slow_server.abort();
         server.abort();
     }
 

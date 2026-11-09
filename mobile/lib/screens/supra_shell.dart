@@ -77,9 +77,7 @@ class _SupraShellState extends State<SupraShell> {
                 children: [
                   if (_error != null)
                     MaterialBanner(
-                      content: const Text(
-                        'Account refresh unavailable. Last-known conditions can still be shown as stale.',
-                      ),
+                      content: Text('Account refresh unavailable. $_error'),
                       actions: [
                         TextButton(
                           onPressed: _load,

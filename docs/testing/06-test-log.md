@@ -55,3 +55,27 @@ See [shareable results](../../testing/RESULTS.md).
    dedicated database test NOT RUN.
 3. **System testing:** backend smoke passed; builds and authenticated device
    flows NOT RUN. No complete system-stage pass is claimed.
+
+## Timeout-fix verification — 2026-11-09
+
+Changes after the recorded `3fbc286` baseline:
+
+1. **Unit testing:** backend 33 passed/one DB case ignored; Flutter 66 passed;
+   analysis clean. Added stalled refresh/header/body tests, late-auth write
+   prevention, upload/trip timeout mapping, JWKS failure handling and immediate
+   alert-queue acknowledgement.
+2. **Integration testing:** dedicated local database suite passed, including
+   authenticated avatar PNG upload and confirmed-trip persistence. Evidence:
+   `testing/evidence/db-20261109T072105086787Z/integration.log`.
+3. **System testing:** rebuilt backend and Flutter hot restart completed. The
+   desktop session refreshed; authenticated profile/trip reads returned 200 in
+   approximately 0.4 seconds. HTTP smoke passed 200/200/401/404. User-visible
+   upload/trip retry confirmation is still pending; no complete system pass yet.
+
+Combined-suite evidence: `testing/evidence/20261109T072211984744Z/`.
+Auth calls now have a 5-second transport deadline and a 6-second token wait.
+JWKS verification has a 4-second overall budget (3-second upstream HTTP);
+DB pool acquisition is 4 seconds, statements 6 seconds and locks 3 seconds.
+Inbox reads no longer run provider evaluation; manual evaluation acknowledges
+asynchronously. Account errors retain their cause and save timeouts advise
+checking persisted state before retrying.
