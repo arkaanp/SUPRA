@@ -1,0 +1,4 @@
+evidence/*
+!evidence/README.md
+__pycache__/
+scripts/__pycache__/
