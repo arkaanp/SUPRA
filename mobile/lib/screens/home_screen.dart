@@ -8,6 +8,7 @@ import '../models/location.dart';
 import '../models/saved_trip.dart';
 import '../models/trip.dart';
 import '../services/conditions_repository.dart';
+import '../services/display_preferences.dart';
 import '../services/supra_api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/interactive_location_map.dart';
@@ -80,6 +81,8 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    DisplayPreferences.instance.addListener(_onDisplayPreferenceChanged);
+    DisplayPreferences.instance.load();
     _refreshAll();
     _freshnessTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted) setState(() {});
@@ -87,12 +90,19 @@ class _HomeScreenState extends State<HomeScreen> {
     TripHistoryStore.instance.addListener(_onTripHistoryStoreChanged);
   }
 
+  void _onDisplayPreferenceChanged() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _showMl => DisplayPreferences.instance.showMlPredictions;
+
   void _onTripHistoryStoreChanged() {
     if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    DisplayPreferences.instance.removeListener(_onDisplayPreferenceChanged);
     TripHistoryStore.instance.removeListener(_onTripHistoryStoreChanged);
     _hourlyScrollController.dispose();
     _freshnessTimer?.cancel();
@@ -173,7 +183,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Retain the original forecast strip for future ML output. Only the Now slot
   /// may contain an observed/modelled temperature; future slots are not fabricated.
-  List<HourlyForecast> _generateHourlyForecasts(int? currentAqi, int count) {
+  List<HourlyForecast> _generateHourlyForecasts(
+    int? currentAqi,
+    int count, {
+    bool showMl = false,
+  }) {
     final now = DateTime.now();
     final forecasts = <HourlyForecast>[];
 
@@ -224,6 +238,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     : weather?.isStale == true
                     ? 'Stale'
                     : 'Latest')
+              : showMl
+              ? 'ML unavailable'
               : 'ML pending',
         ),
       );
@@ -826,7 +842,7 @@ class _HomeScreenState extends State<HomeScreen> {
           )
         : _getAqiMeta(currentAqi);
     final rain = weather?.number('precipitation_mm');
-    final rainValue = rain == null ? '—' : '${rain.toStringAsFixed(1)} mm';
+    final rainValue = rain == null ? 'No data' : '${rain.toStringAsFixed(1)} mm';
     final weatherLabel = weather?.isStale == true
         ? 'Rain · STALE'
         : weather?.kind == 'provider_forecast'
@@ -834,13 +850,17 @@ class _HomeScreenState extends State<HomeScreen> {
         : 'Rain';
     final speed = traffic?.number('speed_kmh');
     final trafficValue = speed == null
-        ? '—'
+        ? 'No data'
         : '${speed.toStringAsFixed(0)} km/h';
     final temp = weather?.number('temperature_c');
-    final tempValue = temp == null ? '—' : '${temp.toStringAsFixed(0)}°C';
+    final tempValue = temp == null ? 'No data' : '${temp.toStringAsFixed(0)}°C';
 
     // Forecast items: always next 12 hours (13 items total: Now + 12 hours ahead)
-    final forecastItems = _generateHourlyForecasts(currentAqi, 13);
+    final forecastItems = _generateHourlyForecasts(
+      currentAqi,
+      13,
+      showMl: _showMl,
+    );
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -1218,20 +1238,29 @@ class _HomeScreenState extends State<HomeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
                     // Big Number
-                    Text(
-                      value,
-                      style: const TextStyle(
-                        fontSize: 54,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                        height: 1.0,
-                        letterSpacing: -1.0,
+                    Flexible(
+                      flex: 3,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          value,
+                          maxLines: 1,
+                          style: const TextStyle(
+                            fontSize: 54,
+                            fontWeight: FontWeight.w800,
+                            color: Colors.white,
+                            height: 1.0,
+                            letterSpacing: -1.0,
+                          ),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 14),
 
                     // Right side divided into two parts: top is category, bottom is source
                     Expanded(
+                      flex: 5,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,
@@ -1248,6 +1277,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             child: Text(
                               category,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w700,
@@ -1260,6 +1291,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           // Bottom: Source
                           Text(
                             sourceLabel,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
@@ -1453,8 +1486,8 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
+                children: [
+                  const Text(
                     'Next 12 Hours Forecast',
                     style: TextStyle(
                       fontSize: 18,
@@ -1462,10 +1495,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       color: Color(0xFF0F172A),
                     ),
                   ),
-                  SizedBox(height: 2),
+                  const SizedBox(height: 2),
                   Text(
-                    'ML predictions will appear here when available',
-                    style: TextStyle(
+                    _showMl
+                        ? 'ML predictions requested; values appear only when the model provides them'
+                        : 'Live readings first; future ML predictions are optional',
+                    style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
                       color: Color(0xFF64748B),
@@ -1521,7 +1556,44 @@ class _HomeScreenState extends State<HomeScreen> {
 
         const SizedBox(height: 14),
 
-        // Horizontal scrolling series of prediction boxes across all 12 hours
+        // Explicit opt-in for future ML output. Off by default so live/stale
+        // observations are never mistaken for model predictions.
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.auto_graph_rounded,
+                size: 18,
+                color: SupraTheme.brand,
+              ),
+              const SizedBox(width: 8),
+              const Expanded(
+                child: Text(
+                  'Show ML predictions',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: SupraTheme.onSurface,
+                  ),
+                ),
+              ),
+              Switch.adaptive(
+                value: _showMl,
+                activeThumbColor: SupraTheme.brand,
+                onChanged: (value) =>
+                    DisplayPreferences.instance.setShowMlPredictions(value),
+              ),
+            ],
+          ),
+        ),
+
+        const SizedBox(height: 12),
         ScrollConfiguration(
           behavior: ScrollConfiguration.of(context).copyWith(
             dragDevices: {

@@ -11,12 +11,20 @@ class ChatEnvironmentalContext {
   final String? weather;
   final String? temperature;
   final List<String>? frequentRoutes;
+  final String? conditionsStatus;
+  final String? conditionsSource;
+  final String? conditionsObservedAt;
+  final bool? conditionsStale;
   const ChatEnvironmentalContext({
     this.currentLocation,
     this.aqi,
     this.weather,
     this.temperature,
     this.frequentRoutes,
+    this.conditionsStatus,
+    this.conditionsSource,
+    this.conditionsObservedAt,
+    this.conditionsStale,
   });
   Map<String, dynamic> toJson() => {
     if (currentLocation != null) 'current_location': currentLocation,
@@ -24,6 +32,11 @@ class ChatEnvironmentalContext {
     if (weather != null) 'weather': weather,
     if (temperature != null) 'temperature': temperature,
     if (frequentRoutes?.isNotEmpty == true) 'frequent_routes': frequentRoutes,
+    if (conditionsStatus != null) 'conditions_status': conditionsStatus,
+    if (conditionsSource != null) 'conditions_source': conditionsSource,
+    if (conditionsObservedAt != null)
+      'conditions_observed_at': conditionsObservedAt,
+    if (conditionsStale != null) 'conditions_stale': conditionsStale,
   };
 }
 

@@ -30,6 +30,37 @@ void main() {
       expect(service.isLoading, false);
     },
   );
+  test('Environmental context is sent to Gemini only as labelled, untrusted data', () async {
+    final context = ChatEnvironmentalContext(
+      currentLocation: '-6.2297, 106.8295',
+      aqi: 88,
+      weather: 'Rain',
+      temperature: '29°C',
+      conditionsStatus: 'weather=stale; air=available; traffic=unavailable',
+      conditionsSource: 'open_meteo, openaq, tomtom',
+      conditionsObservedAt: '2026-11-09T04:00:00Z',
+      conditionsStale: true,
+    );
+    final json = context.toJson();
+    expect(json['aqi'], 88);
+    expect(json['weather'], 'Rain');
+    expect(json['conditions_stale'], isTrue);
+    expect(json['conditions_observed_at'], '2026-11-09T04:00:00Z');
+    final service = AiAssistantService(
+      send: (message, history, received) async {
+        expect(received['aqi'], 88);
+        expect(received['conditions_stale'], isTrue);
+        return {
+          'reply': 'Last-known reading is stale; verify before travelling.',
+          'model': 'configured-model',
+          'simulated': false,
+        };
+      },
+    );
+    await service.sendMessage('Is the air safe?', envContext: context);
+    expect(service.messages.last.text, contains('stale'));
+  });
+
   test(
     'Failure and simulated replies never become invented offline advice',
     () async {

@@ -25,6 +25,16 @@ class ConditionsRepository {
   final _cache = <String, (DateTime, CurrentConditions)>{};
   final _pending = <String, Future<CurrentConditions>>{};
   final _restoring = <String, Future<void>>{};
+  String? _latestScope;
+  CurrentConditions? _latest;
+
+  /// Most recent resolved snapshot for the signed-in account. Chat uses it as
+  /// untrusted context; stale values stay labelled rather than becoming live.
+  CurrentConditions? get latest {
+    final user = _userId();
+    if (user == null || user != _latestScope) return null;
+    return _latest?.agedAt(_now());
+  }
 
   Future<CurrentConditions> at(
     LatLng point, {
@@ -42,7 +52,10 @@ class ConditionsRepository {
         cached != null &&
         _now().difference(cached.$1) >= Duration.zero &&
         _now().difference(cached.$1) < ttl) {
-      return cached.$2.agedAt(_now());
+      final result = cached.$2.agedAt(_now());
+      _latest = result;
+      _latestScope = user;
+      return result;
     }
     if (_pending.containsKey(key)) return _pending[key]!;
     final request = () async {
@@ -52,6 +65,8 @@ class ConditionsRepository {
         _cache.remove(_cache.keys.first);
       }
       _cache[key] = (_now(), result);
+      _latest = result;
+      _latestScope = user;
       if (user != null) await _persist(scope);
       return result;
     }();

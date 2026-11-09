@@ -67,6 +67,15 @@ struct Target {
     planned_departure: DateTime<Utc>,
     is_routine: bool,
 }
+#[derive(FromRow)]
+struct SavedPlace {
+    id: Uuid,
+    user_id: Uuid,
+    label: String,
+    latitude: f64,
+    longitude: f64,
+}
+
 struct Hazard {
     key: &'static str,
     title: &'static str,
@@ -227,6 +236,67 @@ fn relevant(i: &Incident, t: &Target) -> bool {
         ((p[0] - a[0] - f * dx).powi(2) + (p[1] - a[1] - f * dy).powi(2)).sqrt() <= 1.5
     })
 }
+/// Verified news can be relevant to a saved place even when no trip is active.
+/// This keeps the manual "check now" action useful and prevents a missing
+/// routine from turning news alerts into a silent no-op.
+async fn evaluate_place_news(
+    s: &AppState,
+    news: &[Incident],
+    user: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> AppResult<u64> {
+    if news.is_empty() {
+        return Ok(0);
+    }
+    let places: Vec<SavedPlace> = sqlx::query_as(
+        "SELECT p.id,p.user_id,p.label,p.latitude,p.longitude
+         FROM saved_places p
+         LEFT JOIN notification_preferences n ON n.user_id=p.user_id
+         WHERE COALESCE(n.alert_relevant_news,true)
+           AND ($1::uuid IS NULL OR p.user_id=$1)
+         ORDER BY p.created_at
+         LIMIT 200",
+    )
+    .bind(user)
+    .fetch_all(&s.pool)
+    .await?;
+    let mut created = 0u64;
+    for place in places {
+        for i in news.iter().filter(|i| {
+            i.starts_at <= now + chrono::Duration::hours(2)
+                && i.expires_at > now
+                && distance_km(
+                    [i.latitude, i.longitude],
+                    [place.latitude, place.longitude],
+                ) <= 3.0
+        }) {
+            created += sqlx::query(
+                "INSERT INTO notifications(user_id,title,message_body,severity,event_key,source_url,context)
+                 VALUES($1,$2,$3,'medium',$4,$5,$6)
+                 ON CONFLICT(user_id,event_key) WHERE event_key IS NOT NULL DO NOTHING",
+            )
+            .bind(place.user_id)
+            .bind(&i.title)
+            .bind(format!(
+                "Saved place \"{}\" · Verified source report relevant near this location. Published {}. Expires {}.",
+                place.label, i.published_at, i.expires_at
+            ))
+            .bind(format!("user:{}:news:{}", place.user_id, i.id))
+            .bind(&i.source_url)
+            .bind(json!({
+                "published_at": i.published_at,
+                "expires_at": i.expires_at,
+                "place_id": place.id,
+                "coverage": "saved_place_3km"
+            }))
+            .execute(&s.pool)
+            .await?
+            .rows_affected();
+        }
+    }
+    Ok(created)
+}
+
 #[derive(Default, Serialize)]
 pub struct Evaluation {
     pub evaluated: usize,
@@ -244,16 +314,18 @@ pub async fn evaluate(
         .bind(user).fetch_all(&s.pool).await?;
     targets.extend(sqlx::query_as::<_,Target>("SELECT t.id,t.user_id,t.name AS label,t.transport_mode AS mode,t.start_latitude AS latitude,t.start_longitude AS longitude,t.destination_latitude AS dest_latitude,t.destination_longitude AS dest_longitude,ARRAY[]::smallint[] AS weekdays,0 AS departure_minute,30 AS lead_minutes,true AS news_enabled,COALESCE(p.alert_unhealthy_aqi,true) AS air,COALESCE(p.alert_heavy_rain,true) AS rain,COALESCE(p.alert_severe_traffic,true) AS traffic,COALESCE(p.alert_relevant_news,true) AS news,t.route_waypoints,t.planned_departure,false AS is_routine FROM trips t LEFT JOIN notification_preferences p ON p.user_id=t.user_id WHERE t.active_until>now() AND t.confirmed_at IS NOT NULL AND t.start_latitude IS NOT NULL AND t.planned_departure<=now()+interval '30 minutes' AND ($1::uuid IS NULL OR t.user_id=$1) AND (t.last_checked_at IS NULL OR t.last_checked_at<now()-interval '5 minutes') ORDER BY t.last_checked_at NULLS FIRST LIMIT 20")
         .bind(user).fetch_all(&s.pool).await?);
-    let news = if targets.iter().any(|t| t.news && t.news_enabled) {
+    let news_configured = std::env::var("NEWS_INCIDENTS_URL").is_ok_and(|s| !s.is_empty());
+    let news = if news_configured {
         incidents().await
     } else {
         Vec::new()
     };
     let mut result = Evaluation {
-        news_configured: std::env::var("NEWS_INCIDENTS_URL").is_ok_and(|s| !s.is_empty()),
+        news_configured,
         scheduler_enabled: enabled(),
         ..Default::default()
     };
+    result.created += evaluate_place_news(s, &news, user, now).await?;
     for t in targets {
         let table = if t.is_routine {
             "routine_trips"
@@ -325,7 +397,7 @@ pub async fn evaluate(
             }) {
                 result.created+=sqlx::query("INSERT INTO notifications(user_id,title,message_body,severity,event_key,source_url,context) VALUES($1,$2,$3,'medium',$4,$5,$6) ON CONFLICT(user_id,event_key) WHERE event_key IS NOT NULL DO NOTHING")
                     .bind(t.user_id).bind(&i.title).bind(format!("{} · Verified source report relevant near your journey. Published {}. Expires {}.",t.label,i.published_at,i.expires_at))
-                    .bind(format!("{key}:news:{}",i.id)).bind(&i.source_url).bind(json!({"published_at":i.published_at,"expires_at":i.expires_at,"target":t.id,"coverage":if t.route_waypoints.as_array().is_some_and(|a| a.len()>1) {"route_corridor"} else {"endpoints_only"}}))
+                    .bind(format!("user:{}:news:{}",t.user_id,i.id)).bind(&i.source_url).bind(json!({"published_at":i.published_at,"expires_at":i.expires_at,"target":t.id,"coverage":if t.route_waypoints.as_array().is_some_and(|a| a.len()>1) {"route_corridor"} else {"endpoints_only"}}))
                     .execute(&s.pool).await?.rows_affected();
             }
         }
@@ -349,7 +421,9 @@ pub async fn evaluate_user(
     Extension(u): Extension<AuthUser>,
     Extension(c): Extension<Arc<ConditionsService>>,
 ) -> (axum::http::StatusCode,Json<Value>) {
-    let response=json!({"queued":true,"news_configured":std::env::var("NEWS_INCIDENTS_URL").is_ok_and(|s| !s.is_empty()),"scheduler_enabled":enabled()});
+    let news_configured = std::env::var("NEWS_INCIDENTS_URL")
+        .is_ok_and(|value| !value.trim().is_empty());
+    let response=json!({"queued":true,"news_configured":news_configured,"scheduler_enabled":enabled()});
     tokio::spawn(async move {
         if evaluate(&s,&c,Some(u.id)).await.is_err() { tracing::warn!("Requested alert evaluation failed"); }
     });

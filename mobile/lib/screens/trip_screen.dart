@@ -11,6 +11,7 @@ import '../services/routing_service.dart';
 import '../services/supra_api_service.dart';
 import '../services/transit_network.dart';
 import '../services/commute_recommendations.dart';
+import '../services/display_preferences.dart';
 import 'commutes_screen.dart';
 import '../theme/app_theme.dart';
 import '../widgets/interactive_location_map.dart';
@@ -101,11 +102,19 @@ class TripScreenState extends State<TripScreen> {
     _start.text = 'Monas (Central Jakarta)';
     _updateSnapOptions(_defaultCurrentLocation);
     TripHistoryStore.instance.addListener(_onTripHistoryStoreChanged);
+    DisplayPreferences.instance.addListener(_onDisplayPreferenceChanged);
+    DisplayPreferences.instance.load();
   }
 
   void _onTripHistoryStoreChanged() {
     if (mounted) setState(() {});
   }
+
+  void _onDisplayPreferenceChanged() {
+    if (mounted) setState(() {});
+  }
+
+  bool get _showMl => DisplayPreferences.instance.showMlPredictions;
 
   /// Loads start and destination for a trip, resolves their coordinates, and shows the route.
   Future<void> loadAndShowRoute({
@@ -150,6 +159,7 @@ class TripScreenState extends State<TripScreen> {
   @override
   void dispose() {
     TripHistoryStore.instance.removeListener(_onTripHistoryStoreChanged);
+    DisplayPreferences.instance.removeListener(_onDisplayPreferenceChanged);
     _topNotificationTimer?.cancel();
     _searchDebounce?.cancel();
     _searchGeneration++;
@@ -1210,23 +1220,30 @@ class TripScreenState extends State<TripScreen> {
                                   color: const Color(0xFFE2E8F0),
                                 ),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Text(
-                                    '🌤️',
-                                    style: TextStyle(fontSize: 12),
-                                  ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    '${_selectedRoute!.pm25Label} • ${_selectedRoute!.rainLabel}',
-                                    style: const TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: SupraTheme.onSurface,
+                              child: ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 240),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Text(
+                                      '🌤️',
+                                      style: TextStyle(fontSize: 12),
                                     ),
-                                  ),
-                                ],
+                                    const SizedBox(width: 4),
+                                    Flexible(
+                                      child: Text(
+                                        '${_selectedRoute!.pm25Label} • ${_selectedRoute!.rainLabel}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700,
+                                          color: SupraTheme.onSurface,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
                           ),
@@ -1492,6 +1509,32 @@ class TripScreenState extends State<TripScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            Row(
+              children: [
+                const Icon(
+                  Icons.auto_graph_rounded,
+                  size: 16,
+                  color: SupraTheme.brand,
+                ),
+                const SizedBox(width: 6),
+                const Expanded(
+                  child: Text(
+                    'Show ML predictions',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: SupraTheme.onSurface,
+                    ),
+                  ),
+                ),
+                Switch.adaptive(
+                  value: _showMl,
+                  activeThumbColor: SupraTheme.brand,
+                  onChanged: (value) =>
+                      DisplayPreferences.instance.setShowMlPredictions(value),
+                ),
+              ],
+            ),
             Align(
               alignment: Alignment.centerRight,
               child: SizedBox(width: 140, child: _modeSelector()),
@@ -1986,14 +2029,19 @@ class TripScreenState extends State<TripScreen> {
   }
 
   Widget _buildTripHistoryHeader(int count) {
-    return Row(
+    final title = Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        const Text(
-          'Trip History',
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-            color: SupraTheme.onSurface,
+        const Flexible(
+          child: Text(
+            'Trip History',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: SupraTheme.onSurface,
+            ),
           ),
         ),
         const SizedBox(width: 6),
@@ -2012,37 +2060,51 @@ class TripScreenState extends State<TripScreen> {
             ),
           ),
         ),
-        const Spacer(),
-        // Segmented Sort Selector on the right side: Recent vs Frequency
-        Container(
-          height: 28,
-          padding: const EdgeInsets.all(2),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF1F5F9),
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildSortSegment(
-                title: 'Recent',
-                icon: Icons.access_time_rounded,
-                isSelected: _historySort == TripHistorySort.recent,
-                onTap: () =>
-                    setState(() => _historySort = TripHistorySort.recent),
-              ),
-              _buildSortSegment(
-                title: 'Frequency',
-                icon: Icons.local_fire_department_rounded,
-                isSelected: _historySort == TripHistorySort.frequency,
-                onTap: () =>
-                    setState(() => _historySort = TripHistorySort.frequency),
-              ),
-            ],
-          ),
-        ),
       ],
+    );
+    Widget sortSelector(bool compact) => Container(
+      height: 28,
+      padding: const EdgeInsets.all(2),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _buildSortSegment(
+            title: 'Recent',
+            icon: Icons.access_time_rounded,
+            isSelected: _historySort == TripHistorySort.recent,
+            compact: compact,
+            onTap: () => setState(() => _historySort = TripHistorySort.recent),
+          ),
+          _buildSortSegment(
+            title: 'Frequency',
+            icon: Icons.local_fire_department_rounded,
+            isSelected: _historySort == TripHistorySort.frequency,
+            compact: compact,
+            onTap: () =>
+                setState(() => _historySort = TripHistorySort.frequency),
+          ),
+        ],
+      ),
+    );
+    // A stacked header would consume height the short 16:9 panel does not have.
+    // Narrow widths keep one row and drop the segment labels to icons so the
+    // selector cannot overflow; tooltips retain the meaning.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 380;
+        return Row(
+          children: [
+            Expanded(child: title),
+            const SizedBox(width: 6),
+            sortSelector(compact),
+          ],
+        );
+      },
     );
   }
 
@@ -2051,33 +2113,32 @@ class TripScreenState extends State<TripScreen> {
     required IconData icon,
     required bool isSelected,
     required VoidCallback onTap,
+    bool compact = false,
   }) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        decoration: BoxDecoration(
-          color: isSelected ? Colors.white : Colors.transparent,
-          borderRadius: BorderRadius.circular(6),
-          boxShadow: isSelected
-              ? const [
-                  BoxShadow(
-                    color: Color(0x14000000),
-                    blurRadius: 3,
-                    offset: Offset(0, 1),
-                  ),
-                ]
-              : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              size: 13,
-              color: isSelected ? SupraTheme.brand : SupraTheme.textSecondary,
-            ),
+    final content = Container(
+      padding: EdgeInsets.symmetric(horizontal: compact ? 6 : 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: isSelected ? Colors.white : Colors.transparent,
+        borderRadius: BorderRadius.circular(6),
+        boxShadow: isSelected
+            ? const [
+                BoxShadow(
+                  color: Color(0x14000000),
+                  blurRadius: 3,
+                  offset: Offset(0, 1),
+                ),
+              ]
+            : null,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            icon,
+            size: 13,
+            color: isSelected ? SupraTheme.brand : SupraTheme.textSecondary,
+          ),
+          if (!compact) ...[
             const SizedBox(width: 4),
             Text(
               title,
@@ -2088,7 +2149,22 @@ class TripScreenState extends State<TripScreen> {
               ),
             ),
           ],
-        ),
+        ],
+      ),
+    );
+    if (!compact) {
+      return GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: content,
+      );
+    }
+    return Tooltip(
+      message: title,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: content,
       ),
     );
   }
@@ -2477,6 +2553,38 @@ class TripScreenState extends State<TripScreen> {
                     ],
                   ),
                 ),
+                if (_showMl)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F3FF),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.auto_graph_rounded,
+                          size: 11,
+                          color: Color(0xFF6D28D9),
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          opt.predictedAqi == null
+                              ? 'ML AQI unavailable'
+                              : 'ML AQI ${opt.predictedAqi!.round()}',
+                          style: const TextStyle(
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF6D28D9),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
               ],
             ),
 

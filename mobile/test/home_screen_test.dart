@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supra_mobile_ui/models/current_conditions.dart';
 import 'package:supra_mobile_ui/models/saved_trip.dart';
 import 'package:supra_mobile_ui/screens/home_screen.dart';
 import 'package:supra_mobile_ui/services/conditions_repository.dart';
+import 'package:supra_mobile_ui/services/display_preferences.dart';
 import 'package:supra_mobile_ui/widgets/current_conditions_panel.dart';
 
 void main() {
-  setUp(() => TripHistoryStore.instance.resetForTesting());
+  setUp(() {
+    TripHistoryStore.instance.resetForTesting();
+    DisplayPreferences.instance.resetForTesting();
+    SharedPreferences.setMockInitialValues({});
+  });
   testWidgets(
     'Original Home cards, location picker and forecast strip are retained',
     (tester) async {
@@ -24,8 +30,9 @@ void main() {
       expect(find.text('35%'), findsNothing);
       expect(find.text('No cached data'), findsOneWidget);
       expect(find.text('Next 12 Hours Forecast'), findsOneWidget);
-      expect(find.textContaining('ML predictions will appear'), findsOneWidget);
+      expect(find.textContaining('Live readings first'), findsOneWidget);
       expect(find.text('ML pending'), findsWidgets);
+      expect(find.text('Show ML predictions'), findsOneWidget);
       await tester.tap(find.byIcon(Icons.notifications_none_rounded));
       expect(alerts, true);
       await tester.tap(find.text('Kuningan, Jakarta'));
@@ -107,6 +114,42 @@ void main() {
       expect(find.text('Temp · STALE'), findsOneWidget);
       expect(find.textContaining('Observed'), findsOneWidget);
       expect(find.textContaining('Last-known reading'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'ML predictions are opt-in and never fabricated when the model is absent',
+    (tester) async {
+      await tester.pumpWidget(const MaterialApp(home: HomeScreen()));
+      await tester.pumpAndSettle();
+      expect(find.text('ML pending'), findsWidgets);
+      expect(find.text('ML unavailable'), findsNothing);
+
+      await tester.tap(find.byType(Switch));
+      await tester.pumpAndSettle();
+
+      expect(DisplayPreferences.instance.showMlPredictions, isTrue);
+      expect(find.text('ML unavailable'), findsWidgets);
+      expect(find.textContaining('ML predictions requested'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'Home renders without overlap at a 16:9 phone ratio',
+    (tester) async {
+      tester.view.physicalSize = const Size(720, 1280);
+      tester.view.devicePixelRatio = 2;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await tester.pumpWidget(const MaterialApp(home: HomeScreen()));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.text('Kuningan, Jakarta'));
+      await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     },
   );

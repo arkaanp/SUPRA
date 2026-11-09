@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/ai_assistant_service.dart';
+import '../services/conditions_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/chat_bubble.dart';
 
@@ -52,8 +53,59 @@ class _ChatScreenState extends State<ChatScreen> {
     _textController.clear();
     _scrollToBottom();
 
-    await AiAssistantService.instance.sendMessage(text);
+    await AiAssistantService.instance.sendMessage(
+      text,
+      envContext: _currentEnvironmentalContext(),
+    );
     _scrollToBottom();
+  }
+
+  /// Shares the last resolved condition snapshot with the server-side Gemini
+  /// call. Values remain user-supplied context, never verified live facts, and
+  /// stale readings stay labelled as stale.
+  ChatEnvironmentalContext? _currentEnvironmentalContext() {
+    final snapshot = ConditionsRepository.instance.latest;
+    if (snapshot == null) return null;
+    final air = snapshot.airQuality;
+    final weather = snapshot.weather;
+    final aqi = air.data?['aqi_standard'] == 'US EPA'
+        ? air.number('aqi')?.round()
+        : null;
+    final code = weather.number('weather_code')?.toInt();
+    final description = weather.data?['description'] as String?;
+    final weatherText = description ?? switch (code ?? -1) {
+      0 => 'Clear',
+      1 || 2 => 'Partly cloudy',
+      3 => 'Cloudy',
+      45 || 48 => 'Fog',
+      >= 51 && <= 57 => 'Drizzle',
+      >= 61 && <= 67 || >= 80 && <= 82 => 'Rain',
+      >= 95 && <= 99 => 'Thunderstorm',
+      _ => null,
+    };
+    final temperature = weather.number('temperature_c');
+    return ChatEnvironmentalContext(
+      currentLocation:
+          '${snapshot.latitude.toStringAsFixed(4)}, ${snapshot.longitude.toStringAsFixed(4)}',
+      aqi: aqi,
+      weather: weatherText,
+      temperature: temperature == null
+          ? null
+          : '${temperature.toStringAsFixed(0)}°C',
+      conditionsStatus: [
+        'weather=${weather.status}',
+        'air=${air.status}',
+        'traffic=${snapshot.traffic.status}',
+      ].join('; '),
+      conditionsSource: [
+        weather.source,
+        air.source,
+        snapshot.traffic.source,
+      ].join(', '),
+      conditionsObservedAt: weather.validAt?.toUtc().toIso8601String(),
+      conditionsStale:
+          weather.isStale || air.isStale || snapshot.traffic.isStale,
+    );
   }
 
   void _showConnectionInfo(BuildContext context) {
@@ -63,7 +115,10 @@ class _ChatScreenState extends State<ChatScreen> {
         title: const Text('SUPRA Assistant'),
         content: const Text(
           'Gemini is configured on the SUPRA server. No client API key is needed. '
-          'Current readings and future ML predictions are distinct; no live data is attached to this chat.',
+          'The latest resolved location conditions, including stale values, are sent as '
+          'untrusted context when available. This assistant only answers Greater Jakarta '
+          'commute, route, air quality, weather, traffic, alert, and packing questions; '
+          'unrelated requests are declined. Future ML predictions are never invented.',
         ),
         actions: [
           TextButton(
@@ -111,6 +166,15 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   Widget build(BuildContext context) {
     final assistantService = AiAssistantService.instance;
+    final envContext = _currentEnvironmentalContext();
+    final contextLabel = envContext == null
+        ? 'No live conditions attached'
+        : [
+            if (envContext.aqi != null) 'AQI ${envContext.aqi}',
+            if (envContext.weather != null) envContext.weather!,
+            if (envContext.temperature != null) envContext.temperature!,
+            if (envContext.conditionsStale == true) 'STALE',
+          ].join(' · ');
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -161,12 +225,16 @@ class _ChatScreenState extends State<ChatScreen> {
                         ),
                       ),
                       const SizedBox(width: 5),
-                      const Text(
-                        'Agent 1 • Commute & Eco Advisor',
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: SupraTheme.textSecondary,
+                      const Flexible(
+                        child: Text(
+                          'Agent 1 • Commute & Eco Advisor',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                            color: SupraTheme.textSecondary,
+                          ),
                         ),
                       ),
                     ],
@@ -216,12 +284,15 @@ class _ChatScreenState extends State<ChatScreen> {
                 const SizedBox(width: 4),
                 Expanded(
                   child: Text(
-                    'No live conditions attached',
+                    contextLabel.isEmpty
+                        ? 'Conditions attached (no numeric values)'
+                        : contextLabel,
                     style: const TextStyle(
                       fontSize: 11.5,
                       fontWeight: FontWeight.w700,
                       color: SupraTheme.onSurface,
                     ),
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
