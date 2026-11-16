@@ -119,7 +119,11 @@ class CurrentConditions {
   CurrentConditions retaining(CurrentConditions? previous) {
     ConditionSignal signal(ConditionSignal next, ConditionSignal? old) {
       if (next.hasData) return next.withReceipt(retrievedAt);
-      if (old?.hasData == true) {
+      final oldTime = old?.validAt ?? old?.receivedAt;
+      if (old?.hasData == true &&
+          oldTime != null &&
+          retrievedAt.toUtc().difference(oldTime.toUtc()) <=
+              const Duration(hours: 24)) {
         return old!.asStale(
           'Latest lookup unavailable. Showing last-known data. ${next.message}',
         );

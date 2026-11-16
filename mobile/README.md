@@ -148,3 +148,48 @@ real provider credentials. For a live smoke
 test, register and confirm a user, sign in, save a trip, reload to verify
 persistence, change preferences, sign out and sign into a second account to
 verify isolation. Backend cross-user DB tests require a dedicated test database.
+
+## Freshness and route map update
+
+Conditions now compare eligible BMKG/Open-Meteo valid times when a matching adm4
+is supplied. Air quality uses fresh OpenAQ station readings, with fresh CAMS
+model PM2.5/provider US AQI as an alternative. Route maps display discrete samples
+including both endpoints (at most five), with model/station and stale labels.
+CAMS is approximately 45 km resolution, not street monitoring. See
+[the updated contract](../backend/docs/current-conditions.md).
+
+## Public transportation
+
+Select **Transit** in the Trip mode menu and show the route. The backend now uses
+local Transjakarta GTFS and https://api.commute.shiorilabs.id by default, without
+an OTP server. Cards show individual walking/ride legs, line and stop names,
+WIB timetable or frequency-estimate times, available fares and attribution.
+Bus geometry comes from the GTFS shape; rail station connections and walking
+links are labelled schematic, not street/track navigation. Environmental samples
+continue along the selected itinerary. See [setup and limits](../backend/docs/public-transport.md).
+
+## Live ML and publisher news
+
+Home and Trip ML controls use the authenticated `/api/forecast/hourly` endpoint
+backed by Python/PyTorch. Start and train the service using [ml/README.md](../ml/README.md).
+The model supplies temperature, precipitation, wet-hour probability and air
+forecasts; traffic forecasts remain unavailable. Home shows model/source/input
+metadata; Trip labels its forecast as an origin estimate. Provider condition
+samples remain attached to the selected route. Alerts read the real server inbox,
+with publisher links and original dates; the radar button queues a fresh check.
+
+## Assistant route context and alert preferences
+
+Selecting a Trip option updates the assistant's context pill and next request.
+A confirmed current trip can be restored by owned ID after restarting. Otherwise,
+chat uses the Home location. Gemini reads server conditions, source times and the
+available forecast; failures are explicitly identified. Profile alert controls
+now auto-save, and Alerts' News severity selector saves All/Medium+/High+/Critical
+thresholds with rollback on failure. Weather/AQI alerts keep independent flags.
+The updated backend requires its additive preference migration first; see
+[assistant and alerts](../backend/docs/assistant-and-alerts.md).
+
+Alert actions now appear as visible **Mark all read** and **Delete read alerts**
+buttons below the header. Use an item's **Mark unread** control or select row
+checkboxes and tap **Mark selected unread**. Batch requests preserve account
+ownership; an invalid selected item rejects the whole unread update.

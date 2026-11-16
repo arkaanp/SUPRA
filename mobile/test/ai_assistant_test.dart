@@ -31,6 +31,40 @@ void main() {
     },
   );
   test(
+    'Selected route updates are attached and cleared when the account changes',
+    () async {
+      final sent = <Map<String, dynamic>>[];
+      final service = AiAssistantService(
+        send: (_, _, context) async {
+          sent.add(context);
+          return {
+            'reply': 'Provider-based answer',
+            'model': 'gemini',
+            'simulated': false,
+          };
+        },
+      );
+      service.bindUser('alice');
+      service.selectRoute({
+        'origin_name': 'Monas',
+        'destination_name': 'UI',
+        'mode': 'public_transit',
+      });
+      await service.sendMessage('My KRL route?');
+      expect((sent.last['selected_route'] as Map)['mode'], 'public_transit');
+      service.selectRoute({
+        'origin_name': 'Monas',
+        'destination_name': 'UI',
+        'mode': 'car',
+      });
+      await service.sendMessage('My current route?');
+      expect((sent.last['selected_route'] as Map)['mode'], 'car');
+      service.bindUser('bob');
+      await service.sendMessage('My route?');
+      expect(sent.last, isEmpty);
+    },
+  );
+  test(
     'Failure and simulated replies never become invented offline advice',
     () async {
       for (final fail in [true, false]) {

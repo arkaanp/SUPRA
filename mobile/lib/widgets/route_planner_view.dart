@@ -34,12 +34,13 @@ class RoutePlannerView extends StatelessWidget {
           ),
           child: Row(
             children: options.map((opt) {
-              final isSelected = opt.mode == selectedOption.mode;
+              final isSelected = identical(opt, selectedOption);
               return Expanded(
                 child: InkWell(
                   onTap: () => onOptionSelected(opt),
                   borderRadius: BorderRadius.circular(10),
                   child: AnimatedContainer(
+                    key: ValueKey(opt),
                     duration: const Duration(milliseconds: 180),
                     padding: const EdgeInsets.symmetric(
                       vertical: 8,
@@ -93,6 +94,12 @@ class RoutePlannerView extends StatelessWidget {
                                 ? SupraTheme.brand
                                 : SupraTheme.textSecondary,
                           ),
+                        ),
+                        Text(
+                          opt.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 10),
                         ),
                         Text(
                           '${opt.distanceKm.toStringAsFixed(1)} km',

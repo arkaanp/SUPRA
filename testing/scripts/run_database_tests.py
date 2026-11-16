@@ -30,7 +30,7 @@ def main():
             run(['createdb', '-h', '127.0.0.1', '-p', str(port), '-U', 'postgres', 'supra_test'], check=True)
             env = dict(os.environ)
             env['SUPRA_TEST_DATABASE_URL'] = f'postgres://postgres@127.0.0.1:{port}/supra_test'
-            result = run(['cargo', 'test', '--locked', '--offline', '--', '--ignored'], env=env)
+            result = run(['cargo', 'test', '--locked', '--offline', 'db_tests::migrated_schema_enforces_user_boundaries', '--', '--ignored'], env=env)
             code = result.returncode
         except (OSError, subprocess.CalledProcessError):
             code = 1

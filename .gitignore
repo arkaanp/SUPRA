@@ -25,3 +25,11 @@
 # Copied private guidelines remain local.
 /mobile/instructions/
 /mobile/supra-ai-agents-architecture.md
+
+# Python ML environment, downloaded provider history, and local runtime cache.
+/ml/.venv/
+/ml/data/
+/ml/runtime/
+/ml/artifacts/*.pt*
+**/__pycache__/
+/testing/ml-training.log

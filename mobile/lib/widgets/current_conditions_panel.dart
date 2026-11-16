@@ -194,7 +194,7 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
           style: Theme.of(context).textTheme.titleLarge,
         ),
         const Text(
-          'Latest available provider data, not Supra ML predictions or route-wide conditions. Air quality is a nearby station PM2.5 reading, not a computed AQI.',
+          'Latest available provider data, not Supra ML predictions or route-wide conditions. Air quality is a nearby station reading or a labelled CAMS model estimate.',
         ),
         Wrap(
           spacing: 8,
@@ -334,22 +334,32 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
                 ? 'https://www.bmkg.go.id/'
                 : 'https://open-meteo.com/',
           ),
-          _signal('Air quality (PM2.5)', result.airQuality, [
-            if (air?['pm25_ug_m3'] != null)
-              'PM2.5: ${air!['pm25_ug_m3']} µg/m³',
-            if (air?['station_name'] != null)
-              'Station: ${air!['station_name']}',
-            if (air?['distance_km'] is num)
-              'Station distance: ${(air!['distance_km'] as num).toStringAsFixed(1)} km',
-            if (air?['provider']?['name'] != null)
-              'Provider: ${air!['provider']['name']}',
-            if (air?['owner']?['name'] != null)
-              'Owner: ${air!['owner']['name']}',
-            if (air?['licenses'] is List) ...[
-              for (final license in air!['licenses'] as List)
-                'License: ${license['name'] ?? 'See source terms'}${license['attribution']?['name'] == null ? '' : ' · ${license['attribution']['name']}'}',
+          _signal(
+            'Air quality',
+            result.airQuality,
+            [
+              if (air?['aqi'] != null) 'US AQI (provider): ${air!['aqi']}',
+              if (air?['resolution_km'] != null)
+                'Model grid: approximately ${air!['resolution_km']} km',
+              if (air?['pm25_ug_m3'] != null)
+                'PM2.5: ${air!['pm25_ug_m3']} µg/m³',
+              if (air?['station_name'] != null)
+                'Station: ${air!['station_name']}',
+              if (air?['distance_km'] is num)
+                'Station distance: ${(air!['distance_km'] as num).toStringAsFixed(1)} km',
+              if (air?['provider']?['name'] != null)
+                'Provider: ${air!['provider']['name']}',
+              if (air?['owner']?['name'] != null)
+                'Owner: ${air!['owner']['name']}',
+              if (air?['licenses'] is List) ...[
+                for (final license in air!['licenses'] as List)
+                  'License: ${license['name'] ?? 'See source terms'}${license['attribution']?['name'] == null ? '' : ' · ${license['attribution']['name']}'}',
+              ],
             ],
-          ], 'https://openaq.org/'),
+            result.airQuality.source == 'open_meteo_cams'
+                ? 'https://open-meteo.com/en/docs/air-quality-api'
+                : 'https://openaq.org/',
+          ),
           _signal('Traffic — nearest road fragment', result.traffic, [
             if (traffic?['speed_kmh'] != null)
               'Speed: ${traffic!['speed_kmh']} km/h (free flow ${traffic['free_flow_speed_kmh']} km/h)',

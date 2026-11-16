@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 
 import '../config/map_config.dart';
 import '../models/current_conditions.dart';
+import '../models/ml_forecast.dart';
+import '../services/forecast_repository.dart';
+import '../models/environmental_zone.dart';
+import '../widgets/route_environment_samples.dart';
 import '../models/location.dart';
 import '../models/route_option.dart';
 import '../models/saved_trip.dart';
@@ -11,12 +15,14 @@ import '../models/commute.dart';
 import '../services/conditions_repository.dart';
 import '../services/geocoding_service.dart';
 import '../services/routing_service.dart';
+import '../services/ai_assistant_service.dart';
 import '../services/supra_api_service.dart';
 import '../services/transit_network.dart';
 import '../services/commute_recommendations.dart';
 import 'commutes_screen.dart';
 import '../theme/app_theme.dart';
 import '../widgets/interactive_location_map.dart';
+import '../widgets/transit_journey_details.dart';
 
 class NearbySnapOption {
   final String name;
@@ -39,9 +45,15 @@ class NearbySnapOption {
 /// - Explicit "Show Route" button to confirm both locations before route and modes are rendered.
 /// - Only configured routing modes are offered; no synthetic offline routes.
 class TripScreen extends StatefulWidget {
-  const TripScreen({super.key, this.geocodingService, this.routingService});
+  const TripScreen({
+    super.key,
+    this.geocodingService,
+    this.routingService,
+    this.forecasts,
+  });
   final GeocodingService? geocodingService;
   final RoutingService? routingService;
+  final ForecastRepository? forecasts;
 
   @override
   State<TripScreen> createState() => TripScreenState();
@@ -86,7 +98,37 @@ class TripScreenState extends State<TripScreen> {
 
   // Routes state evaluated against traffic, weather, and air pollution
   List<RouteOption> _calculatedRoutes = [];
-  RouteOption? _selectedRoute;
+  List<EnvironmentalZone> _routeSamples = [];
+  RouteOption? _routeSelection;
+  RouteOption? get _selectedRoute => _routeSelection;
+  set _selectedRoute(RouteOption? route) {
+    _routeSelection = route;
+    if (route == null) {
+      AiAssistantService.instance.selectRoute(null);
+      return;
+    }
+    final path = route.waypoints;
+    final indices = path.length <= 32
+        ? List.generate(path.length, (i) => i)
+        : List.generate(32, (i) => i * (path.length - 1) ~/ 31);
+    AiAssistantService.instance.selectRoute({
+      'origin': [_startCoord.latitude, _startCoord.longitude],
+      'destination': [_destCoord!.latitude, _destCoord!.longitude],
+      'origin_name': _start.text,
+      'destination_name': _destination.text,
+      'mode': route.mode.apiValue,
+      'distance_km': route.distanceKm,
+      'duration_seconds': route.estimatedDuration.inSeconds,
+      'waypoints': [
+        for (final i in indices) [path[i].latitude, path[i].longitude],
+      ],
+      'instructions': route.turnSteps
+          .take(12)
+          .map((s) => s.length > 150 ? s.substring(0, 150) : s)
+          .toList(),
+    });
+  }
+
   bool _loadingRoutes = false;
   int _routeGeneration = 0;
   TransportMode _requestedMode = TransportMode.car;
@@ -99,6 +141,39 @@ class TripScreenState extends State<TripScreen> {
   // Stale fallback conditions & ML prediction toggle for Trip screen
   CurrentConditions? _originConditions;
   bool _showMlPredictions = false;
+  MlForecast? _mlForecast;
+  bool _loadingMl = false;
+  String? _mlError;
+  int _mlGeneration = 0;
+  Future<void> _refreshMlForecast(LatLng point) async {
+    final generation = ++_mlGeneration;
+    setState(() {
+      _mlForecast = null;
+      _loadingMl = true;
+      _mlError = null;
+    });
+    try {
+      final result = await (widget.forecasts ?? ForecastRepository.instance).at(
+        point,
+      );
+      if (mounted && generation == _mlGeneration) {
+        setState(() => _mlForecast = result);
+      }
+    } catch (_) {
+      if (mounted && generation == _mlGeneration) {
+        setState(() => _mlError = 'ML forecast unavailable');
+      }
+    } finally {
+      if (mounted && generation == _mlGeneration) {
+        setState(() => _loadingMl = false);
+      }
+    }
+  }
+
+  void _toggleMl(bool value) {
+    setState(() => _showMlPredictions = value);
+    if (value) unawaited(_refreshMlForecast(_startCoord));
+  }
 
   @override
   void initState() {
@@ -118,6 +193,7 @@ class TripScreenState extends State<TripScreen> {
   }
 
   Future<void> _refreshOriginConditions(LatLng point) async {
+    if (_showMlPredictions) unawaited(_refreshMlForecast(point));
     try {
       final cond = await ConditionsRepository.instance.at(point);
       if (mounted) {
@@ -644,6 +720,7 @@ class TripScreenState extends State<TripScreen> {
       );
       return;
     }
+    if (_showMlPredictions) unawaited(_refreshMlForecast(_startCoord));
     final generation = ++_routeGeneration;
     final key =
         '${_startCoord.latitude},${_startCoord.longitude}:${_destCoord!.latitude},${_destCoord!.longitude}';
@@ -651,6 +728,7 @@ class TripScreenState extends State<TripScreen> {
         ? List<RouteOption>.of(_calculatedRoutes)
         : <RouteOption>[];
     setState(() {
+      _routeSamples = [];
       _loadingRoutes = true;
       _isTrackingActive = false;
       _calculatedRoutes = [];
@@ -695,7 +773,7 @@ class TripScreenState extends State<TripScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Route unavailable. Check your connection/provider configuration. Transit requires a Jakarta GTFS planner. No estimated route has been substituted.',
+              'Route unavailable. Check your connection/provider configuration. Transit requires an active service within walking distance. No estimated route has been substituted.',
             ),
           ),
         );
@@ -1032,6 +1110,13 @@ class TripScreenState extends State<TripScreen> {
                               : (_destCoord != null ? 'D' : 'S'),
                           secondaryLabel: _isPickingOnMap ? null : 'S',
                           routeWaypoints: _selectedRoute?.waypoints,
+                          routeStartName: _start.text,
+                          routeDestinationName: _destination.text,
+                          onEnvironmentalSamplesChanged: (samples) {
+                            if (mounted) {
+                              setState(() => _routeSamples = samples);
+                            }
+                          },
                           routeColor: _selectedRoute != null
                               ? _getRouteColor(_selectedRoute!.mode)
                               : null,
@@ -1345,32 +1430,29 @@ class TripScreenState extends State<TripScreen> {
   }
 
   String _buildMapConditionsBadgeText() {
+    if (_showMlPredictions) {
+      final h = _mlForecast?.nextAt(DateTime.now());
+      if (h == null) {
+        return _loadingMl
+            ? 'Loading PyTorch forecast…'
+            : _mlError ?? 'ML forecast unavailable';
+      }
+      final time = h.targetTime.toUtc().add(const Duration(hours: 7));
+      return 'PyTorch · origin ${time.hour.toString().padLeft(2, '0')}:00 WIB · AQI ${h.aqi.round()} · Rain ${h.precipitationMm.toStringAsFixed(1)} mm (${(h.rainProbability * 100).round()}%) · ${h.temperatureC.round()}°C';
+    }
     final cond = _selectedRoute?.conditions ?? _originConditions;
     final pm25 =
-        _selectedRoute?.pm25UgM3 ??
-        cond?.airQuality.number('pm25_ug_m3') ??
-        34.2;
-    final baseAqi =
-        cond?.airQuality.number('aqi')?.round() ??
-        ConditionsRepository.pm25ToUsEpaAqi(pm25);
+        _selectedRoute?.pm25UgM3 ?? cond?.airQuality.number('pm25_ug_m3');
+    final aqi = cond?.airQuality.number('aqi')?.round();
     final rain =
-        _selectedRoute?.rainfallMm ??
-        cond?.weather.number('precipitation_mm') ??
-        1.2;
-    final speed = cond?.traffic.number('speed_kmh') ?? 24.0;
-    if (_showMlPredictions) {
-      final mlAqi = (baseAqi + 5).clamp(35, 180);
-      final mlRain = (rain + 0.4).clamp(0.4, 15.0);
-      final mlSpeed = (speed + 2.0).clamp(10.0, 48.0);
-      return 'ML Forecast: AQI $mlAqi • Hujan ${mlRain.toStringAsFixed(1)} mm (65%) • Lalin ${mlSpeed.toStringAsFixed(0)} km/j';
-    }
-    final isStale =
+        _selectedRoute?.rainfallMm ?? cond?.weather.number('precipitation_mm');
+    final speed = cond?.traffic.number('speed_kmh');
+    final stale =
         cond == null ||
         cond.airQuality.isStale ||
         cond.weather.isStale ||
         cond.traffic.isStale;
-    final prefix = isStale ? 'STALE' : 'LIVE';
-    return '$prefix: AQI $baseAqi (PM2.5 ${pm25.toStringAsFixed(1)}) • Hujan ${rain.toStringAsFixed(1)} mm • Lalin ${speed.toStringAsFixed(0)} km/j';
+    return '${stale ? "STALE" : "Latest"}: ${aqi == null ? "AQI —" : "AQI $aqi"} · PM2.5 ${pm25?.toStringAsFixed(1) ?? "—"} · Rain ${rain?.toStringAsFixed(1) ?? "—"} mm · Traffic ${speed?.toStringAsFixed(0) ?? "—"} km/h';
   }
 
   Widget _buildMlPredictionToggleChip() {
@@ -1398,7 +1480,7 @@ class TripScreenState extends State<TripScreen> {
       visualDensity: VisualDensity.compact,
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
-      onSelected: (val) => setState(() => _showMlPredictions = val),
+      onSelected: _toggleMl,
     );
   }
 
@@ -1656,11 +1738,14 @@ class TripScreenState extends State<TripScreen> {
             Expanded(
               child: ListView.separated(
                 padding: EdgeInsets.zero,
-                itemCount: _calculatedRoutes.length,
+                itemCount: _calculatedRoutes.length + 1,
                 separatorBuilder: (context, _) => const SizedBox(height: 8),
                 itemBuilder: (context, index) {
+                  if (index == _calculatedRoutes.length) {
+                    return RouteEnvironmentSamples(samples: _routeSamples);
+                  }
                   final opt = _calculatedRoutes[index];
-                  final isSelected = opt.mode == _selectedRoute?.mode;
+                  final isSelected = identical(opt, _selectedRoute);
                   return _buildRouteOptionCard(opt, isSelected);
                 },
               ),
@@ -1978,7 +2063,7 @@ class TripScreenState extends State<TripScreen> {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'Loading driving route and available origin conditions',
+                      'Loading route and available origin conditions',
                       style: TextStyle(
                         fontSize: 11,
                         color: SupraTheme.textSecondary,
@@ -2326,7 +2411,7 @@ class TripScreenState extends State<TripScreen> {
         icon = Icons.directions_bus;
         iconColor = const Color(0xFF0F766E);
         modeLabel = opt.title;
-        vehicleSub = 'Transit';
+        vehicleSub = opt.transitJourney?.boardingSummary ?? 'Transit';
         break;
       case TransportMode.walk:
         icon = Icons.directions_walk;
@@ -2364,9 +2449,7 @@ class TripScreenState extends State<TripScreen> {
 
     String trafficDesc;
     if (_showMlPredictions) {
-      final mlSpeed = ((effectiveSpeed ?? 24.0) + 2.0).clamp(10.0, 48.0);
-      trafficDesc =
-          'ML · Lalu Lintas Sedang (${mlSpeed.toStringAsFixed(0)} km/h)';
+      trafficDesc = 'Traffic ML unavailable';
     } else if (effectiveDensity == null) {
       trafficDesc = 'Route traffic unavailable';
     } else if (effectiveDensity < 0.35) {
@@ -2382,8 +2465,10 @@ class TripScreenState extends State<TripScreen> {
 
     final String rainChipLabel;
     if (_showMlPredictions) {
-      final mlRain = ((effectiveRain ?? 1.2) + 0.4).clamp(0.4, 12.0);
-      rainChipLabel = 'ML · Hujan ${mlRain.toStringAsFixed(1)} mm (65%)';
+      final h = _mlForecast?.nextAt(DateTime.now());
+      rainChipLabel = h == null
+          ? 'ML rain unavailable'
+          : 'ML origin · ${h.precipitationMm.toStringAsFixed(1)} mm (${(h.rainProbability * 100).round()}%)';
     } else if (effectiveRain != null) {
       rainChipLabel =
           '${isStaleSignal ? "STALE · " : ""}Precipitation: ${effectiveRain.toStringAsFixed(1)} mm';
@@ -2393,10 +2478,10 @@ class TripScreenState extends State<TripScreen> {
 
     final String airChipLabel;
     if (_showMlPredictions) {
-      final mlPm25 = ((effectivePm25 ?? 34.2) + 1.8).clamp(12.0, 120.0);
-      final mlAqi = ConditionsRepository.pm25ToUsEpaAqi(mlPm25);
-      airChipLabel =
-          'ML · US AQI $mlAqi • PM2.5: ${mlPm25.toStringAsFixed(1)} µg/m³';
+      final h = _mlForecast?.nextAt(DateTime.now());
+      airChipLabel = h == null
+          ? 'ML AQI unavailable'
+          : 'ML origin · US AQI ${h.aqi.round()} · PM2.5 ${h.pm25.toStringAsFixed(1)} µg/m³';
     } else if (effectivePm25 != null) {
       airChipLabel =
           '${isStaleSignal ? "STALE · " : ""}${effectiveAqi != null ? "AQI $effectiveAqi • " : ""}PM2.5: ${effectivePm25.toStringAsFixed(1)} µg/m³';
@@ -2646,6 +2731,8 @@ class TripScreenState extends State<TripScreen> {
                 ),
               ),
             ),
+            if (opt.transitJourney != null)
+              TransitJourneyDetails(journey: opt.transitJourney!),
             // Health & Safety Advisory
             if (opt.protectiveMeasures.isNotEmpty) ...[
               const SizedBox(height: 6),

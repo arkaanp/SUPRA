@@ -65,7 +65,7 @@ After sign-in, `POST /api/users` with `{ "full_name": "Your Name" }` upserts the
 profile; email and UUID come from the verified token. `GET /api/users` returns
 only that user's profile. Deleting the profile does **not** delete its Supabase
 Auth account. Ordinary clients cannot create/delete predictions or create
-notifications: those writes belong to future server-side jobs.
+notifications: those writes belong to server-side jobs.
 
 ## Tests
 
@@ -81,7 +81,7 @@ PostgreSQL database whose name ends in `_test`, with no important data. Set
 
 ```sh
 export SUPRA_TEST_DATABASE_URL='postgres://USER:PASSWORD@HOST:5432/supra_test'
-cargo test --locked -- --ignored
+cargo test --locked db_tests::migrated_schema_enforces_user_boundaries -- --ignored
 ```
 
 The test applies migrations to this database, exercises authenticated CRUD,
@@ -129,12 +129,13 @@ validation rules, and background alert evaluation details.
 Run `cargo run --locked -- migrate` to apply `20261109000000_commute_features.sql`.
 Saved places (`/api/places`) and routines (`/api/routines`) provide user-isolated
 entities for daily travel. Routing for walking and motorcycle modes uses Valhalla,
-while public transit routes query an OpenTripPlanner 2.x GTFS GraphQL endpoint.
+while public transit combines the local Transjakarta GTFS feed and Commute Data API.
+See [public transport setup](docs/public-transport.md). OTP remains an optional override.
 
 Background alert evaluations can be scheduled by setting `ALERTS_ENABLED=true`.
 When enabled, an asynchronous worker evaluates due targets once per minute,
-limiting checks to at most once per 5 minutes per target. Incident news alerts require
-a configured JSON feed URL (`NEWS_INCIDENTS_URL`). Users can also queue manual checks
+limiting checks to at most once per 5 minutes per target. Publisher news comes from ANTARA RSS through the Python intelligence service;
+`NEWS_INCIDENTS_URL` optionally overrides it with a reviewed incident feed. Users can also queue manual checks
 via `POST /api/alerts/evaluate`, which responds with HTTP 202 Accepted.
 
 ## API errors and input format
@@ -169,3 +170,22 @@ than sent to clients. Request JSON rejects unknown fields. Route waypoints must
 be a non-empty array of `{ "lat": number, "lng": number }` objects. Notification list `limit` must
 be 1–100 and `offset` non-negative. Preferences may be partially upserted;
 omitted flags default to true on creation and remain unchanged on update.
+
+## Python/PyTorch forecast and publisher news
+
+Start the separate loopback intelligence service before using ML or news checks:
+see [ml/README.md](../ml/README.md) for installation, training, startup, model card,
+validation and the three testing steps. No new schema migration is needed.
+`INTELLIGENCE_URL` defaults to `http://127.0.0.1:8001`. The authenticated
+`/api/forecast/hourly` bridge validates model identity, location, horizon and
+freshness. News delivery uses the existing in-app notifications table and user
+preferences; it is not push delivery.
+
+## Selected-route assistant and news severity
+
+The Gemini assistant now consumes server-fetched route/location conditions,
+available PyTorch forecasts and relevant owned publisher reports. Apply the
+additive `20261116000000_news_severity_preferences.sql` migration with
+`cargo run --locked -- migrate`. Profile/Alerts controls save alert flags and
+news severity thresholds. See [the contract](docs/assistant-and-alerts.md) for
+payloads, ownership, local-time handling, filters and verification.

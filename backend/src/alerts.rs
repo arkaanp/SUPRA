@@ -59,6 +59,7 @@ struct Target {
     departure_minute: i32,
     lead_minutes: i32,
     news_enabled: bool,
+    news_min_severity: String,
     air: bool,
     rain: bool,
     traffic: bool,
@@ -133,8 +134,8 @@ fn hazards(
     out
 }
 
-#[derive(Deserialize)]
-struct Incident {
+#[derive(Deserialize, Clone)]
+pub(crate) struct Incident {
     id: String,
     title: String,
     source_url: String,
@@ -143,10 +144,47 @@ struct Incident {
     published_at: DateTime<Utc>,
     starts_at: DateTime<Utc>,
     expires_at: DateTime<Utc>,
+    #[serde(default)]
     verified: bool,
+    #[serde(default)]
+    source_name: String,
+    #[serde(default)]
+    location_label: String,
+    #[serde(default)]
+    location_radius_km: f64,
+    #[serde(default = "default_severity")]
+    severity: String,
+    #[serde(default)]
+    severity_basis: String,
+}
+fn default_severity() -> String {
+    "low".into()
+}
+pub fn severity_rank(s: &str) -> Option<u8> {
+    match s {
+        "low" => Some(0),
+        "medium" => Some(1),
+        "high" => Some(2),
+        "critical" => Some(3),
+        _ => None,
+    }
+}
+fn meets_severity(value: &str, minimum: &str) -> bool {
+    match (severity_rank(value), severity_rank(minimum)) {
+        (Some(a), Some(b)) => a >= b,
+        _ => false,
+    }
 }
 fn valid_incident(i: &Incident, now: DateTime<Utc>) -> bool {
-    i.verified
+    (i.verified
+        || (i.source_name == "ANTARA"
+            && reqwest::Url::parse(&i.source_url).is_ok_and(|u| {
+                u.host_str()
+                    .is_some_and(|h| h == "antaranews.com" || h.ends_with(".antaranews.com"))
+            })))
+        && severity_rank(&i.severity).is_some()
+        && i.location_radius_km.is_finite()
+        && (0.0..=45.0).contains(&i.location_radius_km)
         && !i.id.is_empty()
         && i.id.len() <= 200
         && !i.title.trim().is_empty()
@@ -165,102 +203,39 @@ fn valid_incident(i: &Incident, now: DateTime<Utc>) -> bool {
         && i.starts_at < i.expires_at
         && i.expires_at <= now + chrono::Duration::days(7)
 }
-fn default_verified_incidents(now: DateTime<Utc>) -> Vec<Incident> {
-    vec![
-        Incident {
-            id: "bpbd-jkt-rain-kuningan-2026".into(),
-            title: "[Verified BPBD & BMKG] Peringatan Hujan Sedang–Lebat & Genangan Koridor Kuningan – Sudirman".into(),
-            source_url: "https://bpbd.jakarta.go.id/peringatan-dini-cuaca-jabodetabek".into(),
-            latitude: -6.2297,
-            longitude: 106.8295,
-            published_at: now - chrono::Duration::minutes(25),
-            starts_at: now - chrono::Duration::minutes(30),
-            expires_at: now + chrono::Duration::hours(6),
-            verified: true,
-        },
-        Incident {
-            id: "tmc-polda-sudirman-thamrin-2026".into(),
-            title: "[Verified TMC Polda Metro] Kepadatan Lalu Lintas & Pengaturan Arus Koridor Sudirman – Monas".into(),
-            source_url: "https://korlantas.polri.go.id/info-lalu-lintas-jakarta".into(),
-            latitude: -6.1754,
-            longitude: 106.8272,
-            published_at: now - chrono::Duration::minutes(18),
-            starts_at: now - chrono::Duration::minutes(20),
-            expires_at: now + chrono::Duration::hours(5),
-            verified: true,
-        },
-        Incident {
-            id: "dlh-dki-aqi-selatan-2026".into(),
-            title: "[Verified DLH DKI Jakarta] Peningkatan Konsentrasi PM2.5 Jam Sibuk di Jakarta Selatan & Pusat".into(),
-            source_url: "https://udara.jakarta.go.id/laporan-kualitas-udara".into(),
-            latitude: -6.2615,
-            longitude: 106.8106,
-            published_at: now - chrono::Duration::minutes(40),
-            starts_at: now - chrono::Duration::minutes(45),
-            expires_at: now + chrono::Duration::hours(8),
-            verified: true,
-        },
-        Incident {
-            id: "kci-transjakarta-commuter-update-2026".into(),
-            title: "[Verified KAI Commuter & TransJakarta] Penyesuaian Headway Jam Sibuk Koridor Manggarai – Bogor & Cawang".into(),
-            source_url: "https://commuterline.id/informasi-operasional-terkini".into(),
-            latitude: -6.2442,
-            longitude: 106.8726,
-            published_at: now - chrono::Duration::minutes(35),
-            starts_at: now - chrono::Duration::minutes(40),
-            expires_at: now + chrono::Duration::hours(6),
-            verified: true,
-        },
-    ]
-}
-
 async fn incidents() -> Vec<Incident> {
-    let now = Utc::now();
-    if let Ok(url) = std::env::var("NEWS_INCIDENTS_URL") {
-        if !url.trim().is_empty() {
-            if let Ok(client) = reqwest::Client::builder()
-                .timeout(Duration::from_secs(5))
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-            {
-                if let Ok(mut response) = client.get(url).send().await {
-                    if response.status().is_success() {
-                        let mut bytes = Vec::new();
-                        let mut ok = true;
-                        while let Ok(Some(chunk)) = response.chunk().await {
-                            if bytes.len() + chunk.len() > 1_000_000 {
-                                ok = false;
-                                break;
-                            }
-                            bytes.extend_from_slice(&chunk);
-                        }
-                        if ok {
-                            let parsed: Vec<Incident> =
-                                serde_json::from_slice::<Vec<Incident>>(&bytes)
-                                    .unwrap_or_default()
-                                    .into_iter()
-                                    .take(100)
-                                    .filter(|i| valid_incident(i, now))
-                                    .collect();
-                            if !parsed.is_empty() || cfg!(test) {
-                                return parsed;
-                            }
-                        }
-                    }
-                }
-            }
-            if cfg!(test) {
-                return Vec::new();
-            }
+    let url = std::env::var("NEWS_INCIDENTS_URL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| format!("{}/v1/news", crate::intelligence::base_url()));
+    let fetch = async {
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(8))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .ok()?;
+        let mut response = client.get(url).send().await.ok()?;
+        if !response.status().is_success() {
+            return None;
         }
-    }
-    if cfg!(test) {
-        return Vec::new();
-    }
-    default_verified_incidents(now)
-        .into_iter()
-        .filter(|i| valid_incident(i, now))
-        .collect()
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await.ok()? {
+            if bytes.len() + chunk.len() > 1_000_000 {
+                return None;
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let now = Utc::now();
+        Some(
+            serde_json::from_slice::<Vec<Incident>>(&bytes)
+                .ok()?
+                .into_iter()
+                .take(100)
+                .filter(|i| valid_incident(i, now))
+                .collect(),
+        )
+    };
+    fetch.await.unwrap_or_default()
 }
 fn relevant(i: &Incident, t: &Target) -> bool {
     let point = [i.latitude, i.longitude];
@@ -274,7 +249,7 @@ fn relevant(i: &Incident, t: &Target) -> bool {
     if path.len() < 2 {
         return distance_km(point, [t.latitude, t.longitude])
             .min(distance_km(point, [t.dest_latitude, t.dest_longitude]))
-            <= 3.0;
+            <= 3.0 + i.location_radius_km;
     }
     // Local equirectangular segment distance, only on actual saved geometry.
     let scale = 111.32 * point[0].to_radians().cos();
@@ -292,7 +267,8 @@ fn relevant(i: &Incident, t: &Target) -> bool {
             ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / len
         }
         .clamp(0.0, 1.0);
-        ((p[0] - a[0] - f * dx).powi(2) + (p[1] - a[1] - f * dy).powi(2)).sqrt() <= 1.5
+        ((p[0] - a[0] - f * dx).powi(2) + (p[1] - a[1] - f * dy).powi(2)).sqrt()
+            <= 1.5 + i.location_radius_km
     })
 }
 #[derive(Default, Serialize)]
@@ -308,9 +284,9 @@ pub async fn evaluate(
     user: Option<Uuid>,
 ) -> AppResult<Evaluation> {
     let now = Utc::now();
-    let mut targets:Vec<Target>=sqlx::query_as("SELECT r.id,r.user_id,r.label,r.mode,o.latitude,o.longitude,d.latitude AS dest_latitude,d.longitude AS dest_longitude,r.weekdays,r.departure_minute,r.lead_minutes,r.news_enabled,COALESCE(p.alert_unhealthy_aqi,true) AS air,COALESCE(p.alert_heavy_rain,true) AS rain,COALESCE(p.alert_severe_traffic,true) AS traffic,COALESCE(p.alert_relevant_news,true) AS news,'[]'::jsonb AS route_waypoints,now() AS planned_departure,true AS is_routine FROM routine_trips r JOIN saved_places o ON o.id=r.origin_id AND o.user_id=r.user_id JOIN saved_places d ON d.id=r.destination_id AND d.user_id=r.user_id LEFT JOIN notification_preferences p ON p.user_id=r.user_id WHERE r.enabled AND r.alerts_enabled AND ($1::uuid IS NULL OR r.user_id=$1) AND (r.last_checked_at IS NULL OR r.last_checked_at<now()-interval '5 minutes') ORDER BY r.last_checked_at NULLS FIRST LIMIT 20")
+    let mut targets:Vec<Target>=sqlx::query_as("SELECT r.id,r.user_id,r.label,r.mode,o.latitude,o.longitude,d.latitude AS dest_latitude,d.longitude AS dest_longitude,r.weekdays,r.departure_minute,r.lead_minutes,r.news_enabled,COALESCE(p.alert_unhealthy_aqi,true) AS air,COALESCE(p.alert_heavy_rain,true) AS rain,COALESCE(p.alert_severe_traffic,true) AS traffic,COALESCE(p.alert_relevant_news,true) AS news,COALESCE(p.news_min_severity,'low') AS news_min_severity,'[]'::jsonb AS route_waypoints,now() AS planned_departure,true AS is_routine FROM routine_trips r JOIN saved_places o ON o.id=r.origin_id AND o.user_id=r.user_id JOIN saved_places d ON d.id=r.destination_id AND d.user_id=r.user_id LEFT JOIN notification_preferences p ON p.user_id=r.user_id WHERE r.enabled AND r.alerts_enabled AND ($1::uuid IS NULL OR r.user_id=$1) AND (r.last_checked_at IS NULL OR r.last_checked_at<now()-interval '5 minutes') ORDER BY r.last_checked_at NULLS FIRST LIMIT 20")
         .bind(user).fetch_all(&s.pool).await?;
-    targets.extend(sqlx::query_as::<_,Target>("SELECT t.id,t.user_id,t.name AS label,t.transport_mode AS mode,t.start_latitude AS latitude,t.start_longitude AS longitude,t.destination_latitude AS dest_latitude,t.destination_longitude AS dest_longitude,ARRAY[]::smallint[] AS weekdays,0 AS departure_minute,30 AS lead_minutes,true AS news_enabled,COALESCE(p.alert_unhealthy_aqi,true) AS air,COALESCE(p.alert_heavy_rain,true) AS rain,COALESCE(p.alert_severe_traffic,true) AS traffic,COALESCE(p.alert_relevant_news,true) AS news,t.route_waypoints,t.planned_departure,false AS is_routine FROM trips t LEFT JOIN notification_preferences p ON p.user_id=t.user_id WHERE t.active_until>now() AND t.confirmed_at IS NOT NULL AND t.start_latitude IS NOT NULL AND t.planned_departure<=now()+interval '30 minutes' AND ($1::uuid IS NULL OR t.user_id=$1) AND (t.last_checked_at IS NULL OR t.last_checked_at<now()-interval '5 minutes') ORDER BY t.last_checked_at NULLS FIRST LIMIT 20")
+    targets.extend(sqlx::query_as::<_,Target>("SELECT t.id,t.user_id,t.name AS label,t.transport_mode AS mode,t.start_latitude AS latitude,t.start_longitude AS longitude,t.destination_latitude AS dest_latitude,t.destination_longitude AS dest_longitude,ARRAY[]::smallint[] AS weekdays,0 AS departure_minute,30 AS lead_minutes,true AS news_enabled,COALESCE(p.alert_unhealthy_aqi,true) AS air,COALESCE(p.alert_heavy_rain,true) AS rain,COALESCE(p.alert_severe_traffic,true) AS traffic,COALESCE(p.alert_relevant_news,true) AS news,COALESCE(p.news_min_severity,'low') AS news_min_severity,t.route_waypoints,t.planned_departure,false AS is_routine FROM trips t LEFT JOIN notification_preferences p ON p.user_id=t.user_id WHERE t.active_until>now() AND t.confirmed_at IS NOT NULL AND t.start_latitude IS NOT NULL AND t.planned_departure<=now()+interval '30 minutes' AND ($1::uuid IS NULL OR t.user_id=$1) AND (t.last_checked_at IS NULL OR t.last_checked_at<now()-interval '5 minutes') ORDER BY t.last_checked_at NULLS FIRST LIMIT 20")
         .bind(user).fetch_all(&s.pool).await?);
     let news = if targets.iter().any(|t| t.news && t.news_enabled) {
         incidents().await
@@ -318,7 +294,7 @@ pub async fn evaluate(
         Vec::new()
     };
     let mut result = Evaluation {
-        news_configured: std::env::var("NEWS_INCIDENTS_URL").is_ok_and(|s| !s.is_empty()),
+        news_configured: true,
         scheduler_enabled: enabled(),
         ..Default::default()
     };
@@ -388,11 +364,12 @@ pub async fn evaluate(
                 i.starts_at <= departure + chrono::Duration::hours(2)
                     && i.expires_at > departure
                     && relevant(i, &t)
+                    && meets_severity(&i.severity, &t.news_min_severity)
             }) {
-                result.created+=sqlx::query("INSERT INTO notifications(user_id,title,message_body,severity,event_key,source_url,context) VALUES($1,$2,$3,'medium',$4,$5,$6) ON CONFLICT(user_id,event_key) WHERE event_key IS NOT NULL DO NOTHING")
-                    .bind(t.user_id).bind(&i.title).bind(format!("{} · Verified source report relevant near your journey. Published {}. Expires {}.",t.label,i.published_at,i.expires_at))
-                    .bind(format!("{key}:news:{}",i.id)).bind(&i.source_url).bind(json!({"published_at":i.published_at,"expires_at":i.expires_at,"target":t.id,"coverage":if t.route_waypoints.as_array().is_some_and(|a| a.len()>1) {"route_corridor"} else {"endpoints_only"}}))
-                    .execute(&s.pool).await?.rows_affected();
+                result.created+=sqlx::query("INSERT INTO notifications(user_id,title,message_body,severity,event_key,source_url,context) VALUES($1,$2,$3,$7,$4,$5,$6) ON CONFLICT(user_id,event_key) WHERE event_key IS NOT NULL DO NOTHING")
+                    .bind(t.user_id).bind(&i.title).bind(format!("{} · Publisher report near {} (area match; check article for current status). Published {}. Expires {}.",t.label,i.location_label,i.published_at,i.expires_at))
+                    .bind(format!("news:{}",i.id)).bind(&i.source_url).bind(json!({"source_name":i.source_name,"severity_basis":i.severity_basis,"published_at":i.published_at,"expires_at":i.expires_at,"target":t.id,"coverage":if t.route_waypoints.as_array().is_some_and(|a| a.len()>1) {"route_corridor"} else {"endpoints_only"}}))
+                    .bind(&i.severity).execute(&s.pool).await?.rows_affected();
             }
         }
         sqlx::query("INSERT INTO alert_decisions(user_id,target_key,outcome) VALUES($1,$2,$3)")
@@ -416,16 +393,21 @@ pub async fn evaluate_user(
     Extension(c): Extension<Arc<ConditionsService>>,
 ) -> (axum::http::StatusCode, Json<Value>) {
     tokio::spawn(async move {
-        if evaluate(&s, &c, Some(u.id)).await.is_err() {
-            tracing::warn!("Manual alert evaluation failed");
+        let (hazards, news) = tokio::join!(
+            evaluate(&s, &c, Some(u.id)),
+            evaluate_verified_news_for_user(&s, &c, u.id)
+        );
+        if hazards.is_err() {
+            tracing::warn!("Manual hazard evaluation failed")
         }
-        if evaluate_verified_news_for_user(&s, &c, u.id).await.is_err() {
-            tracing::warn!("Manual news evaluation failed");
+        if news.is_err() {
+            tracing::warn!("Manual publisher news evaluation failed")
         }
     });
     let response = json!({
         "queued": true,
-        "news_configured": std::env::var("NEWS_INCIDENTS_URL").is_ok_and(|url| !url.trim().is_empty()),
+        "news_configured": true,
+        "news_source": "ANTARA RSS or configured incident feed",
         "scheduler_enabled": enabled()
     });
     (axum::http::StatusCode::ACCEPTED, Json(response))
@@ -433,24 +415,43 @@ pub async fn evaluate_user(
 
 pub(crate) async fn evaluate_verified_news_for_user(
     s: &AppState,
-    conditions: &ConditionsService,
+    _conditions: &ConditionsService,
     user_id: Uuid,
 ) -> AppResult<u64> {
+    let allowed:bool=sqlx::query_scalar("SELECT COALESCE((SELECT alert_relevant_news FROM notification_preferences WHERE user_id=$1),true)")
+        .bind(user_id).fetch_one(&s.pool).await?;
+    if !allowed {
+        return Ok(0);
+    }
     let verified_news = incidents().await;
+    store_news_for_user(s, user_id, &verified_news).await
+}
+pub(crate) async fn store_news_for_user(
+    s: &AppState,
+    user_id: Uuid,
+    verified_news: &[Incident],
+) -> AppResult<u64> {
+    let (allowed,minimum):(bool,String)=sqlx::query_as("SELECT COALESCE(p.alert_relevant_news,true),COALESCE(p.news_min_severity,'low') FROM users u LEFT JOIN notification_preferences p ON p.user_id=u.id WHERE u.id=$1")
+        .bind(user_id).fetch_one(&s.pool).await?;
+    if !allowed {
+        return Ok(0);
+    }
     let mut created = 0_u64;
 
     // Fetch user's recent trips to match corridor relevance, or fall back to Greater Jakarta corridors.
     let user_trips: Vec<(String, Option<f64>, Option<f64>, Option<f64>, Option<f64>, Value)> =
         sqlx::query_as(
             "SELECT name, start_latitude, start_longitude, destination_latitude, destination_longitude, COALESCE(route_waypoints, '[]'::jsonb) \
-             FROM trips WHERE user_id = $1 ORDER BY created_at DESC LIMIT 5",
+             FROM trips WHERE user_id = $1 AND start_latitude IS NOT NULL AND destination_latitude IS NOT NULL ORDER BY created_at DESC LIMIT 5",
         )
         .bind(user_id)
         .fetch_all(&s.pool)
-        .await
-        .unwrap_or_default();
+        .await?;
 
-    for incident in &verified_news {
+    for incident in verified_news
+        .iter()
+        .filter(|i| valid_incident(i, Utc::now()) && meets_severity(&i.severity, &minimum))
+    {
         let mut matched_label: Option<String> = None;
         for (name, s_lat, s_lon, d_lat, d_lon, waypoints) in &user_trips {
             if let (Some(slat), Some(slon), Some(dlat), Some(dlon)) = (s_lat, s_lon, d_lat, d_lon) {
@@ -467,6 +468,7 @@ pub(crate) async fn evaluate_verified_news_for_user(
                     departure_minute: 0,
                     lead_minutes: 30,
                     news_enabled: true,
+                    news_min_severity: minimum.clone(),
                     air: true,
                     rain: true,
                     traffic: true,
@@ -481,20 +483,25 @@ pub(crate) async fn evaluate_verified_news_for_user(
                 }
             }
         }
-        let corridor_label = matched_label
-            .unwrap_or_else(|| "Verified Jabodetabek Commuter Corridor Alert".to_string());
-        let event_key = format!("verified_news:{}", incident.id);
+        if !user_trips.is_empty() && matched_label.is_none() {
+            continue;
+        }
+        let corridor_label = matched_label.unwrap_or_else(|| "Jabodetabek commuter news".into());
+        let event_key = format!("news:{}", incident.id);
         let body = format!(
-            "{corridor_label} · Verified report near ({:.4}, {:.4}).\nPublished: {} · Expires: {}\nSource: {}",
-            incident.latitude,
-            incident.longitude,
+            "{corridor_label} · Publisher report near {} (area-level relevance). Check the article for current status.\nPublished: {} · Expires: {}\nSource: {}",
+            incident.location_label,
             incident.published_at.format("%Y-%m-%d %H:%M UTC"),
             incident.expires_at.format("%Y-%m-%d %H:%M UTC"),
             incident.source_url
         );
         let ctx = json!({
             "rule": "verified_news",
-            "verified": true,
+            "verified": incident.verified,
+            "source_name": incident.source_name,
+            "severity_basis": incident.severity_basis,
+            "location_label": incident.location_label,
+            "location_radius_km": incident.location_radius_km,
             "published_at": incident.published_at,
             "expires_at": incident.expires_at,
             "latitude": incident.latitude,
@@ -503,8 +510,8 @@ pub(crate) async fn evaluate_verified_news_for_user(
         });
         created += sqlx::query(
             "INSERT INTO notifications(user_id, title, message_body, severity, event_key, source_url, context) \
-             VALUES($1, $2, $3, 'medium', $4, $5, $6) \
-             ON CONFLICT(user_id, event_key) WHERE event_key IS NOT NULL DO NOTHING",
+             VALUES($1, $2, $3, $7, $4, $5, $6) \
+             ON CONFLICT(user_id, event_key) WHERE event_key IS NOT NULL DO UPDATE SET severity=EXCLUDED.severity, context=EXCLUDED.context, message_body=EXCLUDED.message_body WHERE notifications.severity IS DISTINCT FROM EXCLUDED.severity",
         )
         .bind(user_id)
         .bind(&incident.title)
@@ -512,43 +519,10 @@ pub(crate) async fn evaluate_verified_news_for_user(
         .bind(event_key)
         .bind(&incident.source_url)
         .bind(ctx)
+        .bind(&incident.severity)
         .execute(&s.pool)
         .await?
         .rows_affected();
-    }
-
-    // Also evaluate current/stale conditions at user's primary Jabodetabek location so hazard alerts work with stale fallback.
-    let cond = conditions
-        .lookup(&ConditionsQuery {
-            latitude: -6.2297,
-            longitude: 106.8295,
-            adm4: None,
-        })
-        .await;
-    if let Some(pm25) = number(&cond.air_quality, "pm25_ug_m3") {
-        if pm25 >= 25.0 {
-            let aqi = crate::conditions::pm25_to_us_epa_aqi(pm25);
-            let event_key = format!("cond_air_summary:{}", Utc::now().format("%Y-%m-%d"));
-            let body = format!(
-                "Jabodetabek Air Quality Advisory ({}) · PM2.5: {:.1} µg/m³ (US AQI {}). Disarankan menggunakan masker KN95/N95 untuk perjalanan luar ruang.",
-                cond.air_quality.status.to_uppercase(),
-                pm25,
-                aqi
-            );
-            created += sqlx::query(
-                "INSERT INTO notifications(user_id, title, message_body, severity, event_key, context) \
-                 VALUES($1, $2, $3, 'medium', $4, $5) \
-                 ON CONFLICT(user_id, event_key) WHERE event_key IS NOT NULL DO NOTHING",
-            )
-            .bind(user_id)
-            .bind("Peringatan Kualitas Udara & Komuter Jabodetabek")
-            .bind(body)
-            .bind(event_key)
-            .bind(json!({"rule": "air_advisory", "status": cond.air_quality.status, "pm25_ug_m3": pm25, "aqi": aqi}))
-            .execute(&s.pool)
-            .await?
-            .rows_affected();
-        }
     }
 
     Ok(created)
@@ -560,10 +534,22 @@ pub fn start(s: AppState, c: Arc<ConditionsService>) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        let mut cursor = Uuid::nil();
         loop {
             interval.tick().await;
             if evaluate(&s, &c, None).await.is_err() {
                 tracing::warn!("Alert evaluation failed; no synthetic notifications substituted");
+            }
+            let users:Vec<Uuid>=sqlx::query_scalar("SELECT u.id FROM users u LEFT JOIN notification_preferences p ON p.user_id=u.id WHERE COALESCE(p.alert_relevant_news,true) AND u.id>$1 ORDER BY u.id LIMIT 20")
+                .bind(cursor).fetch_all(&s.pool).await.unwrap_or_default();
+            cursor = users.last().copied().unwrap_or(Uuid::nil());
+            for user_id in users {
+                if evaluate_verified_news_for_user(&s, &c, user_id)
+                    .await
+                    .is_err()
+                {
+                    tracing::warn!("Scheduled publisher news check failed")
+                }
             }
             let _ = sqlx::query(
                 "DELETE FROM alert_decisions WHERE checked_at<now()-interval '30 days'",
@@ -576,6 +562,14 @@ pub fn start(s: AppState, c: Arc<ConditionsService>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn news_thresholds_are_ordered_and_unknown_values_are_rejected() {
+        assert!(meets_severity("critical", "high"));
+        assert!(meets_severity("medium", "medium"));
+        assert!(!meets_severity("low", "medium"));
+        assert!(!meets_severity("medium", "high"));
+        assert!(!meets_severity("unknown", "low"));
+    }
     #[test]
     fn handles_midnight_and_weekdays() {
         let now = DateTime::parse_from_rfc3339("2026-11-08T16:50:00Z")
@@ -621,23 +615,18 @@ mod tests {
     }
 
     fn clone_incident(i: &Incident) -> Incident {
-        Incident {
-            id: i.id.clone(),
-            title: i.title.clone(),
-            source_url: i.source_url.clone(),
-            latitude: i.latitude,
-            longitude: i.longitude,
-            published_at: i.published_at,
-            starts_at: i.starts_at,
-            expires_at: i.expires_at,
-            verified: i.verified,
-        }
+        i.clone()
     }
 
     #[test]
     fn incident_validation_and_relevance_rules() {
         let now = Utc::now();
         let valid = Incident {
+            severity: "low".into(),
+            severity_basis: String::new(),
+            source_name: String::new(),
+            location_label: String::new(),
+            location_radius_km: 0.0,
             id: "inc-1".into(),
             title: "Road closure on Jl. Sudirman".into(),
             source_url: "https://example.com/incident-1".into(),
@@ -655,6 +644,25 @@ mod tests {
             ..clone_incident(&valid)
         };
         assert!(!valid_incident(&unverified, now));
+        let publisher = Incident {
+            source_name: "ANTARA".into(),
+            source_url: "https://www.antaranews.com/berita/fixture-only".into(),
+            verified: false,
+            location_label: "Depok".into(),
+            location_radius_km: 10.0,
+            ..valid.clone()
+        };
+        assert!(valid_incident(&publisher, now));
+        let spoof = Incident {
+            source_url: "https://www.antaranews.com.evil.test/berita".into(),
+            ..publisher.clone()
+        };
+        assert!(!valid_incident(&spoof, now));
+        let too_broad = Incident {
+            location_radius_km: 100.0,
+            ..publisher.clone()
+        };
+        assert!(!valid_incident(&too_broad, now));
 
         let http_url = Incident {
             source_url: "http://example.com/inc".into(),
@@ -693,6 +701,7 @@ mod tests {
             departure_minute: 420,
             lead_minutes: 30,
             news_enabled: true,
+            news_min_severity: "low".into(),
             air: true,
             rain: true,
             traffic: true,

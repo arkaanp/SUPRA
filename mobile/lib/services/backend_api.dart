@@ -32,7 +32,12 @@ class BackendApi {
     } on TimeoutException {
       throw ApiException(
         504,
-        request.method == 'GET'
+        request.method == 'DELETE' &&
+                request.url.path == '/api/notifications/read'
+            ? 'The server did not confirm deletion. Refresh to check the result before retrying.'
+            : request.url.path == '/api/agent/chat'
+            ? 'The assistant took too long to respond. Try again.'
+            : request.method == 'GET'
             ? 'The server took too long to respond. Please try again.'
             : 'The server did not confirm the save. Refresh to check whether it was saved before trying again.',
       );
@@ -52,7 +57,10 @@ class BackendApi {
     final request = http.Request(method, Uri.parse('$baseUrl$path'));
     request.headers['Content-Type'] = 'application/json';
     if (data != null) request.body = jsonEncode(data);
-    final response = await _send(request, requestTimeout);
+    final response = await _send(
+      request,
+      path == '/api/agent/chat' ? const Duration(seconds: 35) : requestTimeout,
+    );
     dynamic body;
     try {
       body = jsonDecode(response.body);

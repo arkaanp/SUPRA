@@ -21,7 +21,7 @@ extension NotificationSeverityExtensions on NotificationSeverity {
       case NotificationSeverity.low:
         return 'Low';
       case NotificationSeverity.moderate:
-        return 'Moderate';
+        return 'Medium';
       case NotificationSeverity.high:
         return 'High';
       case NotificationSeverity.critical:
@@ -48,6 +48,9 @@ class AppNotification {
         sentAt: DateTime.parse(json['sent_at'] as String).toLocal(),
         isRead: json['is_read'] as bool,
         sourceUrl: json['source_url'] as String?,
+        rule: json['context'] is Map
+            ? (json['context'] as Map)['rule'] as String?
+            : null,
         expiresAt: DateTime.tryParse(
           (json['context'] is Map
                       ? (json['context'] as Map)['expires_at']
@@ -64,6 +67,7 @@ class AppNotification {
   final DateTime sentAt;
   final bool isRead;
   final String? sourceUrl;
+  final String? rule;
   final DateTime? expiresAt;
 
   const AppNotification({
@@ -75,6 +79,7 @@ class AppNotification {
     required this.sentAt,
     this.isRead = false,
     this.sourceUrl,
+    this.rule,
     this.expiresAt,
   });
 
@@ -87,8 +92,21 @@ class AppNotification {
     sentAt: sentAt,
     isRead: isRead ?? this.isRead,
     sourceUrl: sourceUrl,
+    rule: rule,
     expiresAt: expiresAt,
   );
+
+  bool get isNews => sourceUrl?.trim().isNotEmpty == true;
+  bool meetsNewsMinimum(String minimum) {
+    if (!isNews) return true;
+    final rank = const {
+      'low': 0,
+      'medium': 1,
+      'high': 2,
+      'critical': 3,
+    }[minimum];
+    return rank != null && severity.index >= rank;
+  }
 
   String get timeLabel =>
       '${sentAt.hour.toString().padLeft(2, '0')}:${sentAt.minute.toString().padLeft(2, '0')}';

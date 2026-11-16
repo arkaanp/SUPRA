@@ -45,7 +45,8 @@ class SupraService extends ChangeNotifier {
       )
       .toList();
   final List<AppNotification> _notifications = [];
-  List<AppNotification> get notifications => List.unmodifiable(_notifications);
+  List<AppNotification> get notifications =>
+      List.unmodifiable(_notifications.where(_preferences.allowsNotification));
   NotificationPreference _preferences = const NotificationPreference();
   NotificationPreference get preferences => _preferences;
   bool _ready = false;
@@ -445,6 +446,17 @@ class SupraService extends ChangeNotifier {
     _requireSameUser(id);
     return result;
   });
+  Future<Map<String, dynamic>> hourlyForecast(LatLng point) => _withApi((
+    api,
+    id,
+  ) async {
+    final result = await api.request(
+      'GET',
+      '/api/forecast/hourly?latitude=${point.latitude}&longitude=${point.longitude}',
+    ) as Map<String, dynamic>;
+    _requireSameUser(id);
+    return result;
+  });
   Future<Map<String, dynamic>> evaluateAlerts() => _withApi((api, id) async {
     final result = await api.request(
       'POST',
@@ -454,10 +466,12 @@ class SupraService extends ChangeNotifier {
     return result;
   });
 
-  Future<List<AppNotification>> getNotifications() => _withApi((api, id) async {
+  Future<List<AppNotification>> getNotifications({
+    String? newsMinSeverity,
+  }) => _withApi((api, id) async {
     final values = await api.request(
       'GET',
-      '/api/users/$id/notifications?limit=100',
+      '/api/users/$id/notifications?limit=100${newsMinSeverity == null ? '' : '&news_min_severity=${Uri.encodeQueryComponent(newsMinSeverity)}'}',
     ) as List;
     final alerts = values
         .map((v) => AppNotification.fromJson(v as Map<String, dynamic>))
@@ -482,13 +496,60 @@ class SupraService extends ChangeNotifier {
         notifyListeners();
       });
 
-  Future<void> markAllRead() async {
-    for (final alert in List<AppNotification>.of(
-      _notifications,
-    ).where((n) => !n.isRead)) {
-      await markNotificationRead(alert.id);
+  Future<void> markNotificationUnread(String notificationId) =>
+      _withApi((api, id) async {
+        final alert = AppNotification.fromJson(
+          await api.request('PUT', '/api/notifications/$notificationId/unread')
+              as Map<String, dynamic>,
+        );
+        _requireSameUser(id);
+        final index = _notifications.indexWhere((n) => n.id == notificationId);
+        if (index >= 0) _notifications[index] = alert;
+        notifyListeners();
+      });
+
+  Future<int> markNotificationsUnread(List<String> ids) =>
+      _withApi((api, id) async {
+        final result = await api.request('PUT', '/api/notifications/unread', {
+          'ids': ids,
+        }) as Map<String, dynamic>;
+        _requireSameUser(id);
+        final selected = ids.toSet();
+        for (var i = 0; i < _notifications.length; i++) {
+          if (selected.contains(_notifications[i].id)) {
+            _notifications[i] = _notifications[i].copyWith(isRead: false);
+          }
+        }
+        notifyListeners();
+        return result['updated'] as int;
+      });
+
+  Future<int> markAllRead() => _withApi((api, id) async {
+    final result = await api.request(
+      'PUT',
+      '/api/notifications/read',
+    ) as Map<String, dynamic>;
+    _requireSameUser(id);
+    for (var i = 0; i < _notifications.length; i++) {
+      if (_preferences.allowsNotification(_notifications[i])) {
+        _notifications[i] = _notifications[i].copyWith(isRead: true);
+      }
     }
-  }
+    notifyListeners();
+    return result['updated'] as int;
+  });
+
+  Future<int> deleteReadNotifications() => _withApi((api, id) async {
+    final result = await api.request(
+      'DELETE',
+      '/api/notifications/read',
+    ) as Map<String, dynamic>;
+    _requireSameUser(id);
+    final deleted = result['deleted'] as int;
+    _notifications.removeWhere((n) => n.isRead);
+    notifyListeners();
+    return deleted;
+  });
 
   Future<void> updatePreferences(NotificationPreference preferences) =>
       _withApi((api, id) async {
@@ -502,6 +563,19 @@ class SupraService extends ChangeNotifier {
         _requireSameUser(id);
         _preferences = saved;
         notifyListeners();
+      });
+
+  Future<NotificationPreference> updateNewsSeverity(String severity) =>
+      _withApi((api, id) async {
+        final saved = NotificationPreference.fromJson(
+          await api.request('PUT', '/api/users/$id/preferences', {
+            'news_min_severity': severity,
+          }) as Map<String, dynamic>,
+        );
+        _requireSameUser(id);
+        _preferences = saved;
+        notifyListeners();
+        return saved;
       });
 
   /// Sends a conversational message to Agent 1 via backend POST /api/agent/chat.

@@ -1,0 +1,6 @@
+stop_id,stop_name,stop_lat,stop_lon,location_type
+A,"Alpha, Gate",-6.2,106.80,0
+B,Bravo,-6.2,106.82,0
+C,Central,-6.2,106.84,0
+D,Delta,-6.22,106.84,0
+E,Echo,-6.24,106.84,0

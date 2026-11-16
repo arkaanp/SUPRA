@@ -71,6 +71,83 @@ void main() {
     expect(sample.conditions!.airQuality.status, 'stale');
     expect(sample.descriptiveLabel, contains('openaq: stale'));
   });
+  test(
+    'Route samples follow provider geometry and include both endpoints',
+    () async {
+      const path = [
+        LatLng(latitude: -6.2, longitude: 106.6),
+        LatLng(latitude: -6.4, longitude: 106.6),
+        LatLng(latitude: -6.4, longitude: 106.9),
+      ];
+      final points = EnvironmentalService.routeSamplePoints(path);
+      expect(points.length, 5);
+      expect(points.first.distanceTo(path.first), lessThan(0.001));
+      expect(points.last.distanceTo(path.last), lessThan(0.001));
+      for (final p in points) {
+        expect(
+          (p.longitude - 106.6).abs() < 0.001 ||
+              (p.latitude + 6.4).abs() < 0.001,
+          isTrue,
+        );
+      }
+      var calls = 0;
+      final service = EnvironmentalService(
+        resolveName: (_) async =>
+            'Jalan Sudirman, Setiabudi, Jakarta Selatan, Indonesia',
+        conditions: ConditionsRepository(
+          load: (p) async {
+            calls++;
+            return CurrentConditions(
+              latitude: p.latitude,
+              longitude: p.longitude,
+              retrievedAt: DateTime.now(),
+              weather: ConditionsRepository.unavailable,
+              airQuality: ConditionsRepository.unavailable,
+              traffic: ConditionsRepository.unavailable,
+            );
+          },
+        ),
+      );
+      final samples = await service.fetchRouteData(
+        path,
+        startName: 'Monas',
+        destinationName: 'Universitas Indonesia',
+      );
+      expect(calls, 5);
+      expect(samples.first.name, 'Start · Monas');
+      expect(samples.last.name, 'Destination · Universitas Indonesia');
+      expect(samples[1].name, 'Jalan Sudirman, Setiabudi, Jakarta Selatan');
+      expect(samples.any((s) => s.name.contains('Route sample')), isFalse);
+      expect(samples.map((s) => s.id).toSet().length, 5);
+    },
+  );
+
+  test(
+    'Address lookup failure keeps readings and useful geographic labels',
+    () async {
+      final service = EnvironmentalService(
+        resolveName: (_) async => throw StateError('geocoder unavailable'),
+        conditions: ConditionsRepository(
+          load: (p) async => CurrentConditions(
+            latitude: p.latitude,
+            longitude: p.longitude,
+            retrievedAt: DateTime.now(),
+            weather: ConditionsRepository.unavailable,
+            airQuality: ConditionsRepository.unavailable,
+            traffic: ConditionsRepository.unavailable,
+          ),
+        ),
+      );
+      final samples = await service.fetchRouteData([
+        point,
+        const LatLng(latitude: -6.3, longitude: 106.8),
+      ]);
+      expect(samples.first.name, contains('Jakarta'));
+      expect(samples.first.name, contains('-6.2000, 106.8000'));
+      expect(samples.last.conditions, isNotNull);
+    },
+  );
+
   test('Polygon containment and missing wind remain explicit', () {
     const zone = EnvironmentalZone(
       id: 'polygon',

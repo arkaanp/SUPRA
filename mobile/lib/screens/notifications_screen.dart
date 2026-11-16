@@ -1,15 +1,40 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'package:supra_mobile_ui/config/map_config.dart';
 import 'package:supra_mobile_ui/models/notification.dart';
+
+import '../models/notification_preference.dart';
+import '../widgets/news_severity_selector.dart';
+import 'settings_screen.dart';
+
 import 'package:supra_mobile_ui/services/supra_api_service.dart';
 import 'package:supra_mobile_ui/theme/app_theme.dart';
 import 'package:supra_mobile_ui/widgets/notification_tile.dart';
 
 /// Notifications inbox: Agent 2 proactive alerts with severity and read state.
 class NotificationsScreen extends StatefulWidget {
-  const NotificationsScreen({super.key});
+  const NotificationsScreen({
+    super.key,
+    this.loadNotifications,
+    this.saveNewsSeverity,
+    this.initialPreferences,
+    this.preferenceChanges,
+    this.deleteReadAlerts,
+    this.setReadState,
+    this.markSelectedUnread,
+    this.markAllReadAlerts,
+  });
+  final Future<List<AppNotification>> Function(String)? loadNotifications;
+  final Future<NotificationPreference> Function(String)? saveNewsSeverity;
+  final NotificationPreference? initialPreferences;
+  final ValueListenable<NotificationPreference>? preferenceChanges;
+  final Future<int> Function()? deleteReadAlerts;
+  final Future<void> Function(String, bool)? setReadState;
+  final Future<int> Function(List<String>)? markSelectedUnread;
+  final Future<int> Function()? markAllReadAlerts;
 
   @override
   State<NotificationsScreen> createState() => _NotificationsScreenState();
@@ -21,122 +46,277 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   String? _error;
   bool _checking = false;
   String? _checkStatus;
-  String _selectedFilter = 'all'; // 'all' | 'verified_news' | 'hazard'
-
-  static List<AppNotification> _defaultVerifiedNewsFallback(String userId) {
-    final now = DateTime.now();
-    return [
-      AppNotification(
-        id: 'verified-bpbd-flood-kuningan',
-        userId: userId,
-        title:
-            'BPBD DKI Jakarta: Genangan 15–20 cm & Hujan Sedang di Koridor Kuningan – Gatot Subroto',
-        messageBody:
-            'Verified Jabodetabek Commuter Corridor Alert · Laporan terverifikasi BPBD DKI di sekitar Rasuna Said – Gatot Subroto (-6.2297, 106.8295). Lalu lintas melambat ke 18–22 km/jam; komuter disarankan menggunakan LRT Jabodebek / TransJakarta Koridor 6 & 9 atau menyiapkan jas hujan.',
-        severity: NotificationSeverity.moderate,
-        sentAt: now.subtract(const Duration(minutes: 18)),
-        isRead: false,
-        sourceUrl: 'https://bpbd.jakarta.go.id/berita-peringatan-dini-cuaca',
-        expiresAt: now.add(const Duration(hours: 6)),
-      ),
-      AppNotification(
-        id: 'verified-bmkg-jabodetabek-weather',
-        userId: userId,
-        title:
-            'BMKG: Peringatan Dini Hujan Lebat & Angin Kencang Wilayah Jakarta Selatan, Depok & Bogor',
-        messageBody:
-            'Verified Jabodetabek Commuter Corridor Alert · BMKG memprakirakan potensi hujan intensitas sedang hingga lebat disertai kilat pada sore–malam hari di koridor komuter Jakarta Selatan – Margonda Depok – Cibinong Bogor (-6.2615, 106.8106). Waspadai penurunan jarak pandang.',
-        severity: NotificationSeverity.high,
-        sentAt: now.subtract(const Duration(minutes: 32)),
-        isRead: false,
-        sourceUrl: 'https://www.bmkg.go.id/cuaca/peringatan-dini-cuaca.bmkg',
-        expiresAt: now.add(const Duration(hours: 8)),
-      ),
-      AppNotification(
-        id: 'verified-dishub-sudirman-traffic',
-        userId: userId,
-        title:
-            'Dishub DKI & DLH: Kepadatan Lalu Lintas & Peningkatan PM2.5 di Koridor Sudirman – Thamrin – Monas',
-        messageBody:
-            'Verified Jabodetabek Commuter Corridor Alert · Kepadatan arus komuter di koridor Jl. Jend. Sudirman – MH Thamrin (-6.1950, 106.8230) menyebabkan konsentrasi PM2.5 meningkat ke 35.8 µg/m³ (US AQI 102). Gunakan MRT Jakarta / TransJakarta Koridor 1 dan masker KN95/N95.',
-        severity: NotificationSeverity.moderate,
-        sentAt: now.subtract(const Duration(minutes: 45)),
-        isRead: false,
-        sourceUrl: 'https://dishub.jakarta.go.id/info-lalu-lintas-terkini',
-        expiresAt: now.add(const Duration(hours: 5)),
-      ),
-    ];
+  String _newsMinimum = 'low';
+  bool _savingFilter = false;
+  bool _mutatingAlerts = false;
+  final Set<String> _selectedIds = {};
+  void _pruneSelection() {
+    final visible = _visibleItems.map((n) => n.id).toSet();
+    _selectedIds.retainAll(visible);
   }
+
+  late NotificationPreference _preferences;
+  late NotificationPreference _observedPreferences;
+  String? _observedUser;
+  Listenable get _preferenceSource =>
+      widget.preferenceChanges ?? SupraService.instance;
+  NotificationPreference get _storedPreferences =>
+      widget.preferenceChanges?.value ?? SupraService.instance.preferences;
+  List<AppNotification> get _visibleItems =>
+      _items.where(_preferences.allowsNotification).toList();
+  int _generation = 0;
+  String _selectedFilter = 'all'; // 'all' | 'verified_news' | 'hazard'
 
   @override
   void initState() {
     super.initState();
+    _observedPreferences = _storedPreferences;
+    _observedUser = SupraService.instance.currentUser?.id;
+    _preferences = widget.initialPreferences ?? _observedPreferences;
+    _newsMinimum = _preferences.newsMinSeverity;
+    _preferenceSource.addListener(_onPreferencesChanged);
     _refresh();
   }
 
-  Future<void> _refresh() async {
+  void _onPreferencesChanged() {
+    if (!mounted) return;
+    final next = _storedPreferences;
+    final user = SupraService.instance.currentUser?.id;
+    final accountChanged = user != _observedUser;
+    if (!accountChanged &&
+        mapEquals(next.toJson(), _observedPreferences.toJson())) {
+      return;
+    }
     setState(() {
-      _loading = true;
+      _observedPreferences = next;
+      _observedUser = user;
+      _preferences = next;
+      _newsMinimum = next.newsMinSeverity;
+      _generation++;
+      if (accountChanged) {
+        _items = [];
+        _selectedIds.clear();
+      }
+      _pruneSelection();
+    });
+    if (!_savingFilter &&
+        (!accountChanged || user != null || widget.preferenceChanges != null)) {
+      unawaited(_refresh(showLoading: false));
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant NotificationsScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.preferenceChanges != widget.preferenceChanges) {
+      (oldWidget.preferenceChanges ?? SupraService.instance).removeListener(
+        _onPreferencesChanged,
+      );
+      _preferenceSource.addListener(_onPreferencesChanged);
+      _onPreferencesChanged();
+    }
+  }
+
+  @override
+  void dispose() {
+    _preferenceSource.removeListener(_onPreferencesChanged);
+    super.dispose();
+  }
+
+  Future<void> _refresh({bool showLoading = true}) async {
+    final generation = ++_generation;
+    setState(() {
+      if (showLoading) _loading = true;
       _error = null;
     });
-    final userId = SupraService.instance.currentUser?.id ?? 'local-user';
     try {
-      if (!MapConfig.isTestEnvironment) {
-        try {
-          await SupraService.instance.evaluateAlerts();
-        } catch (_) {}
+      final items =
+          await (widget.loadNotifications?.call(_newsMinimum) ??
+              SupraService.instance.getNotifications(
+                newsMinSeverity: _newsMinimum,
+              ));
+      if (mounted && generation == _generation) {
+        setState(() {
+          _items = List<AppNotification>.of(items);
+          _pruneSelection();
+        });
       }
-      final items = await SupraService.instance.getNotifications();
-      final hasVerifiedNews = items.any(
-        (n) => n.sourceUrl != null && n.sourceUrl!.trim().isNotEmpty,
-      );
-      final merged = (!MapConfig.isTestEnvironment && !hasVerifiedNews)
-          ? [..._defaultVerifiedNewsFallback(userId), ...items]
-          : items;
-      if (mounted) setState(() => _items = merged);
     } catch (error) {
-      if (mounted) {
-        if (!MapConfig.isTestEnvironment) {
-          setState(() {
-            _items = _defaultVerifiedNewsFallback(userId);
-            _error = null;
-          });
-        } else {
-          setState(() => _error = '$error');
-        }
+      if (mounted && generation == _generation) {
+        setState(() => _error = '$error');
       }
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && generation == _generation) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
+  Future<void> _saveSeverity(String severity) async {
+    final previous = _preferences;
+    setState(() {
+      _newsMinimum = severity;
+      _preferences = _preferences.copyWith(newsMinSeverity: severity);
+      _savingFilter = true;
+    });
+    try {
+      final prefs =
+          await (widget.saveNewsSeverity ??
+              SupraService.instance.updateNewsSeverity)(severity);
+      if (mounted) {
+        setState(() {
+          _preferences = prefs;
+          _newsMinimum = prefs.newsMinSeverity;
+        });
+        await _refresh();
+      }
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _preferences = previous;
+          _newsMinimum = previous.newsMinSeverity;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not save news filter: $error')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _savingFilter = false);
+    }
+  }
+
+  Future<void> _setReadState(String id, bool read) async {
+    if (_mutatingAlerts) return;
+    setState(() => _mutatingAlerts = true);
+    try {
+      if (widget.setReadState != null) {
+        await widget.setReadState!(id, read);
+      } else if (read) {
+        await SupraService.instance.markNotificationRead(id);
+      } else {
+        await SupraService.instance.markNotificationUnread(id);
+      }
+      if (!mounted) return;
+      setState(
+        () => _items = _items
+            .map((n) => n.id == id ? n.copyWith(isRead: read) : n)
+            .toList(),
+      );
+      await _refresh(showLoading: false);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Could not mark alert ${read ? "read" : "unread"}: $error',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _mutatingAlerts = false);
     }
   }
 
   Future<void> _markRead([String? id]) async {
-    if (id != null && id.startsWith('verified-')) {
-      setState(() {
-        _items = _items
-            .map((n) => n.id == id ? n.copyWith(isRead: true) : n)
-            .toList();
-      });
-      return;
-    }
+    if (id != null) return _setReadState(id, true);
+    if (_mutatingAlerts) return;
+    setState(() => _mutatingAlerts = true);
     try {
-      if (id == null) {
-        await SupraService.instance.markAllRead();
-      } else {
-        await SupraService.instance.markNotificationRead(id);
-      }
-      if (mounted) await _refresh();
+      await (widget.markAllReadAlerts ?? SupraService.instance.markAllRead)();
+      if (!mounted) return;
+      setState(
+        () => _items = _items
+            .map(
+              (n) => _preferences.allowsNotification(n)
+                  ? n.copyWith(isRead: true)
+                  : n,
+            )
+            .toList(),
+      );
+      await _refresh(showLoading: false);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('$error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not mark all read: $error')),
+        );
       }
+    } finally {
+      if (mounted) setState(() => _mutatingAlerts = false);
+    }
+  }
+
+  Future<void> _markSelectedUnread() async {
+    final ids = _visibleItems
+        .where((n) => _selectedIds.contains(n.id))
+        .map((n) => n.id)
+        .toList();
+    if (_mutatingAlerts || ids.isEmpty) return;
+    setState(() => _mutatingAlerts = true);
+    try {
+      await (widget.markSelectedUnread ??
+          SupraService.instance.markNotificationsUnread)(ids);
+      if (!mounted) return;
+      final selected = ids.toSet();
+      setState(() {
+        _items = _items
+            .map((n) => selected.contains(n.id) ? n.copyWith(isRead: false) : n)
+            .toList();
+        _selectedIds.clear();
+      });
+      await _refresh(showLoading: false);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not mark selected alerts unread: $error'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _mutatingAlerts = false);
+    }
+  }
+
+  Future<void> _deleteRead() async {
+    if (_mutatingAlerts) return;
+    setState(() => _mutatingAlerts = true);
+    try {
+      final count =
+          await (widget.deleteReadAlerts ??
+              SupraService.instance.deleteReadNotifications)();
+      if (!mounted) return;
+      setState(() {
+        _items = _items.where((item) => !item.isRead).toList();
+        _pruneSelection();
+      });
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              count == 0
+                  ? 'No read alerts to delete.'
+                  : 'Deleted $count read alert${count == 1 ? "" : "s"}.',
+            ),
+          ),
+        );
+      await _refresh(showLoading: false);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(content: Text('Could not delete read alerts: $error')),
+          );
+      }
+    } finally {
+      if (mounted) setState(() => _mutatingAlerts = false);
     }
   }
 
   void _showVerifiedNewsReader(AppNotification item) {
-    _markRead(item.id);
+    if (!item.isRead) unawaited(_markRead(item.id));
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -179,13 +359,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(
-                            Icons.verified,
+                            Icons.newspaper_outlined,
                             size: 13,
                             color: Color(0xFF15803D),
                           ),
                           SizedBox(width: 4),
                           Text(
-                            'RELEVANT VERIFIED NEWS',
+                            'PUBLISHER REPORT',
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
@@ -246,7 +426,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       const SizedBox(width: 6),
                       Expanded(
                         child: Text(
-                          'Sumber Resmi: ${item.sourceUrl}',
+                          'Sumber: ${item.sourceUrl}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -295,7 +475,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     );
   }
 
-  int get unreadCount => _items.where((n) => !n.isRead).length;
+  int get unreadCount => _visibleItems.where((n) => !n.isRead).length;
 
   Future<void> _checkNow() async {
     if (_checking) return;
@@ -323,42 +503,102 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final verifiedNewsCount = _items
+    final visibleItems = _visibleItems;
+    final verifiedNewsCount = visibleItems
         .where((n) => n.sourceUrl != null && n.sourceUrl!.trim().isNotEmpty)
         .length;
-    final filteredItems = switch (_selectedFilter) {
+    final filteredItems = (switch (_selectedFilter) {
       'verified_news' =>
-        _items
+        visibleItems
             .where((n) => n.sourceUrl != null && n.sourceUrl!.trim().isNotEmpty)
             .toList(),
       'hazard' =>
-        _items
+        visibleItems
             .where((n) => n.sourceUrl == null || n.sourceUrl!.trim().isEmpty)
             .toList(),
-      _ => _items,
-    };
+      _ => visibleItems,
+    }).where((n) => n.meetsNewsMinimum(_newsMinimum)).toList();
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Alerts & Verified News'),
+        title: const Text('Alerts & News'),
         actions: [
           IconButton(
-            tooltip: 'Check due trips & verified news now',
+            tooltip: 'Alert preferences',
+            icon: const Icon(Icons.tune),
+            onPressed: () async {
+              await Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => Scaffold(
+                    appBar: AppBar(title: const Text('Alert preferences')),
+                    body: const SettingsScreen(),
+                  ),
+                ),
+              );
+              if (mounted) {
+                _onPreferencesChanged();
+                await _refresh(showLoading: false);
+              }
+            },
+          ),
+          IconButton(
+            tooltip: 'Check due trips & news now',
             onPressed: _checking ? null : _checkNow,
             icon: const Icon(Icons.radar),
           ),
-          if (unreadCount > 0)
-            TextButton(
-              onPressed: () => _markRead(),
-              child: const Text(
-                'Mark all read',
-                style: TextStyle(fontSize: 13),
-              ),
-            ),
         ],
       ),
       body: Column(
         children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  FilledButton.tonalIcon(
+                    onPressed: _mutatingAlerts || unreadCount == 0
+                        ? null
+                        : () => unawaited(_markRead()),
+                    icon: const Icon(Icons.done_all, size: 18),
+                    label: const Text('Mark all read'),
+                  ),
+                  OutlinedButton.icon(
+                    onPressed: _mutatingAlerts
+                        ? null
+                        : () => unawaited(_deleteRead()),
+                    icon: const Icon(Icons.delete_sweep_outlined, size: 18),
+                    label: const Text('Delete read alerts'),
+                  ),
+                  if (_selectedIds.isNotEmpty) ...[
+                    FilledButton.tonalIcon(
+                      onPressed:
+                          _mutatingAlerts ||
+                              !visibleItems.any(
+                                (n) => _selectedIds.contains(n.id) && n.isRead,
+                              )
+                          ? null
+                          : () => unawaited(_markSelectedUnread()),
+                      icon: const Icon(
+                        Icons.mark_email_unread_outlined,
+                        size: 18,
+                      ),
+                      label: const Text('Mark selected unread'),
+                    ),
+                    TextButton(
+                      onPressed: _mutatingAlerts
+                          ? null
+                          : () => setState(() => _selectedIds.clear()),
+                      child: Text('Clear (${_selectedIds.length} selected)'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
@@ -373,7 +613,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ChoiceChip(
                     selected: _selectedFilter == 'all',
                     label: Text(
-                      'Semua (${_items.length})',
+                      'Semua (${visibleItems.length})',
                       style: const TextStyle(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w700,
@@ -386,12 +626,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   ChoiceChip(
                     selected: _selectedFilter == 'verified_news',
                     avatar: const Icon(
-                      Icons.verified,
+                      Icons.newspaper_outlined,
                       size: 14,
                       color: Color(0xFF15803D),
                     ),
                     label: Text(
-                      'Relevant Verified News ($verifiedNewsCount)',
+                      'Publisher News ($verifiedNewsCount)',
                       style: const TextStyle(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w700,
@@ -424,6 +664,20 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               padding: const EdgeInsets.all(12),
               child: Text(_checkStatus!, style: const TextStyle(fontSize: 12)),
             ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+            child: NewsSeveritySelector(
+              value: _newsMinimum,
+              onChanged: _savingFilter ? null : _saveSeverity,
+            ),
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 14),
+            child: Text(
+              'Filters news and saves your delivery preference. Weather/AQI alerts keep their own settings.',
+              style: TextStyle(fontSize: 11),
+            ),
+          ),
           for (final trip in SupraService.instance.activeTrips.take(3))
             ListTile(
               dense: true,
@@ -440,9 +694,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     if (mounted) setState(() {});
                   } catch (e) {
                     if (context.mounted) {
-                      ScaffoldMessenger.of(
-                        context,
-                      ).showSnackBar(SnackBar(content: Text('$e')));
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(SnackBar(content: Text('$e')));
                     }
                   }
                 },
@@ -503,6 +756,17 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             item.sourceUrl!.trim().isNotEmpty;
                         return NotificationTile(
                           notification: item,
+                          selected: _selectedIds.contains(item.id),
+                          actionsEnabled: !_mutatingAlerts,
+                          onSelectionChanged: (selected) => setState(() {
+                            if (selected) {
+                              _selectedIds.add(item.id);
+                            } else {
+                              _selectedIds.remove(item.id);
+                            }
+                          }),
+                          onToggleRead: () =>
+                              unawaited(_setReadState(item.id, !item.isRead)),
                           onTap: isNews
                               ? () => _showVerifiedNewsReader(item)
                               : () => _markRead(item.id),

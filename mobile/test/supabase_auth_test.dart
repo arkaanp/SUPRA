@@ -81,6 +81,7 @@ void main() {
     addTearDown(client.dispose);
     var persisted = false;
     var read = false;
+    var deletedAlert = false;
     var prefs = const NotificationPreference();
     final service = SupraService(
       apiBaseUrl: 'http://localhost:3000',
@@ -119,9 +120,30 @@ void main() {
           if (data.isNotEmpty) prefs = NotificationPreference.fromJson(data);
           return http.Response(jsonEncode(prefs.toJson()), 200);
         }
+        if (path == '/api/notifications/read') {
+          if (request.method == 'DELETE') {
+            final count = read && !deletedAlert ? 1 : 0;
+            if (read) deletedAlert = true;
+            return http.Response(jsonEncode({'deleted': count}), 200);
+          }
+          expect(request.method, 'PUT');
+          final count = read ? 0 : 1;
+          read = true;
+          return http.Response(jsonEncode({'updated': count}), 200);
+        }
+        if (path == '/api/notifications/unread') {
+          expect(request.method, 'PUT');
+          expect(jsonDecode(request.body), {
+            'ids': ['alert-id'],
+          });
+          final count = read ? 1 : 0;
+          read = false;
+          return http.Response(jsonEncode({'updated': count}), 200);
+        }
         if (path == '/api/users/$uuid/notifications' ||
-            path == '/api/notifications/alert-id/read') {
-          if (request.method == 'PUT') read = true;
+            path == '/api/notifications/alert-id/read' ||
+            path == '/api/notifications/alert-id/unread') {
+          if (request.method == 'PUT') read = path.endsWith('/read');
           final alert = {
             'id': 'alert-id',
             'user_id': uuid,
@@ -132,7 +154,9 @@ void main() {
             'is_read': read,
           };
           return http.Response(
-            jsonEncode(request.method == 'PUT' ? alert : [alert]),
+            jsonEncode(
+              request.method == 'PUT' ? alert : (deletedAlert ? [] : [alert]),
+            ),
             200,
           );
         }
@@ -171,6 +195,18 @@ void main() {
     await service.loadAccount();
     expect(service.trips.single.name, 'A → B');
     expect(service.preferences.alertHeavyRain, false);
+    await service.markNotificationUnread('alert-id');
+    expect(service.notifications.single.isRead, false);
+    expect(await service.markAllRead(), 1);
+    expect(service.notifications.single.isRead, true);
+    expect(await service.markNotificationsUnread(['alert-id']), 1);
+    expect(service.notifications.single.isRead, false);
+    await service.markAllRead();
+    final snapshot = await service.getNotifications();
+    expect(() => snapshot.removeWhere((n) => n.isRead), throwsUnsupportedError);
+    expect(await service.deleteReadNotifications(), 1);
+    expect(service.notifications, isEmpty);
+    expect(await service.getNotifications(), isEmpty);
 
     await service.logout();
     expect(service.isLoggedIn, isFalse);
@@ -248,7 +284,8 @@ void main() {
 
     final service = SupraService(
       apiBaseUrl: 'http://localhost:3000',
-      httpClientFactory: () => MockClient((_) async => http.Response('{}', 200)),
+      httpClientFactory: () =>
+          MockClient((_) async => http.Response('{}', 200)),
     );
     addTearDown(service.dispose);
     service.initializeAuth(client);

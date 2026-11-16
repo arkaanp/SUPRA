@@ -1,13 +1,6 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 
-import '../config/map_config.dart';
-import '../models/current_conditions.dart';
-import '../models/location.dart';
-import '../models/saved_trip.dart';
 import '../services/ai_assistant_service.dart';
-import '../services/conditions_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/chat_bubble.dart';
 
@@ -23,7 +16,6 @@ class _ChatScreenState extends State<ChatScreen> {
   final TextEditingController _textController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
   final FocusNode _focusNode = FocusNode();
-  CurrentConditions? _attachedConditions;
 
   final List<String> _quickPrompts = const [
     '🌤️ Kualitas udara hari ini',
@@ -36,47 +28,19 @@ class _ChatScreenState extends State<ChatScreen> {
   @override
   void initState() {
     super.initState();
-    if (!MapConfig.isTestEnvironment) {
-      _attachedConditions = ConditionsRepository.staleFallbackSnapshot(
-        const LatLng(latitude: -6.2297, longitude: 106.8295),
-        DateTime.now(),
-      );
-      unawaited(_loadAttachedConditions());
-    }
+    AiAssistantService.instance.addListener(_selectionChanged);
   }
 
-  Future<void> _loadAttachedConditions() async {
-    try {
-      final cond = await ConditionsRepository.instance.at(
-        const LatLng(latitude: -6.2297, longitude: 106.8295),
-      );
-      if (mounted) {
-        setState(() => _attachedConditions = cond);
-      }
-    } catch (_) {}
+  void _selectionChanged() {
+    if (mounted) setState(() {});
   }
 
-  String _buildContextPillText() {
-    if (MapConfig.isTestEnvironment || _attachedConditions == null) {
-      return 'No live conditions attached';
-    }
-    final cond = _attachedConditions!;
-    final pm25 = cond.airQuality.number('pm25_ug_m3') ?? 34.0;
-    final aqi =
-        cond.airQuality.number('aqi')?.round() ??
-        ConditionsRepository.pm25ToUsEpaAqi(pm25);
-    final rain = cond.weather.number('precipitation_mm') ?? 1.2;
-    final temp = cond.weather.number('temperature_c') ?? 29.0;
-    final speed = cond.traffic.number('speed_kmh') ?? 24.0;
-    final isStale =
-        cond.airQuality.isStale ||
-        cond.weather.isStale ||
-        cond.traffic.isStale;
-    return 'Kuningan, Jakarta (${isStale ? "Stale" : "Live"}): AQI $aqi • PM2.5 ${pm25.toStringAsFixed(1)} • Hujan ${rain.toStringAsFixed(1)} mm • ${temp.toStringAsFixed(0)}°C • ${speed.toStringAsFixed(0)} km/j';
-  }
-
+  String _buildContextPillText() =>
+      AiAssistantService.instance.selectionLabel ??
+      'No live conditions attached';
   @override
   void dispose() {
+    AiAssistantService.instance.removeListener(_selectionChanged);
     _textController.dispose();
     _scrollController.dispose();
     _focusNode.dispose();
@@ -102,34 +66,7 @@ class _ChatScreenState extends State<ChatScreen> {
     _textController.clear();
     _scrollToBottom();
 
-    ChatEnvironmentalContext? envContext;
-    if (!MapConfig.isTestEnvironment && _attachedConditions != null) {
-      final cond = _attachedConditions!;
-      final pm25 = cond.airQuality.number('pm25_ug_m3') ?? 34.0;
-      final aqi =
-          cond.airQuality.number('aqi')?.round() ??
-          ConditionsRepository.pm25ToUsEpaAqi(pm25);
-      final rain = cond.weather.number('precipitation_mm') ?? 1.2;
-      final temp = cond.weather.number('temperature_c') ?? 29.0;
-      final speed = cond.traffic.number('speed_kmh') ?? 24.0;
-      final isStale =
-          cond.airQuality.isStale ||
-          cond.weather.isStale ||
-          cond.traffic.isStale;
-      envContext = ChatEnvironmentalContext(
-        currentLocation: 'Kuningan, Jakarta Selatan',
-        aqi: aqi,
-        temperature: '${temp.toStringAsFixed(0)}°C',
-        weather:
-            'Hujan ${rain.toStringAsFixed(1)} mm, PM2.5 ${pm25.toStringAsFixed(1)} µg/m³, Kecepatan lalu lintas ${speed.toStringAsFixed(0)} km/jam (${isStale ? "stale fallback" : "live"})',
-        frequentRoutes: TripHistoryStore.instance.frequentCommutes
-            .take(3)
-            .map((t) => t.routeLabel)
-            .toList(),
-      );
-    }
-
-    await AiAssistantService.instance.sendMessage(text, envContext: envContext);
+    await AiAssistantService.instance.sendMessage(text);
     _scrollToBottom();
   }
 
@@ -140,7 +77,7 @@ class _ChatScreenState extends State<ChatScreen> {
         title: const Text('SUPRA Assistant'),
         content: const Text(
           'Gemini is configured on the SUPRA server. No client API key is needed. '
-          'Current readings and future ML predictions are distinct; no live data is attached to this chat.',
+          'Each message reads fresh server conditions for the selected route or location, plus available PyTorch forecasts. Sources, timestamps, stale data and missing signals remain distinct.',
         ),
         actions: [
           TextButton(

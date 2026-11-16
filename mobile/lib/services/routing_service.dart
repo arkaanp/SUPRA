@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../config/map_config.dart';
 import '../models/location.dart';
 import '../models/route_option.dart';
+import '../models/transit_journey.dart';
 import 'conditions_repository.dart';
 import 'supra_api_service.dart';
 
@@ -13,6 +14,7 @@ import 'supra_api_service.dart';
 class RoutingService {
   RoutingService({
     this.client,
+    this.planMobility,
     bool? useNetwork,
     ConditionsRepository? conditions,
     this.osrmBaseUrl = const String.fromEnvironment(
@@ -23,6 +25,8 @@ class RoutingService {
            useNetwork ?? (client != null || !MapConfig.isTestEnvironment),
        conditions = conditions ?? ConditionsRepository.instance;
   final http.Client? client;
+  final Future<Map<String, dynamic>> Function(LatLng, LatLng, String)?
+  planMobility;
   final bool useNetwork;
   final String osrmBaseUrl;
   final ConditionsRepository conditions;
@@ -50,57 +54,70 @@ class RoutingService {
       return calculateRoutes(start: start, destination: destination);
     }
     if (!useNetwork) throw StateError('Routing unavailable offline.');
-    final result = await SupraService.instance.planMobility(
+    final result = await (planMobility ?? SupraService.instance.planMobility)(
       start,
       destination,
       mode.apiValue,
     );
-    if (result['mode'] != mode.apiValue) {
-      throw const FormatException('Wrong routing mode');
-    }
-    final points = (result['waypoints'] as List)
-        .map(
-          (v) => LatLng(
-            latitude: (v[0] as num).toDouble(),
-            longitude: (v[1] as num).toDouble(),
-          ),
-        )
-        .toList();
-    final seconds = (result['duration_seconds'] as num).toDouble(),
-        distance = (result['distance_km'] as num).toDouble();
-    if (points.length < 2 ||
-        points.any((p) => !p.latitude.isFinite || !p.longitude.isFinite) ||
-        !seconds.isFinite ||
-        seconds <= 0 ||
-        !distance.isFinite ||
-        distance <= 0 ||
-        points.first.distanceTo(start) > 2 ||
-        points.last.distanceTo(destination) > 2) {
-      throw const FormatException('Invalid provider route');
-    }
     final snapshot = await conditions.at(start);
     final trafficDensity = _computeTrafficDensity(snapshot);
-    return [
-      RouteOption(
-        mode: mode,
-        title: mode.displayName,
-        estimatedDuration: Duration(seconds: seconds.ceil()),
-        distanceKm: distance,
-        waypoints: points,
-        turnSteps: (result['steps'] as List).cast<String>(),
-        conditions: snapshot,
-        pm25UgM3: snapshot.airQuality.number('pm25_ug_m3'),
-        rainfallMm: snapshot.weather.kind == 'provider_forecast'
-            ? null
-            : snapshot.weather.number('precipitation_mm'),
-        trafficDensity: trafficDensity,
-        recommendationReason:
-            '${result['source']} · fetched ${result['fetched_at']}. '
-            '${mode == TransportMode.publicTransit ? 'GTFS itinerary; not a live arrival guarantee.' : 'Mode-specific geometry and provider duration; not a live-traffic ETA.'}',
-        identifiedRisks: const [],
-        protectiveMeasures: const [],
-      ),
+    final candidates = <Map<String, dynamic>>[
+      result,
+      for (final alternative in result['alternatives'] as List? ?? const [])
+        alternative as Map<String, dynamic>,
     ];
+    final options = <RouteOption>[];
+    for (final result in candidates) {
+      if (result['mode'] != mode.apiValue) {
+        throw const FormatException('Wrong routing mode');
+      }
+      final points = (result['waypoints'] as List)
+          .map(
+            (v) => LatLng(
+              latitude: (v[0] as num).toDouble(),
+              longitude: (v[1] as num).toDouble(),
+            ),
+          )
+          .toList();
+      final seconds = (result['duration_seconds'] as num).toDouble(),
+          distance = (result['distance_km'] as num).toDouble();
+      if (points.length < 2 ||
+          points.any((p) => !p.latitude.isFinite || !p.longitude.isFinite) ||
+          !seconds.isFinite ||
+          seconds <= 0 ||
+          !distance.isFinite ||
+          distance <= 0 ||
+          points.first.distanceTo(start) > 2 ||
+          points.last.distanceTo(destination) > 2) {
+        throw const FormatException('Invalid provider route');
+      }
+      final journey = result['transit'] is Map<String, dynamic>
+          ? TransitJourney.fromJson(result['transit'] as Map<String, dynamic>)
+          : null;
+      options.add(
+        RouteOption(
+          mode: mode,
+          transitJourney: journey,
+          title: journey?.displayName ?? mode.displayName,
+          estimatedDuration: Duration(seconds: seconds.ceil()),
+          distanceKm: distance,
+          waypoints: points,
+          turnSteps: (result['steps'] as List).cast<String>(),
+          conditions: snapshot,
+          pm25UgM3: snapshot.airQuality.number('pm25_ug_m3'),
+          rainfallMm: snapshot.weather.kind == 'provider_forecast'
+              ? null
+              : snapshot.weather.number('precipitation_mm'),
+          trafficDensity: trafficDensity,
+          recommendationReason:
+              '${result['source']} · fetched ${result['fetched_at']}. '
+              '${mode == TransportMode.publicTransit ? 'Transit timetable / frequency estimate; not a live arrival guarantee. Walking links and rail station connections may be schematic.' : 'Mode-specific geometry and provider duration; not a live-traffic ETA.'}',
+          identifiedRisks: const [],
+          protectiveMeasures: const [],
+        ),
+      );
+    }
+    return options;
   }
 
   Future<List<RouteOption>> calculateRoutes({
@@ -189,7 +206,7 @@ class RoutingService {
           recommendationReason:
               'OSRM driving estimate — not a live-traffic ETA. '
               'Environmental data samples the origin, not the whole route. '
-              'Motorcycle/transit routing is not configured.',
+              'Select another mode to compare its routing estimate.',
           identifiedRisks: [
             if (pm == null)
               'Current PM2.5 unavailable; exposure cannot be assessed.',

@@ -1,0 +1,92 @@
+{
+  "model_id": "supra-hourly-20261116T034624",
+  "framework": "PyTorch",
+  "torch_version": "2.15.0+cpu",
+  "architecture": "MLP 103\u219296\u219248\u21925, direct horizons 1\u201312h",
+  "trained_at": "2026-11-16T03:46:24.924342+00:00",
+  "training_end": "2026-11-02T03:00:00+00:00",
+  "validation_end": "2026-11-09T03:00:00+00:00",
+  "data_through": "2026-11-16T03:00:00+00:00",
+  "dataset_sha256": "8b7ed06533fd3be6c4176237509b87291a8ac4655977bf34cafda975dd3e6e50",
+  "sites": [
+    [
+      -6.23,
+      106.83
+    ],
+    [
+      -6.37,
+      106.83
+    ],
+    [
+      -6.6,
+      106.8
+    ],
+    [
+      -6.24,
+      107.0
+    ],
+    [
+      -6.18,
+      106.63
+    ]
+  ],
+  "sources": {
+    "weather": "Open-Meteo weather models",
+    "air": "CAMS global via Open-Meteo",
+    "attribution": "Open-Meteo.com / Copernicus CAMS, CC BY 4.0",
+    "weather_url": "https://open-meteo.com/en/docs",
+    "air_url": "https://open-meteo.com/en/docs/air-quality-api"
+  },
+  "samples": {
+    "train": 64650,
+    "validation": 9690,
+    "test": 9750
+  },
+  "best_epoch": 10,
+  "metrics": {
+    "validation": {
+      "mae": {
+        "temperature_c": 0.8987199068069458,
+        "precipitation_mm": 0.12711119651794434,
+        "pm25_ug_m3": 20.632841110229492,
+        "aqi": 5.210000991821289
+      },
+      "persistence_mae": {
+        "temperature_c": 3.7844600677490234,
+        "precipitation_mm": 0.2079532891511917,
+        "pm25_ug_m3": 46.18517303466797,
+        "aqi": 8.110836029052734
+      },
+      "rain_brier": 0.16597385704517365
+    },
+    "test": {
+      "mae": {
+        "temperature_c": 0.9601123929023743,
+        "precipitation_mm": 0.20771220326423645,
+        "pm25_ug_m3": 18.46467399597168,
+        "aqi": 5.2894673347473145
+      },
+      "persistence_mae": {
+        "temperature_c": 3.2733066082000732,
+        "precipitation_mm": 0.35317495465278625,
+        "pm25_ug_m3": 39.950286865234375,
+        "aqi": 5.7375383377075195
+      },
+      "rain_brier": 0.17113149166107178
+    }
+  },
+  "validation_absolute_error_90": {
+    "temperature_c": 1.9529635906219482,
+    "precipitation_mm": 0.29558682441711426,
+    "pm25_ug_m3": 48.151424407958984,
+    "aqi": 12.695632934570312
+  },
+  "status": "experimental",
+  "traffic_status": "unavailable: no validated historical traffic training set",
+  "limitations": [
+    "Targets are weather/CAMS model history, not independent station observations.",
+    "Spatial coverage is regional; results are not street-level measurements.",
+    "Validation error ranges are empirical, not calibrated safety guarantees.",
+    "Rain probability is a learned wet-hour classifier (>=0.1 mm), not an official warning."
+  ]
+}
