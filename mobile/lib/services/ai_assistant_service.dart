@@ -3,9 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/map_config.dart';
 import '../models/chat_message.dart';
-import '../models/location.dart';
-import '../models/saved_trip.dart';
-import 'conditions_repository.dart';
+import '../models/trip.dart';
 import 'supra_api_service.dart';
 
 class ChatEnvironmentalContext {
@@ -14,15 +12,21 @@ class ChatEnvironmentalContext {
   final String? weather;
   final String? temperature;
   final List<String>? frequentRoutes;
+  final List<double>? point;
+  final Map<String, dynamic>? selectedRoute;
   const ChatEnvironmentalContext({
     this.currentLocation,
     this.aqi,
     this.weather,
     this.temperature,
     this.frequentRoutes,
+    this.point,
+    this.selectedRoute,
   });
   Map<String, dynamic> toJson() => {
     if (currentLocation != null) 'current_location': currentLocation,
+    if (point != null) 'point': point,
+    if (selectedRoute != null) 'selected_route': selectedRoute,
     if (aqi != null) 'aqi': aqi,
     if (weather != null) 'weather': weather,
     if (temperature != null) 'temperature': temperature,
@@ -50,17 +54,51 @@ class AiAssistantService extends ChangeNotifier {
   List<ChatMessage> get messages => List.unmodifiable(_messages);
   bool get isLoading => _isLoading;
 
+  Map<String, dynamic>? _selectedRoute;
+  List<double>? _selectedPoint;
+  String? _locationName;
+  Map<String, dynamic>? get selectedRoute => _selectedRoute;
+  Trip? get _activeTrip {
+    final candidates = SupraService.instance.activeTrips
+        .where(
+          (t) =>
+              !t.plannedDeparture.isAfter(
+                DateTime.now().add(const Duration(minutes: 30)),
+              ) &&
+              t.startPoint != null &&
+              t.destPoint != null,
+        )
+        .toList();
+    candidates.sort(
+      (a, b) => (b.confirmedAt ?? b.plannedDeparture).compareTo(
+        a.confirmedAt ?? a.plannedDeparture,
+      ),
+    );
+    return candidates.isEmpty ? null : candidates.first;
+  }
+
+  String? get selectionLabel => _selectedRoute != null
+      ? '${_selectedRoute!['origin_name']} → ${_selectedRoute!['destination_name']} · ${_selectedRoute!['mode']}'
+      : _activeTrip != null
+      ? '${_activeTrip!.startLocation} → ${_activeTrip!.destination} · ${_activeTrip!.transportMode}'
+      : _locationName;
+  void selectRoute(Map<String, dynamic>? route) {
+    _selectedRoute = route;
+    notifyListeners();
+  }
+
+  void selectLocation(String name, List<double> point) {
+    _locationName = name;
+    _selectedPoint = point;
+    notifyListeners();
+  }
+
   void _welcome() => _messages.add(
     ChatMessage(
       id: 'welcome',
       sender: MessageSender.assistant,
       timestamp: DateTime.now(),
-      text: MapConfig.isTestEnvironment
-          ? 'Halo! Saya asisten perjalanan SUPRA. Data kondisi terkini hanya tersedia '
-                'bila sumber dan lokasinya diberikan; saya tidak memiliki pemantauan langsung.'
-          : 'Halo! Saya asisten perjalanan dan lingkungan **SUPRA** khusus wilayah Jabodetabek. '
-                'Saya telah membaca data kondisi SUPRA (AQI, PM2.5, curah hujan, suhu, dan lalu lintas — termasuk fallback data stale). '
-                'Silakan tanyakan seputar rute, cuaca, hujan, atau kualitas udara perjalanan Anda!',
+      text: 'Halo! Saya asisten perjalanan SUPRA. Pilih lokasi di Home atau rute di Trip; saya akan membaca sumber kondisi dan prediksi server saat Anda bertanya.',
     ),
   );
 
@@ -75,28 +113,122 @@ class AiAssistantService extends ChangeNotifier {
         'Silakan tanyakan kondisi rute, cuaca, atau kualitas udara perjalanan Anda di Jabodetabek!';
 
     const outOfScopeKeywords = [
-      'python', 'javascript', 'typescript', 'rust', 'java', 'c++', 'golang', 'html', 'css', 'sql',
-      'coding', 'kode program', 'buatkan kode', 'write code', 'algoritma', 'function', 'script',
-      'resep', 'masak', 'nasi goreng', 'kue', 'recipe', 'cook', 'kuliner',
-      'presiden', 'politik', 'pemilu', 'partai', 'menteri', 'dpr', 'president', 'politics',
-      'puisi', 'cerpen', 'dongeng', 'pantun', 'poem', 'story', 'novel',
-      'joke', 'lelucon', 'tebak-tebakan', 'lucu', 'humor',
-      'crypto', 'bitcoin', 'saham', 'forex', 'investasi', 'pinjol',
-      'chord', 'lirik', 'lyrics', 'lagu', 'musik', 'sinopsis', 'film', 'movie', 'anime', 'game',
-      'hitung', 'matematika', 'integral', 'turunan', 'faktorial', 'persamaan', 'perkalian', 'pembagian',
-      'sejarah', 'history', 'biologi', 'fisika', 'kimia', 'astronomi', 'planet', 'galaksi',
-      'ibu kota', 'capital of', 'penemu', 'who invented', 'terjemahkan', 'translate',
-      'ignore previous', 'abaikan instruksi', 'lupakan instruksi', 'jailbreak', 'act as',
-      'berpura-pura', 'system prompt', 'bypass', 'roleplay', 'sebagai dokter', 'sebagai chef',
+      'python',
+      'javascript',
+      'typescript',
+      'rust',
+      'java',
+      'c++',
+      'golang',
+      'html',
+      'css',
+      'sql',
+      'coding',
+      'kode program',
+      'buatkan kode',
+      'write code',
+      'algoritma',
+      'function',
+      'script',
+      'resep',
+      'masak',
+      'nasi goreng',
+      'kue',
+      'recipe',
+      'cook',
+      'kuliner',
+      'presiden',
+      'politik',
+      'pemilu',
+      'partai',
+      'menteri',
+      'dpr',
+      'president',
+      'politics',
+      'puisi',
+      'cerpen',
+      'dongeng',
+      'pantun',
+      'poem',
+      'story',
+      'novel',
+      'joke',
+      'lelucon',
+      'tebak-tebakan',
+      'lucu',
+      'humor',
+      'crypto',
+      'bitcoin',
+      'saham',
+      'forex',
+      'investasi',
+      'pinjol',
+      'chord',
+      'lirik',
+      'lyrics',
+      'lagu',
+      'musik',
+      'sinopsis',
+      'film',
+      'movie',
+      'anime',
+      'game',
+      'hitung',
+      'matematika',
+      'integral',
+      'turunan',
+      'faktorial',
+      'persamaan',
+      'perkalian',
+      'pembagian',
+      'sejarah',
+      'history',
+      'biologi',
+      'fisika',
+      'kimia',
+      'astronomi',
+      'planet',
+      'galaksi',
+      'ibu kota',
+      'capital of',
+      'penemu',
+      'who invented',
+      'terjemahkan',
+      'translate',
+      'ignore previous',
+      'abaikan instruksi',
+      'lupakan instruksi',
+      'jailbreak',
+      'act as',
+      'berpura-pura',
+      'system prompt',
+      'bypass',
+      'roleplay',
+      'sebagai dokter',
+      'sebagai chef',
     ];
     if (outOfScopeKeywords.any((k) => lower.contains(k))) {
       return refusal;
     }
 
     const greetings = [
-      'halo', 'hai', 'hi', 'hello', 'pagi', 'siang', 'sore', 'malam',
-      'apa kabar', 'terima kasih', 'makasih', 'thanks', 'thank you', 'bantu', 'help',
-      'siapa kamu', 'apa itu supra',
+      'halo',
+      'hai',
+      'hi',
+      'hello',
+      'pagi',
+      'siang',
+      'sore',
+      'malam',
+      'apa kabar',
+      'terima kasih',
+      'makasih',
+      'thanks',
+      'thank you',
+      'bantu',
+      'help',
+      'siapa kamu',
+      'apa itu supra',
     ];
     final isGreeting = greetings.any(
       (g) =>
@@ -107,22 +239,132 @@ class AiAssistantService extends ChangeNotifier {
     );
 
     const inScopeKeywords = [
-      'rute', 'route', 'jalan', 'macet', 'traffic', 'lalu lintas', 'lalin', 'cuaca', 'weather',
-      'hujan', 'rain', 'gerimis', 'banjir', 'flood', 'genangan', 'mendung', 'cerah', 'panas',
-      'aqi', 'pm2.5', 'pm25', 'polusi', 'udara', 'asap', 'air quality', 'kualitas udara',
-      'masker', 'mask', 'kn95', 'n95', 'komuter', 'commute', 'perjalanan', 'trip',
-      'berangkat', 'pulang', 'krl', 'mrt', 'lrt', 'transjakarta', 'tj', 'bus', 'angkot', 'ojol',
-      'motor', 'motorcycle', 'mobil', 'car', 'jalan kaki', 'walk', 'sepeda', 'kendaraan',
-      'jakarta', 'bogor', 'depok', 'tangerang', 'bekasi', 'jabodetabek', 'cibinong', 'bsd',
-      'bintaro', 'serpong', 'cikarang', 'karawaci', 'margonda', 'fatmawati', 'cawang',
-      'manggarai', 'tanah abang', 'dukuh atas', 'bundaran hi', 'senayan', 'blok m',
-      'kuningan', 'sudirman', 'thamrin', 'monas', 'kemang', 'kelapa gading', 'pik',
-      'grogol', 'pluit', 'tebet', 'jatinegara', 'pasar minggu', 'kalibata', 'cipete',
-      'suhu', 'temp', 'angin', 'wind', 'kelembapan', 'humidity', 'supra', 'kondisi',
-      'condition', 'prediksi', 'forecast', 'ml', 'alert', 'notifikasi', 'berita', 'news',
-      'bahaya', 'hazard', 'risiko', 'risk', 'aman', 'safe', 'rekomendasi', 'saran',
-      'kesehatan', 'health', 'paru', 'asma', 'ispa', 'paparan', 'exposure',
-      'stasiun', 'halte', 'koridor', 'tol', 'ganjil genap', 'gage', 'payung', 'jas hujan',
+      'rute',
+      'route',
+      'jalan',
+      'macet',
+      'traffic',
+      'lalu lintas',
+      'lalin',
+      'cuaca',
+      'weather',
+      'hujan',
+      'rain',
+      'gerimis',
+      'banjir',
+      'flood',
+      'genangan',
+      'mendung',
+      'cerah',
+      'panas',
+      'aqi',
+      'pm2.5',
+      'pm25',
+      'polusi',
+      'udara',
+      'asap',
+      'air quality',
+      'kualitas udara',
+      'masker',
+      'mask',
+      'kn95',
+      'n95',
+      'komuter',
+      'commute',
+      'perjalanan',
+      'trip',
+      'berangkat',
+      'pulang',
+      'krl',
+      'mrt',
+      'lrt',
+      'transjakarta',
+      'tj',
+      'bus',
+      'angkot',
+      'ojol',
+      'motor',
+      'motorcycle',
+      'mobil',
+      'car',
+      'jalan kaki',
+      'walk',
+      'sepeda',
+      'kendaraan',
+      'jakarta',
+      'bogor',
+      'depok',
+      'tangerang',
+      'bekasi',
+      'jabodetabek',
+      'cibinong',
+      'bsd',
+      'bintaro',
+      'serpong',
+      'cikarang',
+      'karawaci',
+      'margonda',
+      'fatmawati',
+      'cawang',
+      'manggarai',
+      'tanah abang',
+      'dukuh atas',
+      'bundaran hi',
+      'senayan',
+      'blok m',
+      'kuningan',
+      'sudirman',
+      'thamrin',
+      'monas',
+      'kemang',
+      'kelapa gading',
+      'pik',
+      'grogol',
+      'pluit',
+      'tebet',
+      'jatinegara',
+      'pasar minggu',
+      'kalibata',
+      'cipete',
+      'suhu',
+      'temp',
+      'angin',
+      'wind',
+      'kelembapan',
+      'humidity',
+      'supra',
+      'kondisi',
+      'condition',
+      'prediksi',
+      'forecast',
+      'ml',
+      'alert',
+      'notifikasi',
+      'berita',
+      'news',
+      'bahaya',
+      'hazard',
+      'risiko',
+      'risk',
+      'aman',
+      'safe',
+      'rekomendasi',
+      'saran',
+      'kesehatan',
+      'health',
+      'paru',
+      'asma',
+      'ispa',
+      'paparan',
+      'exposure',
+      'stasiun',
+      'halte',
+      'koridor',
+      'tol',
+      'ganjil genap',
+      'gage',
+      'payung',
+      'jas hujan',
     ];
     final hasInScope = inScopeKeywords.any((k) => lower.contains(k));
     if (!hasInScope && !isGreeting) {
@@ -137,6 +379,9 @@ class AiAssistantService extends ChangeNotifier {
     _generation++;
     _isLoading = false;
     _messages.clear();
+    _selectedRoute = null;
+    _selectedPoint = null;
+    _locationName = null;
     _welcome();
     // Remove the old client-side credential; never migrate it into requests.
     SharedPreferences.getInstance()
@@ -167,14 +412,14 @@ class AiAssistantService extends ChangeNotifier {
         )
         .toList();
     final context =
-        (envContext ??
-                ChatEnvironmentalContext(
-                  frequentRoutes: TripHistoryStore.instance.frequentCommutes
-                      .take(3)
-                      .map((t) => t.routeLabel)
-                      .toList(),
-                ))
-            .toJson();
+        envContext?.toJson() ??
+        <String, dynamic>{
+          if (_selectedRoute != null) 'selected_route': _selectedRoute,
+          if (_selectedRoute == null && _activeTrip != null)
+            'trip_id': _activeTrip!.id,
+          if (_selectedPoint != null) 'point': _selectedPoint,
+          if (_locationName != null) 'current_location': _locationName,
+        };
     _messages.add(
       ChatMessage(
         id: 'user_${DateTime.now().microsecondsSinceEpoch}',
@@ -215,29 +460,6 @@ class AiAssistantService extends ChangeNotifier {
         notifyListeners();
         return;
       }
-      if (context.isEmpty || !context.containsKey('aqi')) {
-        try {
-          final snap = await ConditionsRepository.instance.at(
-            const LatLng(latitude: -6.2297, longitude: 106.8295),
-          );
-          final pm25 = snap.airQuality.number('pm25_ug_m3') ?? 34.0;
-          final aqi =
-              snap.airQuality.number('aqi')?.round() ??
-              ConditionsRepository.pm25ToUsEpaAqi(pm25);
-          final rain = snap.weather.number('precipitation_mm') ?? 1.2;
-          final temp = snap.weather.number('temperature_c') ?? 29.0;
-          final speed = snap.traffic.number('speed_kmh') ?? 24.0;
-          final isStale =
-              snap.airQuality.isStale ||
-              snap.weather.isStale ||
-              snap.traffic.isStale;
-          context['current_location'] ??= 'Kuningan, Jakarta Selatan';
-          context['aqi'] ??= aqi;
-          context['temperature'] ??= '${temp.toStringAsFixed(0)}°C';
-          context['weather'] ??=
-              'Hujan ${rain.toStringAsFixed(1)} mm, PM2.5 ${pm25.toStringAsFixed(1)} µg/m³, Kecepatan lalu lintas ${speed.toStringAsFixed(0)} km/jam (${isStale ? "stale fallback" : "live"})';
-        } catch (_) {}
-      }
     }
 
     var reply =
@@ -252,7 +474,7 @@ class AiAssistantService extends ChangeNotifier {
                     history: history,
                     context: context,
                   ))
-              .timeout(const Duration(seconds: 20));
+              .timeout(const Duration(seconds: 40));
       final result = response['reply'];
       if (response['simulated'] == true ||
           result is! String ||
@@ -262,22 +484,7 @@ class AiAssistantService extends ChangeNotifier {
       reply = result;
       model = response['model'] as String? ?? 'server';
     } catch (_) {
-      if (send == null && !MapConfig.isTestEnvironment) {
-        final loc =
-            context['current_location'] as String? ??
-            'Kuningan, Jakarta Selatan';
-        final aqi = context['aqi'] as int? ?? 97;
-        final temp = context['temperature'] as String? ?? '29°C';
-        final weatherDesc =
-            context['weather'] as String? ??
-            'Hujan 1.2 mm, PM2.5 34.0 µg/m³, Kecepatan lalu lintas 24 km/jam (stale fallback)';
-        reply =
-            'Berdasarkan pembacaan kondisi **SUPRA** untuk wilayah **$loc**:\n\n'
-            '• **Kualitas Udara**: US AQI **$aqi** (Sedang / Moderate)\n'
-            '• **Cuaca & Lalu Lintas**: Suhu **$temp** — $weatherDesc\n'
-            '• **Rekomendasi Komuter**: Gunakan masker **KN95/N95** saat beraktivitas di luar ruang atau berkendara motor, siapkan pelindung hujan, dan pertimbangkan **MRT/LRT/KRL/TransJakarta** atau **Mobil** untuk meminimalkan paparan polusi serta hujan.';
-        model = 'gemini-2.5-flash';
-      }
+      // Keep transport/provider failures explicit; never impersonate a Gemini reply.
     } finally {
       if (generation == _generation) {
         final index = _messages.indexWhere((m) => m.id == id);

@@ -106,6 +106,7 @@ void main() {
       'alert_heavy_rain': false,
       'alert_severe_traffic': true,
       'alert_relevant_news': true,
+      'news_min_severity': 'low',
     };
     expect(NotificationPreference.fromJson(flags).toJson(), flags);
   });

@@ -307,24 +307,7 @@ impl ConditionsService {
     }
 }
 
-pub(crate) fn pm25_to_us_epa_aqi(pm25: f64) -> i64 {
-    let c = (pm25.max(0.0) * 10.0).floor() / 10.0;
-    let (c_low, c_high, i_low, i_high) = if c <= 12.0 {
-        (0.0, 12.0, 0.0, 50.0)
-    } else if c <= 35.4 {
-        (12.1, 35.4, 51.0, 100.0)
-    } else if c <= 55.4 {
-        (35.5, 55.4, 101.0, 150.0)
-    } else if c <= 150.4 {
-        (55.5, 150.4, 151.0, 200.0)
-    } else if c <= 250.4 {
-        (150.5, 250.4, 201.0, 300.0)
-    } else {
-        (250.5, 500.4, 301.0, 500.0)
-    };
-    let aqi = ((i_high - i_low) / (c_high - c_low)) * (c.min(500.4) - c_low) + i_low;
-    aqi.round() as i64
-}
+
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Signal {

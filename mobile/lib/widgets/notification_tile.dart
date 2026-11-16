@@ -9,12 +9,19 @@ class NotificationTile extends StatelessWidget {
   final AppNotification notification;
   final VoidCallback? onTap;
   final VoidCallback? onReadNews;
+  final VoidCallback? onToggleRead;
+  final ValueChanged<bool>? onSelectionChanged;
+  final bool selected, actionsEnabled;
 
   const NotificationTile({
     super.key,
     required this.notification,
     this.onTap,
     this.onReadNews,
+    this.onToggleRead,
+    this.onSelectionChanged,
+    this.selected = false,
+    this.actionsEnabled = true,
   });
 
   @override
@@ -27,14 +34,35 @@ class NotificationTile extends StatelessWidget {
       margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        leading: Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
-            color: notification.isRead
-                ? const Color(0xFFCBD5E1)
-                : SupraTheme.brand,
-            shape: BoxShape.circle,
+        leading: SizedBox(
+          width: onSelectionChanged == null ? 10 : 58,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (onSelectionChanged != null)
+                Semantics(
+                  label: 'Select alert: ${notification.title}',
+                  child: Checkbox(
+                    value: selected,
+                    onChanged: actionsEnabled
+                        ? (v) => onSelectionChanged!(v ?? false)
+                        : null,
+                  ),
+                ),
+              Tooltip(
+                message: notification.isRead ? 'Read' : 'Unread',
+                child: Container(
+                  width: 10,
+                  height: 10,
+                  decoration: BoxDecoration(
+                    color: notification.isRead
+                        ? const Color(0xFFCBD5E1)
+                        : SupraTheme.brand,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
         title: Row(
@@ -51,10 +79,14 @@ class NotificationTile extends StatelessWidget {
                 child: const Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(Icons.verified, size: 11, color: Color(0xFF15803D)),
+                    Icon(
+                      Icons.newspaper_outlined,
+                      size: 11,
+                      color: Color(0xFF15803D),
+                    ),
                     SizedBox(width: 3),
                     Text(
-                      'VERIFIED NEWS',
+                      'PUBLISHER NEWS',
                       style: TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.w800,
@@ -99,6 +131,22 @@ class NotificationTile extends StatelessWidget {
                 'Expired report — kept for history',
                 style: TextStyle(fontSize: 11, color: Colors.grey),
               ),
+            if (onToggleRead != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: actionsEnabled ? onToggleRead : null,
+                  icon: Icon(
+                    notification.isRead
+                        ? Icons.mark_email_unread_outlined
+                        : Icons.mark_email_read_outlined,
+                    size: 16,
+                  ),
+                  label: Text(
+                    notification.isRead ? 'Mark unread' : 'Mark read',
+                  ),
+                ),
+              ),
             if (isVerifiedNews)
               Wrap(
                 spacing: 8,
@@ -112,7 +160,7 @@ class NotificationTile extends StatelessWidget {
                       ),
                       icon: const Icon(Icons.article_outlined, size: 14),
                       label: const Text(
-                        'Baca Berita Terverifikasi',
+                        'Baca Berita',
                         style: TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w700,
@@ -188,6 +236,9 @@ class NotificationTile extends StatelessWidget {
             ? const Icon(Icons.check_circle, color: Color(0xFF94A3B8), size: 18)
             : const Icon(Icons.circle, color: Color(0xFF94A3B8), size: 8),
         onTap: onTap,
+        onLongPress: actionsEnabled && onSelectionChanged != null
+            ? () => onSelectionChanged!(!selected)
+            : null,
       ),
     );
   }

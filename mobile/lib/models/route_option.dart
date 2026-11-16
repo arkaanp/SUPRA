@@ -1,5 +1,6 @@
 import 'location.dart';
 import 'current_conditions.dart';
+import 'transit_journey.dart';
 
 /// Supported modes of transportation in Greater Jakarta.
 enum TransportMode { car, motorcycle, publicTransit, walk }
@@ -58,6 +59,7 @@ class RouteOption {
   final double distanceKm;
   final List<LatLng> waypoints;
   final List<String> turnSteps;
+  final TransitJourney? transitJourney;
   final bool isRecommended;
   final String recommendationReason;
   final List<String> identifiedRisks;
@@ -78,6 +80,7 @@ class RouteOption {
     required this.distanceKm,
     required this.waypoints,
     this.turnSteps = const [],
+    this.transitJourney,
     this.isRecommended = false,
     required this.recommendationReason,
     required this.identifiedRisks,
@@ -110,6 +113,7 @@ class RouteOption {
     distanceKm: distanceKm,
     waypoints: waypoints,
     turnSteps: turnSteps,
+    transitJourney: transitJourney,
     isRecommended: recommended,
     recommendationReason: reason,
     identifiedRisks: risks,

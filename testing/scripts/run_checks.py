@@ -20,11 +20,16 @@ def main():
     checks = [('backend', 'backend', ['cargo', 'test', '--locked']),
               ('analyze', 'mobile', ['fvm', 'flutter', 'analyze']),
               ('mobile', 'mobile', ['fvm', 'flutter', 'test', '--no-pub'])]
+    ml_python=ROOT / 'ml' / '.venv' / 'bin' / 'python'
+    if ml_python.exists():
+        checks.append(('python-ml', '.', [str(ml_python), '-m', 'unittest', 'discover', '-s', 'testing/python', '-v']))
+    else:
+        print('Python ML suite requires ml/.venv; see ml/README.md.', flush=True)
     if args.database:
         import os
         if not os.environ.get('SUPRA_TEST_DATABASE_URL'):
             parser.error('--database requires SUPRA_TEST_DATABASE_URL')
-        checks.append(('database', 'backend', ['cargo', 'test', '--locked', '--', '--ignored']))
+        checks.append(('database', 'backend', ['cargo', 'test', '--locked', 'db_tests::migrated_schema_enforces_user_boundaries', '--', '--ignored']))
     if args.builds:
         checks += [(f'build-{target}', 'mobile', ['fvm', 'flutter', 'build', target]) for target in ('linux', 'web')]
     results = []

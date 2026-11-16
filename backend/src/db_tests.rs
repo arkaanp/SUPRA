@@ -137,6 +137,9 @@ async fn migrated_schema_enforces_user_boundaries() {
     )
     .await;
     assert_eq!(saved["destination_longitude"], 106.9);
+    let owned=crate::handlers::agent::owned_trip(&state,alice,Some(Uuid::parse_str(confirmed_id).unwrap())).await.unwrap().unwrap();
+    assert_eq!(owned.origin,[-6.2,106.8]);
+    assert!(matches!(crate::handlers::agent::owned_trip(&state,bob,Some(Uuid::parse_str(confirmed_id).unwrap())).await,Err(crate::error::AppError::NotFound)));
     let (status, _) = request(
         &app,
         &token_a,
@@ -265,6 +268,115 @@ async fn migrated_schema_enforces_user_boundaries() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{prefs}");
+    // Publisher news writes use real inbox constraints, preference flags and per-user deduplication.
+    let now = chrono::Utc::now();
+    let news: crate::alerts::Incident = serde_json::from_value(json!({
+        "id":"integration-news-1","title":"Test publisher report: transit in Jakarta",
+        "source_url":"https://www.antaranews.com/berita/integration-fixture-only",
+        "source_name":"ANTARA","latitude":-6.2,"longitude":106.8,
+        "location_label":"Jakarta","location_radius_km":10,"verified":false,
+        "published_at":now-chrono::Duration::hours(1),"starts_at":now-chrono::Duration::hours(1),
+        "expires_at":now+chrono::Duration::hours(24)
+    }))
+    .unwrap();
+    assert_eq!(
+        crate::alerts::store_news_for_user(&state, bob, &[news.clone()])
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        crate::alerts::store_news_for_user(&state, bob, &[news.clone()])
+            .await
+            .unwrap(),
+        0
+    );
+    let count:i64=sqlx::query_scalar("SELECT COUNT(*) FROM notifications WHERE user_id=$1 AND event_key='news:integration-news-1'")
+        .bind(alice).fetch_one(&state.pool).await.unwrap();
+    assert_eq!(
+        count, 0,
+        "publisher notification must not leak to another account"
+    );
+    let (status,minimum)=request(&app,&token_b,"PUT",&format!("/api/users/{bob}/preferences"),Some(json!({"news_min_severity":"medium"}))).await;
+    assert_eq!(status,StatusCode::OK);assert_eq!(minimum["news_min_severity"],"medium");assert_eq!(minimum["alert_relevant_news"],true);
+    // Previously delivered low news is hidden using saved settings even with a stale low query.
+    let (status,visible)=request(&app,&token_b,"GET",&format!("/api/users/{bob}/notifications?news_min_severity=low"),None).await;
+    assert_eq!(status,StatusCode::OK);assert!(visible.as_array().unwrap().is_empty());
+    let (_,visible)=request(&app,&token_b,"GET","/api/notifications",None).await;
+    assert!(visible.as_array().unwrap().is_empty());
+    let report=|id:&str,severity:&str| serde_json::from_value::<crate::alerts::Incident>(json!({
+        "id":id,"title":"Test severity classification in Jakarta","source_url":"https://www.antaranews.com/berita/fixture-only",
+        "source_name":"ANTARA","latitude":-6.2,"longitude":106.8,"severity":severity,"published_at":now,
+        "starts_at":now,"expires_at":now+chrono::Duration::hours(24),"verified":false
+    })).unwrap();
+    assert_eq!(crate::alerts::store_news_for_user(&state,bob,&[report("test-low","low")]).await.unwrap(),0);
+    assert_eq!(crate::alerts::store_news_for_user(&state,bob,&[report("test-medium","medium"),report("test-high","high")]).await.unwrap(),2);
+    sqlx::query("INSERT INTO notifications(user_id,title,message_body,severity) VALUES($1,'Weather fixture','Local alert','low')").bind(bob).execute(&state.pool).await.unwrap();
+    let (status,filtered)=request(&app,&token_b,"GET",&format!("/api/users/{bob}/notifications?news_min_severity=high"),None).await;
+    assert_eq!(status,StatusCode::OK);
+    let filtered=filtered.as_array().unwrap();assert_eq!(filtered.len(),2,"high news and independent weather alert survive");
+    assert!(filtered.iter().any(|n|n["severity"]=="high"));assert!(filtered.iter().any(|n|n["source_url"].is_null()));
+    let sent_before:chrono::DateTime<chrono::Utc>=sqlx::query_scalar("UPDATE notifications SET is_read=true WHERE user_id=$1 AND event_key='news:integration-news-1' RETURNING sent_at").bind(bob).fetch_one(&state.pool).await.unwrap();
+    assert_eq!(crate::alerts::store_news_for_user(&state,bob,&[report("integration-news-1","high")]).await.unwrap(),1);
+    let (read,level,sent_after):(bool,String,chrono::DateTime<chrono::Utc>)=sqlx::query_as("SELECT is_read,severity,sent_at FROM notifications WHERE user_id=$1 AND event_key='news:integration-news-1'").bind(bob).fetch_one(&state.pool).await.unwrap();
+    assert!(read);assert_eq!(level,"high");assert_eq!(sent_before,sent_after);
+    let (status,_)=request(&app,&token_b,"PUT",&format!("/api/users/{bob}/preferences"),Some(json!({"news_min_severity":"urgent"}))).await;
+    assert_eq!(status,StatusCode::BAD_REQUEST);
+    // Single and selected unread preserve ownership, are atomic, and are idempotent.
+    let test_high:Uuid=sqlx::query_scalar("SELECT id FROM notifications WHERE user_id=$1 AND event_key='news:test-high'").bind(bob).fetch_one(&state.pool).await.unwrap();
+    let (status,_)=request(&app,&token_b,"PUT",&format!("/api/notifications/{test_high}/read"),None).await;assert_eq!(status,StatusCode::OK);
+    let (status,unread)=request(&app,&token_b,"PUT",&format!("/api/notifications/{test_high}/unread"),None).await;assert_eq!(status,StatusCode::OK);assert_eq!(unread["is_read"],false);
+    let (status,_)=request(&app,&token_b,"PUT",&format!("/api/notifications/{notification_id}/unread"),None).await;assert_eq!(status,StatusCode::NOT_FOUND);
+    let selected:Uuid=sqlx::query_scalar("SELECT id FROM notifications WHERE user_id=$1 AND event_key='news:integration-news-1'").bind(bob).fetch_one(&state.pool).await.unwrap();
+    let (status,_)=request(&app,&token_b,"PUT","/api/notifications/unread",Some(json!({"ids":[selected,notification_id]}))).await;assert_eq!(status,StatusCode::NOT_FOUND);
+    let remains_read:bool=sqlx::query_scalar("SELECT is_read FROM notifications WHERE id=$1").bind(selected).fetch_one(&state.pool).await.unwrap();assert!(remains_read,"mixed-owner selection must not partially update");
+    let (status,unread)=request(&app,&token_b,"PUT","/api/notifications/unread",Some(json!({"ids":[selected]}))).await;assert_eq!(status,StatusCode::OK);assert_eq!(unread["updated"],1);
+    let (_,again)=request(&app,&token_b,"PUT","/api/notifications/unread",Some(json!({"ids":[selected]}))).await;assert_eq!(again["updated"],0);
+    let (status,_)=request(&app,&token_b,"PUT","/api/notifications/unread",Some(json!({"ids":[]}))).await;assert_eq!(status,StatusCode::BAD_REQUEST);
+    request(&app,&token_b,"PUT",&format!("/api/notifications/{selected}/read"),None).await;
+    // Dismiss only this user's read alerts. Event keys survive scheduled reevaluation.
+    sqlx::query("UPDATE notifications SET is_read=true WHERE id=$1").bind(notification_id).execute(&state.pool).await.unwrap();
+    let (status,removed)=request(&app,&token_b,"DELETE","/api/notifications/read",None).await;
+    assert_eq!(status,StatusCode::OK);assert_eq!(removed["deleted"],1);
+    let (status,other)=request(&app,&token_a,"GET",&format!("/api/notifications/{notification_id}"),None).await;
+    assert_eq!(status,StatusCode::OK);assert_eq!(other["is_read"],true);
+    let (_,visible)=request(&app,&token_b,"GET",&format!("/api/users/{bob}/notifications"),None).await;
+    assert_eq!(visible.as_array().unwrap().len(),3,"unread news and alerts are preserved");
+    let (_,again)=request(&app,&token_b,"DELETE","/api/notifications/read",None).await;assert_eq!(again["deleted"],0);
+    let dismissed:Uuid=sqlx::query_scalar("SELECT id FROM notifications WHERE user_id=$1 AND event_key='news:integration-news-1'").bind(bob).fetch_one(&state.pool).await.unwrap();
+    let (status,_)=request(&app,&token_b,"GET",&format!("/api/notifications/{dismissed}"),None).await;assert_eq!(status,StatusCode::NOT_FOUND);
+    let (status,_)=request(&app,&token_b,"PUT",&format!("/api/notifications/{dismissed}/unread"),None).await;assert_eq!(status,StatusCode::NOT_FOUND);
+    crate::alerts::store_news_for_user(&state,bob,&[report("integration-news-1","critical")]).await.unwrap();
+    let (_,visible)=request(&app,&token_b,"GET","/api/notifications",None).await;
+    assert!(!visible.as_array().unwrap().iter().any(|n|n["id"]==dismissed.to_string()),"dismissed articles must not reappear");
+
+    let (status, _) = request(
+        &app,
+        &token_b,
+        "PUT",
+        &format!("/api/users/{bob}/preferences"),
+        Some(json!({"alert_relevant_news":false})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_,visible)=request(&app,&token_b,"GET",&format!("/api/users/{bob}/notifications"),None).await;
+    assert_eq!(visible.as_array().unwrap().len(),1,"turning news off hides previous news but keeps the unrelated alert");
+    let rain_id:Uuid=sqlx::query_scalar("INSERT INTO notifications(user_id,title,message_body,severity,context) VALUES($1,'Rain fixture','Rain','medium','{\"rule\":\"rain\"}'::jsonb) RETURNING id").bind(bob).fetch_one(&state.pool).await.unwrap();
+    let (status,_)=request(&app,&token_b,"PUT",&format!("/api/users/{bob}/preferences"),Some(json!({"alert_heavy_rain":false}))).await;assert_eq!(status,StatusCode::OK);
+    let (_,visible)=request(&app,&token_b,"GET",&format!("/api/users/{bob}/notifications"),None).await;
+    assert!(!visible.as_array().unwrap().iter().any(|n|n["id"]==rain_id.to_string()));
+    let (_,marked)=request(&app,&token_b,"PUT","/api/notifications/read",None).await;assert_eq!(marked["updated"],1,"bulk read touches only the remaining eligible generic alert");
+    let high_unread:bool=sqlx::query_scalar("SELECT NOT is_read FROM notifications WHERE id=$1").bind(test_high).fetch_one(&state.pool).await.unwrap();assert!(high_unread,"hidden news is not marked read");
+    let mut different=serde_json::to_value(json!({"id":"integration-news-2","title":"Test publisher report", "source_url":"https://www.antaranews.com/berita/fixture-two", "source_name":"ANTARA","latitude":-6.2,"longitude":106.8,"verified":false,"published_at":now,"starts_at":now,"expires_at":now+chrono::Duration::hours(24)})).unwrap();
+    let second = serde_json::from_value(different.take()).unwrap();
+    assert_eq!(
+        crate::alerts::store_news_for_user(&state, bob, &[second])
+            .await
+            .unwrap(),
+        0,
+        "disabled news preference is respected"
+    );
+
     // Saved places isolation
     let (status, home) = request(&app, &token_a, "POST", "/api/places", Some(json!({
         "label": "Home", "kind": "home", "latitude": -6.2, "longitude": 106.8

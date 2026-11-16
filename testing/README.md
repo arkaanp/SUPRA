@@ -81,3 +81,65 @@ it reports provider failures and never prints API keys.
 
 Authenticated three-point source/time check: `python3 testing/scripts/conditions_smoke.py`.
 It reads the local desktop session without printing tokens or account data.
+
+## Public transportation checks
+
+```sh
+# Authenticated local API: fixed public sample locations; does not save trips.
+python3 testing/scripts/transit_smoke.py
+# Compare Transjakarta and KRL alternatives for Monas–UI during service hours:
+python3 testing/scripts/transit_smoke.py --case monas-ui
+# Resource-dependent integration checks (run explicitly):
+cd backend
+cargo test --locked transit::gtfs::tests::supplied -- --ignored --nocapture
+cargo test --locked transit::tests::live_commute -- --ignored --nocapture
+cargo test --locked transit::tests::live_monas_ui -- --ignored --nocapture
+```
+
+The first Rust command needs `file_gtfs/`; the second calls the public API.
+The Monas–UI test uses both and asserts that bus and KRL alternatives survive.
+The authenticated smoke prints every option with its independent legs/times/fare.
+The ordinary suite uses small test fixtures and local HTTP stand-ins.
+See [transit setup](../backend/docs/public-transport.md) for defaults, service
+horizons, attribution and geometry limitations.
+
+## Python/PyTorch and real publisher news
+
+Install/train/start using [ml/README.md](../ml/README.md), then:
+
+```sh
+ml/.venv/bin/python -m unittest discover -s testing/python -v
+python3 testing/scripts/run_checks.py
+python3 testing/scripts/run_database_tests.py
+python3 testing/scripts/intelligence_smoke.py --evaluate
+```
+
+The combined runner includes Python checks when `ml/.venv` exists and explicitly
+reports a missing environment. The isolated DB check verifies publisher inbox
+preferences, deduplication and ownership. The system smoke uses the existing
+signed-in desktop session, never prints tokens, and queues in-app news only with
+`--evaluate`. Training data/runtime logs stay under `ml/data`, `ml/artifacts` and
+`testing/`; source tests and scripts remain visible here.
+
+## Selected-route assistant and news preferences
+
+`python3 testing/scripts/assistant_smoke.py` performs read-only account preference
+and severity-query checks plus one Gemini request for a public Monas–UI example.
+It records the model/engine, selected route, provider status/times and response;
+credentials and account IDs are never printed. Exit code 2 means the explicit
+server-data fallback was used instead of Gemini. See
+[the feature contract](../backend/docs/assistant-and-alerts.md).
+
+## Alert cleanup and preference refresh
+
+`python3 testing/scripts/alerts_smoke.py` performs read-only verification of both
+inbox APIs against saved preferences and checks that Delete read requires auth.
+It does not delete demo notifications or change settings. Actual dismissal,
+unread preservation, owner isolation and non-regeneration are exercised only in
+the disposable DB runner. Widget cases remain in
+`mobile/test/news_preferences_test.dart`.
+
+Read-state controls are now visible in the Alerts toolbar. Row checkboxes enable
+**Mark selected unread**, and each item supports an individual unread toggle.
+The read-only alerts smoke also verifies authentication on these mutation routes;
+actual read-state writes/deletion are covered with disposable DB/client fixtures.

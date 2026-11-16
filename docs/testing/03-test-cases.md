@@ -135,3 +135,79 @@ case IDs are retained for traceability and are not extra test counts.
 Expected results are test-design targets. PASS refers to fixture/stand-in assertions,
 not complete runtime acceptance. Home demo prediction display is a local calculation;
 model accuracy is not assessed. Manual system cases must record observed behavior.
+
+## Public transportation extension — 2026-11-16
+
+| Step | Case | Expected result | Current result |
+|---|---|---|---|
+| Unit testing | GTFS calendar, exceptions, >24h times, exact/frequency service, pickup/transfer rules | Only eligible rides; ordered shape; estimate labels | PASS |
+| Unit testing | Flutter itinerary parse and card | Fare, WIB boarding/alighting, source, schematic limitations; inconsistent transfers rejected | PASS |
+| Integration testing | Commute fare leg missing times | Match same vehicle/line at both station timetables | PASS — mock and explicit live KCI check |
+| Integration testing | API outage | Usable local GTFS bus result remains | PASS |
+| Integration testing | Supplied Transjakarta feed | Blok M–Kota bus itinerary with GTFS shape | PASS — explicit opt-in test |
+| System testing | Authenticated transit plan endpoint | Bus/rail plans with structured legs through running backend | PASS — no trip saved |
+| System testing | Select Transit, confirm, reload history on device | Itinerary persists and mode remains public_transit | NOT RUN in this cycle |
+
+## Transit alternatives and named samples — 2026-11-16
+
+| Step | Case | Expected result | Current result |
+|---|---|---|---|
+| Unit testing | Several nearby bus stops plus a nearby KRL station | Rail candidates retained independently of bus-stop density | PASS |
+| Unit testing | Two public_transit options | Independent metrics, geometry, title, and selected state; old single-route payload remains supported | PASS |
+| Unit testing | Route condition location names | Chosen endpoint names; intermediate street/area names; geographic fallback on lookup failure | PASS |
+| Integration testing | Both local GTFS and API have valid journeys | Both retained, sorted by arrival; duplicate ride sequences removed | PASS |
+| Integration testing | Monas–UI with supplied GTFS and public API | Transjakarta and KRL options with valid ride times | PASS — explicit resource check |
+| System testing | Authenticated Monas–UI plan request | Primary plus alternatives contain independent transit legs | PASS — three choices; no trip saved |
+| System testing | Select each option on device | One selected card; map and named condition samples follow selected geometry | NOT RUN on device — independent selection verified at widget level |
+
+## Publisher news and PyTorch forecast extension — 2026-11-16
+
+| Step | Case | Expected result | Current result |
+|---|---|---|---|
+| Unit testing | Forecast request/display | Identified PyTorch output with real target times, units and model provenance | PASS |
+| Unit testing | Missing/stale/wrong-location model inputs | Empty/unavailable forecast, no replacement values | PASS |
+| Unit testing | Hour changes while forecast cached | New issue-hour cache entry; no expired first target | PASS |
+| Unit testing | Publisher RSS dates/trust/topics | Original publication/expiry, trusted HTTPS article, relevant named area | PASS |
+| Integration testing | Publisher inbox writes | Deduplicated per user; disabled preference creates no report; another user cannot receive it | PASS — isolated DB |
+| Integration testing | Model training/holdout | Past-only contiguous inputs; no target split leakage; recorded persistence comparison | PASS — saved model card |
+| System testing | Authenticated live forecast/news | 12 model hours, current publisher reports, actual in-app inbox delivery | PASS — retained system log |
+| System testing | Home/Trip ML and news reader on presentation device | Usable layout, correct selected location, valid publisher links/read state | NOT RUN manually — Linux launch and widget assertions passed |
+
+## Route-aware assistant and news preferences — 2026-11-16
+
+| Step | Case | Expected result | Current result |
+|---|---|---|---|
+| Unit testing | Selected route/context changes | Actual chosen start/destination/mode forwarded; account change clears private state | PASS |
+| Unit testing | Client-supplied environmental values | Gemini receives independently fetched evidence; client readings ignored | PASS |
+| Unit testing | Unknown signals, provider failure/cutoff | Unavailable or explicitly identified server-data summary; no partial Gemini reply accepted | PASS |
+| Unit testing | Forecast time display | Preformatted WIB added while original provider timestamps remain | PASS |
+| Unit testing | Medium+/High+ filter and failed save | Correct ordered news subset; weather alerts retained; failed save restores old level | PASS |
+| Integration testing | Preferences/migration/ownership | Additive column, partial updates, persisted thresholds, owned route access only | PASS — isolated DB |
+| Integration testing | Existing article reclassification | Severity updated; read state and sent time preserved | PASS — isolated DB |
+| System testing | Real Gemini Monas–UI call and severity GETs | Chosen route plus provider sources/times in identified engine output; correct news thresholds | PASS — retained live script |
+| System testing | Change selected route and preferences on presentation device | Relevant next answer, saved controls and working back navigation | NOT RUN manually — widget/API checks passed |
+
+## Alert cleanup and live preference refresh — 2026-11-16
+
+| Step | Case | Expected result | Current result |
+|---|---|---|---|
+| Unit testing | Change Profile preferences while Alerts stays mounted | Existing low news hides immediately, counts/selector update, stale reload cannot restore it | PASS |
+| Unit testing | Delete read; repeat; server failure | Read items removed, unread retained, zero result on repeat, failure preserves items | PASS |
+| Integration testing | Saved Medium+ with stale explicit Low query | Both list endpoints enforce saved minimum before pagination | PASS — isolated DB |
+| Integration testing | Delete read on one account | Other accounts/unread retained; dismissed detail returns 404 | PASS — isolated DB |
+| Integration testing | Re-evaluate a dismissed report with higher severity | Report remains hidden; deduplication key retained | PASS — isolated DB |
+| System testing | Read-only live smoke | Saved flags/minimum respected; unauthenticated deletion returns 401; demo rows unchanged | Automated check retained |
+| System testing | Open Profile and change settings, return to Alerts, delete read | Updated view without manual refresh; only read items removed | NOT RUN manually — widget/API cases passed |
+
+## Visible toolbar, immutable deletion and unread selection — 2026-11-16
+
+| Step | Case | Expected result | Current result |
+|---|---|---|---|
+| Unit testing | Delete read with immutable service snapshot | Successful server deletion updates/reloads UI without Unsupported operation | PASS — widget + authenticated client |
+| Unit testing | Phone toolbar | Mark all read/Delete read visible; individual unread updates row; no overflow | PASS |
+| Unit testing | Select two of three read alerts | Only chosen alerts become unread; failure retains selection/read state | PASS |
+| Integration testing | Single/bulk unread requests | Ownership enforced, no partial mixed-owner updates, repeat is idempotent | PASS — isolated DB |
+| Integration testing | Deleted alert marked unread | 404; dismissed record stays hidden | PASS — isolated DB |
+| Integration testing | Mark all read with disabled categories | Hidden/ineligible records stay unread | PASS — isolated DB |
+| System testing | Read-only endpoint smoke | Mutation endpoints require auth; saved inbox preferences still apply | PASS — retained live log |
+| System testing | Use new controls on presentation device | Visible controls, correct badges, expected persistence after refresh | NOT RUN manually — phone-widget/API checks passed |

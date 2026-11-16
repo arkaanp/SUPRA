@@ -30,6 +30,9 @@ pub(crate) fn create_router_with_conditions(
         .method_not_allowed_fallback(|| async { crate::error::AppError::MethodNotAllowed })
         .layer(axum::Extension(conditions))
         .layer(axum::Extension(std::sync::Arc::new(
+            crate::intelligence::IntelligenceService::from_env(),
+        )))
+        .layer(axum::Extension(std::sync::Arc::new(
             crate::mobility::MobilityService::from_env(),
         )))
         .with_state(state)
@@ -38,6 +41,7 @@ pub(crate) fn create_router_with_conditions(
 fn protected_routes(verifier: crate::auth::AuthVerifier) -> Router<AppState> {
     Router::new()
         .route("/api/conditions/current", get(crate::conditions::current))
+        .route("/api/forecast/hourly", get(crate::intelligence::forecast))
         .route("/api/mobility/plan", post(crate::mobility::plan))
         .route("/api/alerts/evaluate", post(crate::alerts::evaluate_user))
         .route(
@@ -135,8 +139,20 @@ fn protected_routes(verifier: crate::auth::AuthVerifier) -> Router<AppState> {
         // ====================================================================
         .route("/api/notifications", get(notifications::list_notifications))
         .route(
+            "/api/notifications/read",
+            delete(notifications::delete_read_notifications).put(notifications::mark_all_read),
+        )
+        .route(
             "/api/notifications/{id}",
             get(notifications::get_notification),
+        )
+        .route(
+            "/api/notifications/unread",
+            put(notifications::mark_selected_unread),
+        )
+        .route(
+            "/api/notifications/{id}/unread",
+            put(notifications::mark_notification_unread),
         )
         .route(
             "/api/notifications/{id}/read",

@@ -13,7 +13,8 @@ is taken from its verified subject, never from a request's user ID.
 * `/api/mobility/plan`: POST origin/destination `{latitude,longitude}`, mode.
   Returns actual provider geometry, duration, distance, steps, provenance; no
   synthetic route on failure. Walking/motorcycle use Valhalla mode profiles;
-  transit uses a configured OTP 2.x GTFS GraphQL endpoint with Jakarta data.
+  transit defaults to the local Transjakarta GTFS plus the public Commute Data API.
+  See [public transport](public-transport.md) for timing, geometry, and setup.
 * `/api/alerts/evaluate`: POST checks the caller's due routines/current trips.
   Responds with HTTP 202 Accepted `{"queued": true, "news_configured": bool, "scheduler_enabled": bool}`
   and evaluates asynchronously. Repeated evaluation is deduplicated, respects profile
@@ -22,13 +23,18 @@ is taken from its verified subject, never from a request's user ID.
 
 The opt-in alert worker evaluates a bounded batch every minute when `ALERTS_ENABLED=true`;
 each target is checked at most every five minutes. Notifications are in-app inbox messages,
-not push deliveries. News requires a configured trusted JSON incident feed (`NEWS_INCIDENTS_URL`).
-Feed items contain id, title, source_url (HTTPS), latitude, longitude, published_at,
-starts_at, expires_at, and verified=true. Events expire and are matched against
-actual route geometry when available, otherwise only near the endpoints.
+not push deliveries. News defaults to current ANTARA RSS through the Python
+intelligence service (`INTELLIGENCE_URL`, default http://127.0.0.1:8001). News
+keeps original publication/expiry dates and links, uses explicit area-level
+matching, respects preferences and deduplicates article IDs. A trusted custom
+JSON incident feed remains optional via `NEWS_INCIDENTS_URL`.
 
-Forecast UI reserves separate temperature, AQI and weather fields for future ML
-output. Missing values remain empty; source observations are not extrapolated.
+Authenticated `GET /api/forecast/hourly?latitude=...&longitude=...` returns live
+Python/PyTorch inference for the next 12 hours: temperature, precipitation, PM2.5,
+AQI and wet-hour probability, with model ID, training/validation provenance and
+input freshness. Home and Trip ML controls consume these values. Traffic ML is
+unavailable pending a validated training dataset. Forecasts remain separate from
+current-condition hazard evidence. See [ML and news setup](../../ml/README.md).
 
 ## Password Recovery Configuration
 
@@ -39,3 +45,10 @@ output. Missing values remain empty; source observations are not extrapolated.
 2. **Deep Link Callbacks (Android / iOS / Web)**:
    Add `io.supabase.supra://login-callback` and your Web URL to the Supabase Redirect URLs
    allowlist. Android and iOS application manifests/plists are configured to capture this scheme.
+
+## Route-aware Gemini and news severity
+
+See [assistant and alert preferences](assistant-and-alerts.md) for selected-route
+context, server-fetched evidence, the additive preference migration, delivery
+thresholds, severity-filter queries and verification commands. Alert preferences
+are active and account-scoped; profile and inbox controls auto-save them.

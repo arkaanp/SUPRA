@@ -39,17 +39,38 @@ impl Validate for PlanInput {
 #[derive(Serialize)]
 pub struct PlannedRoute {
     mode: String,
-    source: &'static str,
+    source: String,
     fetched_at: DateTime<Utc>,
     duration_seconds: f64,
     distance_km: f64,
     waypoints: Vec<[f64; 2]>,
     steps: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    transit: Option<crate::transit::Itinerary>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    alternatives: Vec<PlannedRoute>,
 }
+impl PlannedRoute {
+    fn from_transit(route: crate::transit::Itinerary) -> Self {
+        Self {
+            mode: "public_transit".into(),
+            source: route.source.clone(),
+            fetched_at: Utc::now(),
+            duration_seconds: route.duration(),
+            distance_km: route.legs.iter().map(|l| l.distance_km).sum(),
+            waypoints: route.points(),
+            steps: route.steps(),
+            transit: Some(route),
+            alternatives: vec![],
+        }
+    }
+}
+
 pub struct MobilityService {
     client: reqwest::Client,
     valhalla: String,
     otp: Option<String>,
+    transit: crate::transit::TransitService,
     gate: Mutex<Instant>,
 }
 impl MobilityService {
@@ -65,6 +86,7 @@ impl MobilityService {
             otp: std::env::var("OTP_GRAPHQL_URL")
                 .ok()
                 .filter(|s| !s.trim().is_empty()),
+            transit: crate::transit::TransitService::from_env(),
             gate: Mutex::new(Instant::now()),
         }
     }
@@ -78,6 +100,7 @@ impl MobilityService {
                 .expect("routing HTTP configuration"),
             valhalla,
             otp,
+            transit: crate::transit::TransitService::from_env(),
             gate: Mutex::new(Instant::now()),
         }
     }
@@ -103,6 +126,21 @@ impl MobilityService {
         serde_json::from_slice(&bytes).map_err(|_| AppError::Unavailable)
     }
     async fn route(&self, p: &PlanInput) -> AppResult<PlannedRoute> {
+        if p.mode == "public_transit" && self.otp.is_none() {
+            let routes = self
+                .transit
+                .plan_options(
+                    [p.origin.latitude, p.origin.longitude],
+                    [p.destination.latitude, p.destination.longitude],
+                    Utc::now(),
+                )
+                .await?;
+            let mut options = routes.into_iter().map(PlannedRoute::from_transit);
+            let mut best = options.next().ok_or(AppError::NotFound)?;
+            best.alternatives = options.collect();
+            return Ok(best);
+        }
+
         let (source, distance, duration, points, steps) = if p.mode == "public_transit" {
             let url = self.otp.as_deref().ok_or(AppError::Unavailable)?;
             let local = Utc::now() + chrono::Duration::hours(7);
@@ -160,12 +198,14 @@ impl MobilityService {
         }
         Ok(PlannedRoute {
             mode: p.mode.clone(),
-            source,
+            source: source.into(),
             fetched_at: Utc::now(),
             duration_seconds: duration,
             distance_km: distance,
             waypoints: points,
             steps,
+            transit: None,
+            alternatives: vec![],
         })
     }
 }

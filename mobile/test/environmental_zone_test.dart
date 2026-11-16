@@ -92,6 +92,8 @@ void main() {
       }
       var calls = 0;
       final service = EnvironmentalService(
+        resolveName: (_) async =>
+            'Jalan Sudirman, Setiabudi, Jakarta Selatan, Indonesia',
         conditions: ConditionsRepository(
           load: (p) async {
             calls++;
@@ -106,11 +108,43 @@ void main() {
           },
         ),
       );
-      final samples = await service.fetchRouteData(path);
+      final samples = await service.fetchRouteData(
+        path,
+        startName: 'Monas',
+        destinationName: 'Universitas Indonesia',
+      );
       expect(calls, 5);
-      expect(samples.first.name, 'Start');
-      expect(samples.last.name, 'Destination');
+      expect(samples.first.name, 'Start · Monas');
+      expect(samples.last.name, 'Destination · Universitas Indonesia');
+      expect(samples[1].name, 'Jalan Sudirman, Setiabudi, Jakarta Selatan');
+      expect(samples.any((s) => s.name.contains('Route sample')), isFalse);
       expect(samples.map((s) => s.id).toSet().length, 5);
+    },
+  );
+
+  test(
+    'Address lookup failure keeps readings and useful geographic labels',
+    () async {
+      final service = EnvironmentalService(
+        resolveName: (_) async => throw StateError('geocoder unavailable'),
+        conditions: ConditionsRepository(
+          load: (p) async => CurrentConditions(
+            latitude: p.latitude,
+            longitude: p.longitude,
+            retrievedAt: DateTime.now(),
+            weather: ConditionsRepository.unavailable,
+            airQuality: ConditionsRepository.unavailable,
+            traffic: ConditionsRepository.unavailable,
+          ),
+        ),
+      );
+      final samples = await service.fetchRouteData([
+        point,
+        const LatLng(latitude: -6.3, longitude: 106.8),
+      ]);
+      expect(samples.first.name, contains('Jakarta'));
+      expect(samples.first.name, contains('-6.2000, 106.8000'));
+      expect(samples.last.conditions, isNotNull);
     },
   );
 

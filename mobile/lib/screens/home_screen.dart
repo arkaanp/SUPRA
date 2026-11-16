@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 
 import '../config/map_config.dart';
 import '../models/current_conditions.dart';
+import '../models/ml_forecast.dart';
+import '../services/forecast_repository.dart';
+import '../services/ai_assistant_service.dart';
 import '../models/location.dart';
 import '../models/saved_trip.dart';
 import '../models/trip.dart';
@@ -51,12 +54,14 @@ class HomeScreen extends StatefulWidget {
   final void Function(Trip? trip)? onNavigateToTrip;
   final VoidCallback? onNavigateToAlerts;
   final ConditionsRepository? conditions;
+  final ForecastRepository? forecasts;
 
   const HomeScreen({
     super.key,
     this.onNavigateToTrip,
     this.onNavigateToAlerts,
     this.conditions,
+    this.forecasts,
   });
 
   @override
@@ -74,6 +79,45 @@ class _HomeScreenState extends State<HomeScreen> {
 
   bool _loading = false;
   bool _showMlPredictions = false;
+  MlForecast? _mlForecast;
+  bool _loadingForecast = false;
+  String? _forecastError;
+  int _forecastGeneration = 0;
+
+  Future<void> _refreshForecast({bool refresh = false}) async {
+    final generation = ++_forecastGeneration;
+    final point = _selectedLocation;
+    setState(() {
+      _loadingForecast = true;
+      _mlForecast = null;
+      _forecastError = null;
+    });
+    try {
+      final result = await (widget.forecasts ?? ForecastRepository.instance).at(
+        point,
+        refresh: refresh,
+      );
+      if (mounted && generation == _forecastGeneration) {
+        setState(() => _mlForecast = result);
+      }
+    } catch (_) {
+      if (mounted && generation == _forecastGeneration) {
+        setState(
+          () => _forecastError = 'ML forecast unavailable. Try refreshing.',
+        );
+      }
+    } finally {
+      if (mounted && generation == _forecastGeneration) {
+        setState(() => _loadingForecast = false);
+      }
+    }
+  }
+
+  void _toggleMl(bool value) {
+    setState(() => _showMlPredictions = value);
+    if (value) unawaited(_refreshForecast());
+  }
+
   bool _loadingGeminiInsight = false;
   String? _geminiConditionsInsight;
   CurrentConditions? _liveConditions;
@@ -84,14 +128,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    if (!MapConfig.isTestEnvironment && widget.conditions == null) {
-      _liveConditions = ConditionsRepository.staleFallbackSnapshot(
-        _selectedLocation,
-        DateTime.now(),
-      );
-      _geminiConditionsInsight =
-          'Pembacaan Gemini atas kondisi SUPRA di $_selectedLocationName (Data Stale Terakhir): US AQI 97 (Sedang, PM2.5 34.0 µg/m³), suhu 29°C, curah hujan 1.2 mm, dan kecepatan lalu lintas 24 km/jam. Komuter disarankan memakai masker KN95/N95 dan menyiapkan pelindung hujan.';
-    }
     _refreshAll();
     _freshnessTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (mounted) setState(() {});
@@ -114,6 +150,13 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _refreshAll() async {
     final generation = ++_requestGeneration;
     final point = _selectedLocation;
+    if (!MapConfig.isTestEnvironment) {
+      AiAssistantService.instance.selectLocation(_selectedLocationName, [
+        point.latitude,
+        point.longitude,
+      ]);
+    }
+    if (_showMlPredictions) unawaited(_refreshForecast(refresh: true));
     setState(() => _loading = true);
     try {
       final conditions =
@@ -141,16 +184,15 @@ class _HomeScreenState extends State<HomeScreen> {
     final air = snapshot?.airQuality;
     final weather = snapshot?.weather;
     final traffic = snapshot?.traffic;
-    final pm25 = air?.number('pm25_ug_m3') ?? 34.2;
-    final aqi = (air?.number('aqi')?.round()) ??
-        ConditionsRepository.pm25ToUsEpaAqi(pm25);
-    final rain = weather?.number('precipitation_mm') ?? 1.2;
-    final temp = weather?.number('temperature_c') ?? 29.0;
-    final speed = traffic?.number('speed_kmh') ?? 24.0;
-    final isStale = air?.isStale == true ||
+    final pm25 = air?.number('pm25_ug_m3');
+    final aqi = air?.number('aqi')?.round();
+    final rain = weather?.number('precipitation_mm');
+    final temp = weather?.number('temperature_c');
+    final speed = traffic?.number('speed_kmh');
+    final isStale =
+        air?.isStale == true ||
         weather?.isStale == true ||
         traffic?.isStale == true;
-
     setState(() => _loadingGeminiInsight = true);
     try {
       final response = await SupraService.instance.sendAgentChat(
@@ -158,24 +200,28 @@ class _HomeScreenState extends State<HomeScreen> {
             'Berikan ringkasan singkat (2-3 kalimat) mengenai kondisi udara, cuaca/hujan, dan lalu lintas saat ini di $_selectedLocationName beserta rekomendasi komuter.',
         context: {
           'current_location': _selectedLocationName,
+          'point': [_selectedLocation.latitude, _selectedLocation.longitude],
           'aqi': aqi,
-          'temperature': '${temp.toStringAsFixed(0)}°C',
+          'temperature': temp == null
+              ? 'Unavailable'
+              : '${temp.toStringAsFixed(0)}°C',
           'weather':
-              'Hujan ${rain.toStringAsFixed(1)} mm, PM2.5 ${pm25.toStringAsFixed(1)} µg/m³, Kecepatan lalu lintas ${speed.toStringAsFixed(0)} km/jam (${isStale ? "stale fallback" : "live"})',
+              'Rain ${rain ?? "unavailable"} mm, PM2.5 ${pm25 ?? "unavailable"} µg/m³, traffic ${speed ?? "unavailable"} km/h (${isStale ? "stale" : "latest"})',
         },
       );
       final reply = response['reply'] as String?;
       if (mounted && reply != null && reply.trim().isNotEmpty) {
         setState(
-          () => _geminiConditionsInsight =
-              reply.replaceAll('**', '').replaceAll('*', '').trim(),
+          () => _geminiConditionsInsight = reply
+              .replaceAll('**', '')
+              .replaceAll('*', '')
+              .trim(),
         );
       }
     } catch (_) {
       if (mounted) {
         setState(
-          () => _geminiConditionsInsight =
-              'Kondisi $_selectedLocationName (${isStale ? "Data Stale Terakhir" : "Live"}): US AQI $aqi (PM2.5 ${pm25.toStringAsFixed(1)} µg/m³), Suhu ${temp.toStringAsFixed(0)}°C, Hujan ${rain.toStringAsFixed(1)} mm, Lalu lintas ${speed.toStringAsFixed(0)} km/jam. Gunakan masker KN95 bila beraktivitas di luar ruang dan siapkan pelindung hujan.',
+          () => _geminiConditionsInsight = 'Conditions summary unavailable. Source readings are shown above.',
         );
       }
     } finally {
@@ -241,11 +287,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final forecasts = <HourlyForecast>[];
     final snapshot = _liveConditions?.agedAt(now);
     final weather = snapshot?.weather;
-    final pm25 = snapshot?.airQuality.number('pm25_ug_m3');
-    final baseAqi = currentAqi ??
-        (pm25 != null ? ConditionsRepository.pm25ToUsEpaAqi(pm25) : 92);
-    final baseTemp = weather?.number('temperature_c')?.round() ?? 29;
-
+    final ml = _mlForecast?.isCurrentAt(now) == true ? _mlForecast : null;
     for (int i = 0; i < count; i++) {
       final hourTime = now.add(Duration(hours: i));
       final hourNum = hourTime.hour;
@@ -271,49 +313,46 @@ class _HomeScreenState extends State<HomeScreen> {
           ? weather?.number('temperature_c')?.round()
           : null;
 
-      if (_showMlPredictions && (!current || temp == null)) {
-        // ML hourly forecast based on current/stale anchor and Jakarta diurnal curve
-        final isRushHour =
-            (hourNum >= 7 && hourNum <= 9) || (hourNum >= 17 && hourNum <= 20);
-        final isAfternoonRain = hourNum >= 14 && hourNum <= 18;
-        final isDaytime = hourNum >= 7 && hourNum <= 17;
-        final mlAqi = (baseAqi + (isRushHour ? 14 : -6) + ((i % 3) - 1) * 3)
-            .clamp(38, 165);
-        final mlTemp = (baseTemp +
-                (hourNum >= 11 && hourNum <= 15
-                    ? 2
-                    : (!isDaytime ? -2 : 0)))
-            .clamp(24, 34);
-        final (mlCond, mlIcon, mlColor) = isAfternoonRain
-            ? ('Rain 65%', Icons.umbrella_rounded, const Color(0xFF2563EB))
-            : isDaytime
-            ? (
-                'Partly cloudy',
-                Icons.wb_cloudy_rounded,
-                const Color(0xFFF59E0B),
-              )
-            : ('Cloudy', Icons.cloud_rounded, const Color(0xFF64748B));
-        final meta = _getAqiMeta(mlAqi);
-
+      if (_showMlPredictions && !current) {
+        final hours =
+            ml?.hourly.where((h) => h.targetTime.isAfter(now)).toList() ??
+            <MlForecastHour>[];
+        final h = i - 1 < hours.length ? hours[i - 1] : null;
+        final meta = h == null ? null : _getAqiMeta(h.aqi.round());
+        final wib = h?.targetTime.toUtc().add(const Duration(hours: 7));
         forecasts.add(
           HourlyForecast(
-            time: timeStr,
-            weatherIcon: mlIcon,
-            weatherColor: mlColor,
-            weatherCondition: mlCond,
-            temperatureC: mlTemp,
-            aqi: mlAqi,
-            aqiCategory: meta.$1,
-            aqiBgColor: meta.$2,
-            aqiTextColor: meta.$3,
-            status: current ? 'ML + Stale' : 'ML Forecast',
+            time: wib == null
+                ? timeStr
+                : '${wib.hour.toString().padLeft(2, '0')}:00',
+            weatherIcon: h == null
+                ? Icons.hourglass_empty_rounded
+                : h.rainProbability >= 0.5
+                ? Icons.umbrella_rounded
+                : Icons.cloud_outlined,
+            weatherColor: h == null ? Colors.grey : Colors.blue,
+            weatherCondition: h == null
+                ? 'Weather —'
+                : 'Rain ${(h.rainProbability * 100).round()}% · ${h.precipitationMm.toStringAsFixed(1)} mm',
+            temperatureC: h?.temperatureC.round(),
+            aqi: h?.aqi.round(),
+            aqiCategory: meta?.$1 ?? 'No prediction',
+            aqiBgColor: meta?.$2 ?? const Color(0xFFF1F5F9),
+            aqiTextColor: meta?.$3 ?? const Color(0xFF64748B),
+            status: h != null
+                ? 'PyTorch forecast'
+                : _loadingForecast
+                ? 'ML loading'
+                : 'ML unavailable',
           ),
         );
         continue;
       }
 
-      final effectiveNowAqi = _showMlPredictions ? baseAqi : currentAqi;
-      final nowMeta = effectiveNowAqi != null ? _getAqiMeta(effectiveNowAqi) : null;
+      final effectiveNowAqi = currentAqi;
+      final nowMeta = effectiveNowAqi != null
+          ? _getAqiMeta(effectiveNowAqi)
+          : null;
 
       forecasts.add(
         HourlyForecast(
@@ -941,10 +980,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final suppliedAqi = air?.data?['aqi_standard'] == 'US EPA'
         ? air?.number('aqi')?.round()
         : null;
-    final currentAqi = suppliedAqi ??
-        (_showMlPredictions && pm25 != null
-            ? ConditionsRepository.pm25ToUsEpaAqi(pm25)
-            : null);
+    final currentAqi = suppliedAqi;
     final aqiMeta = currentAqi == null
         ? (
             pm25 == null ? 'No cached data' : 'PM2.5',
@@ -956,10 +992,14 @@ class _HomeScreenState extends State<HomeScreen> {
           )
         : _getAqiMeta(currentAqi);
     final rain = weather?.number('precipitation_mm');
-    final mlRainMm = ((rain ?? 1.2) + 0.4).clamp(0.5, 12.0);
+    final mlHour = _mlForecast?.nextAt(DateTime.now());
     final rainValue = _showMlPredictions
-        ? '${mlRainMm.toStringAsFixed(1)} mm (65%)'
-        : (rain == null ? '—' : '${rain.toStringAsFixed(1)} mm');
+        ? (mlHour == null
+              ? '—'
+              : '${mlHour.precipitationMm.toStringAsFixed(1)} mm (${(mlHour.rainProbability * 100).round()}%)')
+        : rain == null
+        ? '—'
+        : '${rain.toStringAsFixed(1)} mm';
     final weatherLabel = _showMlPredictions
         ? 'Rain · ML'
         : weather?.isStale == true
@@ -968,18 +1008,18 @@ class _HomeScreenState extends State<HomeScreen> {
         ? 'Rain forecast'
         : 'Rain';
     final speed = traffic?.number('speed_kmh');
-    final mlSpeed = ((speed ?? 24.0) + 2.0).clamp(12.0, 48.0);
     final trafficValue = _showMlPredictions
-        ? '${mlSpeed.toStringAsFixed(0)} km/h'
-        : (speed == null ? '—' : '${speed.toStringAsFixed(0)} km/h');
+        ? '—'
+        : speed == null
+        ? '—'
+        : '${speed.toStringAsFixed(0)} km/h';
     final temp = weather?.number('temperature_c');
-    final mlTemp = ((temp ?? 29.0) + 1.0).clamp(24.0, 35.0);
     final tempValue = _showMlPredictions
-        ? '${mlTemp.toStringAsFixed(0)}°C'
-        : (temp == null ? '—' : '${temp.toStringAsFixed(0)}°C');
-    final displayedAqi = _showMlPredictions
-        ? ((currentAqi ?? 97) + 4).clamp(35, 180)
-        : currentAqi;
+        ? (mlHour == null ? '—' : '${mlHour.temperatureC.round()}°C')
+        : temp == null
+        ? '—'
+        : '${temp.round()}°C';
+    final displayedAqi = _showMlPredictions ? mlHour?.aqi.round() : currentAqi;
     final effectiveAqiMeta = displayedAqi != null
         ? _getAqiMeta(displayedAqi)
         : aqiMeta;
@@ -1038,7 +1078,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     Expanded(
                       child: Text(
                         _showMlPredictions
-                            ? 'Mode Indikator: Prediksi ML (Hujan, AQI & Lalin)'
+                            ? 'Mode Indikator: Prediksi PyTorch (Hujan, AQI & Suhu)'
                             : 'Mode Indikator: Data Stale / Terakhir Tersimpan',
                         style: const TextStyle(
                           fontSize: 11.5,
@@ -1052,8 +1092,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Switch.adaptive(
                         value: _showMlPredictions,
                         activeTrackColor: SupraTheme.brand,
-                        onChanged: (val) =>
-                            setState(() => _showMlPredictions = val),
+                        onChanged: _toggleMl,
                       ),
                     ),
                   ],
@@ -1067,9 +1106,7 @@ class _HomeScreenState extends State<HomeScreen> {
               // -------------------------------------------------------------
               _buildTodaysAirQualityCard(
                 value:
-                    displayedAqi?.toString() ??
-                    pm25?.toStringAsFixed(1) ??
-                    '—',
+                    displayedAqi?.toString() ?? pm25?.toStringAsFixed(1) ?? '—',
                 category: _showMlPredictions
                     ? 'ML · ${effectiveAqiMeta.$1}'
                     : '${air?.isStale == true ? "STALE · " : ""}${effectiveAqiMeta.$1}',
@@ -1082,20 +1119,24 @@ class _HomeScreenState extends State<HomeScreen> {
                     ? const Color(0xFF0369A1)
                     : effectiveAqiMeta.$3,
                 advisory: _showMlPredictions
-                    ? 'Prediksi ML untuk 1 jam ke depan berdasarkan tren Jabodetabek. ${effectiveAqiMeta.$4}'
+                    ? (mlHour == null
+                          ? (_forecastError ?? 'Loading PyTorch forecast…')
+                          : 'PyTorch forecast for ${_wib(mlHour.targetTime)}. Experimental regional estimate.')
                     : air?.isStale == true
                     ? 'Last-known reading — not current. ${effectiveAqiMeta.$4}'
                     : effectiveAqiMeta.$4,
-                sourceLabel:
-                    '${displayedAqi == null ? "PM2.5 µg/m³" : (_showMlPredictions ? "ML US AQI" : "US AQI")}${pm25 != null && displayedAqi != null ? " (PM2.5 ${pm25.toStringAsFixed(1)})" : ""} · ${air?.source ?? "No source yet"}'
-                    '${air?.validAt == null ? "" : "\nObserved ${_wib(air!.validAt!)}"}'
-                    '${air?.receivedAt == null ? "" : "\nFetched ${_wib(air!.receivedAt!)}"}',
+                sourceLabel: _showMlPredictions
+                    ? (_mlForecast == null
+                          ? 'PyTorch model unavailable'
+                          : '${_mlForecast!.modelId}\n${_mlForecast!.attribution}\nInputs through ${_wib(_mlForecast!.inputThrough)}')
+                    : '${displayedAqi == null ? "PM2.5 µg/m³" : "US AQI"} · ${air?.source ?? "No source yet"}'
+                          '${air?.validAt == null ? "" : "\nObserved ${_wib(air!.validAt!)}"}',
                 weatherLabel: weatherLabel,
                 rainValue: rainValue,
                 trafficValue: trafficValue,
                 tempValue: tempValue,
                 trafficLabel: _showMlPredictions
-                    ? 'Traffic · ML'
+                    ? 'Traffic ML unavailable'
                     : traffic?.isStale == true
                     ? 'Traffic · STALE'
                     : 'Traffic',
@@ -1791,7 +1832,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 2),
                   Text(
                     _showMlPredictions
-                        ? 'ML predictions active (AQI, rain & temp)'
+                        ? (_loadingForecast
+                              ? 'Loading PyTorch forecast…'
+                              : _forecastError ??
+                                    'PyTorch · AQI, rain & temperature')
                         : 'ML predictions will appear here when available',
                     style: const TextStyle(
                       fontSize: 12,
@@ -1880,7 +1924,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     : const Color(0xFFCBD5E1),
               ),
               visualDensity: VisualDensity.compact,
-              onSelected: (val) => setState(() => _showMlPredictions = val),
+              onSelected: _toggleMl,
             ),
           ],
         ),
@@ -2109,7 +2153,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                       ),
                       Text(
-                        'Confirm a trip to add it to your history. ML forecasts will be added in the future.',
+                        'Confirm a trip to add it to your history. Enable ML to view the current hourly forecast.',
                         style: TextStyle(
                           fontSize: 12,
                           color: Color(0xFF64748B),

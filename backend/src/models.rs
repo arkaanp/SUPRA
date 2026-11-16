@@ -137,6 +137,7 @@ pub struct NotificationPreference {
     pub alert_heavy_rain: bool,
     pub alert_severe_traffic: bool,
     pub alert_relevant_news: bool,
+    pub news_min_severity: String,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -147,6 +148,7 @@ pub struct UpdateNotificationPreference {
     pub alert_heavy_rain: Option<bool>,
     pub alert_severe_traffic: Option<bool>,
     pub alert_relevant_news: Option<bool>,
+    pub news_min_severity: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

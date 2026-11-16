@@ -24,6 +24,8 @@ class InteractiveLocationMap extends StatefulWidget {
   final LatLng? secondaryLocation;
   final String? selectedLabel;
   final String? secondaryLabel;
+  final String? routeStartName;
+  final String? routeDestinationName;
   final ValueChanged<LatLng>? onLocationChanged;
   final bool isInteractive;
   final double height;
@@ -44,6 +46,8 @@ class InteractiveLocationMap extends StatefulWidget {
     this.secondaryLocation,
     this.selectedLabel,
     this.secondaryLabel,
+    this.routeStartName,
+    this.routeDestinationName,
     this.onLocationChanged,
     this.isInteractive = true,
     this.height = 240,
@@ -132,7 +136,11 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
     try {
       final path = widget.routeWaypoints;
       final updated = path != null && path.length >= 2
-          ? await _environmentalService.fetchRouteData(path)
+          ? await _environmentalService.fetchRouteData(
+              path,
+              startName: widget.routeStartName,
+              destinationName: widget.routeDestinationName,
+            )
           : await _environmentalService.fetchLiveZoneData(
               point: _currentLocation,
             );
@@ -168,6 +176,8 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
     if (widget.showEnvironmentalOverlays &&
         (widget.selectedLocation != oldWidget.selectedLocation ||
             !listEquals(widget.routeWaypoints, oldWidget.routeWaypoints) ||
+            widget.routeStartName != oldWidget.routeStartName ||
+            widget.routeDestinationName != oldWidget.routeDestinationName ||
             widget.environmentalZones != oldWidget.environmentalZones)) {
       _environmentalZones = []; // Do not show the previous route's samples.
       _refreshEnvironmentalZones();

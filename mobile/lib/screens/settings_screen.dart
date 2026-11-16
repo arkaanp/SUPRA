@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import '../widgets/news_severity_selector.dart';
+
 import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart'
     show Supabase, UserAttributes;
@@ -27,6 +30,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _prefs = SupraService.instance.preferences;
+    SupraService.instance.addListener(_syncPreferences);
+  }
+
+  void _syncPreferences() {
+    if (mounted && !_saving) {
+      setState(() => _prefs = SupraService.instance.preferences);
+    }
+  }
+
+  @override
+  void dispose() {
+    SupraService.instance.removeListener(_syncPreferences);
+    super.dispose();
   }
 
   Future<void> _logout() async {
@@ -693,7 +709,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ),
         ),
         const SizedBox(height: 20),
-        // 3. Notification preferences header + "Coming Soon" badge.
+        // 3. Active account-scoped notification preferences.
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4),
           child: Row(
@@ -716,7 +732,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  'Coming Soon',
+                  _saving ? 'Saving…' : 'Auto-save',
                   style: textTheme.labelSmall?.copyWith(
                     color: colorScheme.primary,
                     fontWeight: FontWeight.w700,
@@ -806,14 +822,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : (v) => _update(alertSevereTraffic: v),
                 ),
                 SwitchListTile(
-                  title: const Text('Relevant verified news'),
+                  title: const Text('Relevant publisher news'),
                   subtitle: const Text(
-                    'Route-relevant disruptions from configured trusted sources.',
+                    'Publisher reports matched to your trip or area.',
                   ),
                   value: _prefs.alertRelevantNews,
                   onChanged: _saving
                       ? null
                       : (v) => _update(alertRelevantNews: v),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: NewsSeveritySelector(
+                    value: _prefs.newsMinSeverity,
+                    onChanged: _saving || !_prefs.alertRelevantNews
+                        ? null
+                        : (v) => _update(newsMinSeverity: v),
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
+                  child: Text(
+                    'News severity describes the reported disruption. It is an app classification, not an official live warning.',
+                    style: TextStyle(fontSize: 12),
+                  ),
                 ),
               ],
             ),
@@ -849,12 +881,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
     bool? alertHeavyRain,
     bool? alertSevereTraffic,
     bool? alertRelevantNews,
+    String? newsMinSeverity,
   }) async {
+    final previous = _prefs;
     final next = _prefs.copyWith(
       alertUnhealthyAqi: alertUnhealthyAqi,
       alertHeavyRain: alertHeavyRain,
       alertSevereTraffic: alertSevereTraffic,
       alertRelevantNews: alertRelevantNews,
+      newsMinSeverity: newsMinSeverity,
     );
     setState(() {
       _prefs = next;
@@ -865,6 +900,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) setState(() => _prefs = SupraService.instance.preferences);
     } catch (error) {
       if (mounted) {
+        setState(() => _prefs = previous);
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('$error')));
       }

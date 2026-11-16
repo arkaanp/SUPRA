@@ -199,12 +199,28 @@ impl Validate for UpdateRoute {
 
 impl Validate for UpdateNotificationPreference {
     fn validate(&self) -> Result<(), AppError> {
+        if self
+            .news_min_severity
+            .as_deref()
+            .is_some_and(|s| !matches!(s, "low" | "medium" | "high" | "critical"))
+        {
+            return Err(AppError::bad_request(
+                "news_min_severity must be low, medium, high or critical",
+            ));
+        }
         Ok(())
     }
 }
 
 impl Validate for ListNotificationsQuery {
     fn validate(&self) -> Result<(), AppError> {
+        if self
+            .news_min_severity
+            .as_deref()
+            .is_some_and(|s| crate::alerts::severity_rank(s).is_none())
+        {
+            return Err(AppError::bad_request("Invalid news severity"));
+        }
         if self.limit.is_some_and(|v| !(1..=100).contains(&v)) || self.offset.is_some_and(|v| v < 0)
         {
             return Err(AppError::bad_request(
