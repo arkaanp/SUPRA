@@ -1,78 +1,54 @@
-# Test procedure
+# 04 — Test procedure
 
-> Current demo baseline: `main` application commit `967a477` (2026-11-09).
-> Documentation imported from `docs/testing`; application changes on that branch
-> are excluded. Results below distinguish current checks from earlier branch evidence.
+Run from the repository root with the prerequisites in [01](01-test-plan.md).
 
-## Prepare
+## 1. Unit testing
 
-Use the FVM SDK configured by `mobile/.fvmrc`. Install dependencies as described
-in the package READMEs. Run from repository root; confirm revision with
-`git rev-parse --short HEAD`. Keep private config, account details and keys out
-of shared evidence.
+```sh
+python3 testing/scripts/run_checks.py --stage unit
+```
 
-## Step 1 — Unit testing
+This validates classification, runs only the unit Rust/Flutter/Python cases,
+and runs static analysis. Review `unit/*.log`, `support/analyze.log` and
+`summary.json` in the printed evidence directory. Any failure must be resolved
+before accepting this step.
+
+## 2. Integration testing
+
+```sh
+python3 testing/scripts/run_checks.py --stage integration
+```
+
+This executes local HTTP/client/provider/GTFS tests, Flutter integration clients,
+Python checkpoint inference, a fresh PostgreSQL cluster and the supplied feed.
+The cluster's migrations and API assertions run under `integration/database/`;
+it is stopped after testing. Data/logs remain in that evidence directory for review.
+No application database URL is needed or used by the runner.
+
+For one combined execution, in step order:
 
 ```sh
 python3 testing/scripts/run_checks.py
 ```
 
-The runner executes `cargo test --locked`, `fvm flutter analyze`, and
-`fvm flutter test --no-pub`. Logs and JSON summaries are saved under
-`testing/evidence/<UTC timestamp>/`. Baseline: 30 backend passes, one ignored
-DB case, 62 Flutter passes and clean analysis. These package totals also contain
-component-integration cases; do not report them as unit-only counts or count
-them again in Step 2. Inspect failures and preserve the ignored test status.
-
-## Step 2 — Integration testing
-
-Review provider/JWKS stand-in, router and client-contract results from Step 1
-against the integration cases in `03-test-cases.md`. Then provision a dedicated
-disposable PostgreSQL database ending in `_test` and set
-`SUPRA_TEST_DATABASE_URL` in your shell. Never use the application database.
+Optional public schedule checks remain part of integration testing:
 
 ```sh
-python3 testing/scripts/run_checks.py --database
-python3 testing/scripts/schema_audit.py --backend-env
+python3 testing/scripts/run_checks.py --stage integration --live
 ```
 
-`--database` reruns the package suites and additionally runs the ignored DB test.
-That test verifies migrations, CRUD and cross-user ownership. Report its result
-separately. The schema script is a read-only supporting check of configured
-migration metadata and feature columns/tables; it does not replace the DB test.
-The runner does not provision/delete databases or apply runtime migrations.
+They require outbound network and the local feed, and depend on provider/service
+time availability. They are recorded separately from the default checks.
 
-## Step 3 — System testing
+## Review and record
 
-### Build preparation and running-backend smoke
+Inspect commands, commit, working-tree state, per-check counts and exit codes in
+`summary.json`. Supporting inventory/analyzer checks do not add to totals. Keep
+unit and integration results separate in [06](06-test-log.md) and
+[08](08-test-summary-report.md). A changed test suite must have fresh evidence;
+previous branch results do not establish a pass for the current code.
 
-```sh
-python3 testing/scripts/run_checks.py --builds
-python3 testing/scripts/smoke.py
-```
-
-`--builds` reruns package checks and builds Linux/web. Artifacts stay in
-`mobile/build/` and `backend/target/`. A build is preparation rather than a
-system-flow pass. Smoke checks an already running backend for 200/200/401/404
-and matching JSON fields; it does not start or restart services.
-
-### Manual end-to-end demo
-
-1. Launch the app with `--dart-define-from-file=config/local.json` from mobile.
-   Ensure `SUPRA_API_URL` is reachable from the device; localhost is device-local.
-2. Sign in; retry account refresh. If it fails, record the exact API request,
-   status and sanitized backend error. A healthy readiness endpoint is insufficient.
-3. Inspect Home conditions, STALE labels, timestamps and the demo display toggle.
-4. Plan a car trip; confirm, reload history and finish it. Try walking/motorcycle;
-   record transit unavailable if OTP is not configured.
-5. Save a place and routine, change preferences, open Alerts and request a check.
-6. Ask a commute question; note the observed assistant response/provider status.
-7. Check recovery email/code and callbacks with a demo account if configured.
-8. Sign out and use another demo account to check isolation.
-9. Inspect Home, Trip, Assistant and Alerts at a 360×640 viewport and on the
-   presentation device. Record clipping/overflow; no dedicated 16:9 suite is
-   present on this main baseline.
-
-Append results to the test log with revision, timestamp, command/case and result.
-Generated logs remain local; share only reviewed evidence. No /tmp cleanup or
-service termination is performed by the runners.
+Optional signed-in service probes are listed in
+[testing/README.md](../../testing/README.md); they are not prerequisites for the
+local two-step run. Do not use account-mutating probe flags on the demo account
+as part of this procedure.

@@ -93,25 +93,23 @@ Primary contracts:
 - https://api.commute.shiorilabs.id/openapi.json
 - https://gtfs.org/documentation/schedule/reference/
 
-## Three testing stages
+## Two testing steps
 
-1. Unit: small GTFS fixtures, calendars/exceptions, frequency vs timetable,
-   after-midnight service, transfers, CSV quoting, frontend parsing/UI checks.
-2. Integration: local HTTP fixture verifies API schedules match the same vehicle
-   at both stations; optional supplied-feed smoke tests Blok M–Kota. Optional
-   live API test verifies Gondangdia–Depok.
-3. System: build/restart backend and Flutter, select Transit, inspect legs/map,
-   confirm/save/reload a trip. A successful routing integration test alone is
-   not a complete authenticated device/system pass.
+1. Unit testing: isolated geometry/selection logic and Flutter transit model/widget
+   cases in `mobile/test/unit/`.
+2. Integration testing: GTFS ingestion/planning, calendars/transfers, matching API
+   vehicles, local HTTP outage fallback and the supplied Blok M–Kota feed route.
+   The two public Commute API cases are opt-in.
+
+Run from the repository root:
 
 ```sh
-cd backend
-cargo test --locked
-cargo test --locked transit::gtfs::tests::supplied -- --ignored --nocapture
-cargo test --locked transit::tests::live_commute -- --ignored --nocapture
-cargo test --locked transit::tests::live_monas_ui -- --ignored --nocapture
+python3 testing/scripts/run_checks.py --stage unit
+python3 testing/scripts/run_checks.py --stage integration
+python3 testing/scripts/run_checks.py --stage integration --live
 ```
 
-The last two commands call the public API; do not include it in an offline CI job.
-Database-test runners now filter specifically to the DB test so they do not
-accidentally run public-provider checks when using `--ignored`.
+The last command calls the public API. The default integration step uses the
+supplied `file_gtfs/` feed and local provider responses. See
+[the test procedure](../../docs/testing/04-test-procedure.md) for evidence and
+isolation details.

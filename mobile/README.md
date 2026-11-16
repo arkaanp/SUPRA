@@ -143,11 +143,13 @@ fvm flutter test
 fvm flutter build web --dart-define-from-file=config/local.json
 ```
 
-Tests use local HTTP stand-ins, image fixtures and fake Supabase responses, not
-real provider credentials. For a live smoke
-test, register and confirm a user, sign in, save a trip, reload to verify
-persistence, change preferences, sign out and sign into a second account to
-verify isolation. Backend cross-user DB tests require a dedicated test database.
+Tests are split into `test/unit/` for isolated logic/widgets and `test/integration/`
+for HTTP/auth/SDK contracts. From the repository root, run
+`python3 testing/scripts/run_checks.py --stage unit` followed by
+`python3 testing/scripts/run_checks.py --stage integration` to include backend,
+Python/PyTorch and disposable PostgreSQL coverage. Tests use local responses and
+image fixtures without provider credentials. See
+[testing/README.md](../testing/README.md) for commands and fresh results.
 
 ## Freshness and route map update
 

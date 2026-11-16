@@ -110,20 +110,21 @@ preference logic and remain visible regardless of this news threshold. The
 inbox selector immediately filters visible news, saves the account preference,
 and reloads server results; failed saves restore the previous selection.
 
-## Three testing steps
+## Two testing steps
 
-1. Unit testing: `python3 testing/scripts/run_checks.py` checks Gemini payload
-   grounding, invalid/bounded selections, unavailable evidence, cut-off replies,
-   route/account handoff, news classification, view filtering and failed saves.
-2. Integration testing: `python3 testing/scripts/run_database_tests.py` applies
-   migrations to a disposable database and verifies owned-route access, partial
-   preference updates, delivery thresholds, query filtering and deduplication.
-3. System testing: with services/app running, execute
-   `python3 testing/scripts/assistant_smoke.py`. It uses the desktop session,
-   performs read-only threshold/preference checks and one real Gemini call for
-   public Monas–UI coordinates. It does not save trips or change preferences.
-   Inspect selection changes, source citations and the Profile/Alerts controls
-   manually on the presentation device.
+1. Unit testing: `python3 testing/scripts/run_checks.py --stage unit` covers
+   bounded inputs, route/evidence handling, view filtering, preferences, visible
+   controls, selected unread and failed-save state.
+2. Integration testing: `python3 testing/scripts/run_checks.py --stage integration`
+   covers Gemini HTTP contracts, client errors and an isolated migrated database
+   for owned routes, preference thresholds, inbox filtering, deduplication,
+   read-state changes and deletion.
+
+Optional running-service integration: `python3 testing/scripts/assistant_smoke.py`
+uses the desktop session for read-only preference checks and one Gemini request
+for public Monas–UI coordinates. It does not save trips or change preferences.
+It is not included in the default local test run. See
+[testing/README.md](../../testing/README.md).
 
 Primary Gemini contracts: [generateContent](https://ai.google.dev/api/generate-content),
 [thinking budget](https://ai.google.dev/gemini-api/docs/generate-content/thinking).

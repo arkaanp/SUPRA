@@ -1,49 +1,37 @@
-# Test plan
-
-> Current demo baseline: `main` application commit `967a477` (2026-11-09).
-> Documentation imported from `docs/testing`; application changes on that branch
-> are excluded. Results below distinguish current checks from earlier branch evidence.
+# 01 — Test plan
 
 ## Objective and scope
 
-Demonstrate repeatable backend and Flutter checks, visible test source, account
-boundaries, trip persistence, routing, conditions, assistant and alerts.
-Demo display modes are tested for usability; forecast accuracy is outside this cycle.
+Rerun the current demo's tests in two steps: **unit testing**, followed by
+**integration testing**. Keep all nine documentation filenames, make test code
+and runners visible in the repository, and record fresh stage-specific evidence.
 
-## Three testing steps
+Coverage includes authentication and account boundaries, trip/route models,
+map/environment conditions and freshness, transit alternatives, alert filtering
+and read-state controls, assistant grounding, publisher news, and ML input/output
+contracts. Existing automated regression coverage is retained during the split.
 
-### 1. Unit testing
+## Prerequisites
 
-Check validation, parsers, model serialization, scheduling/recommendation rules,
-cache state and widgets in isolation. Flutter analysis is a supporting check.
-Exit: all executed unit assertions pass and analysis is clean.
+- Rust/Cargo and locked backend dependencies.
+- FVM and the project's configured Flutter SDK; dependencies installed in `mobile/`.
+- `ml/.venv/bin/python` with `ml/requirements.txt` installed, including PyTorch.
+- PostgreSQL tools `initdb`, `pg_ctl`, `createdb`, available on `PATH`; run as a
+  normal user rather than PostgreSQL-disallowed root.
+- The supplied `file_gtfs/` feed for the full integration step.
+- Permission to bind loopback sockets and access local SDK/build caches.
 
-### 2. Integration testing
+The default run uses local dependencies and provider responses controlled by the
+tests. It requires no app session, provider API keys or running demo services.
+Missing tools, environment, feed or failing assertions fail the run.
 
-Check router/auth/provider interactions with local HTTP/JWKS stand-ins and API
-client contracts. Run database migrations twice, CRUD and ownership assertions
-against a dedicated disposable `*_test` database. Schema metadata is supporting
-evidence only. Exit: component and dedicated database assertions pass; record
-missing environments as NOT RUN rather than treating unit results as a substitute.
+## Acceptance
 
-### 3. System testing
+1. Unit testing passes independently, with nonempty Rust, Flutter and Python suites.
+2. Integration testing passes independently, including migrated PostgreSQL and
+   supplied-feed checks, with no overlap in Rust test classification.
 
-Check the running backend with HTTP smoke, then sign-in, account refresh, trips,
-preferences, recovery, conditions, assistant and alerts in the complete app.
-Builds are preparation, not end-to-end evidence. Exit: smoke checks and required
-manual demo cases pass or have an explicitly recorded limitation.
-
-## Demo acceptance
-
-Automated local checks pass. Before presentation, verify sign-in and account
-refresh, confirm and reload a trip, open a map, exercise Home display modes,
-ask the assistant a commute question and open Alerts. Record unavailable
-provider modes explicitly. The account banner remains an open demo issue until
-an authenticated rerun succeeds.
-
-## Dependencies and exclusions
-
-FVM Flutter, Cargo, Python 3; psql for schema inspection. Live recovery callbacks,
-OTP/Jakarta GTFS, incident-feed coverage, ML accuracy, push delivery, load and
-store packages are outside automated local acceptance. Credentials remain in
-ignored local configuration. Do not include personal accounts or tokens in evidence.
+The runner must exit nonzero for failed checks. Static analysis must be clean.
+Public-provider integrations are opt-in and reported separately when not run.
+Release builds, device walkthroughs and model retraining are outside this cycle.
+No test may use the demo application's database for destructive assertions.

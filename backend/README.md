@@ -69,27 +69,28 @@ notifications: those writes belong to server-side jobs.
 
 ## Tests
 
-Unit/router tests run without PostgreSQL:
+Testing follows two steps. From the repository root:
 
 ```sh
-cargo test --locked
+python3 testing/scripts/run_checks.py --stage unit
+python3 testing/scripts/run_checks.py --stage integration
 ```
 
-The database-backed API smoke test is ignored by default: provision a **dedicated**
-PostgreSQL database whose name ends in `_test`, with no important data. Set
-`SUPRA_TEST_DATABASE_URL` to it (different from `DATABASE_URL`) and run:
+The Rust partition is declared in `testing/suites.json`. The integration runner
+includes local HTTP/JWKS adapters, a new isolated PostgreSQL cluster and the
+supplied GTFS feed. It applies migrations, checks authenticated CRUD and
+cross-user ownership, and stops the test cluster. It never uses the app database.
+The two public Commute API checks are opt-in with `--stage integration --live`.
 
-```sh
-export SUPRA_TEST_DATABASE_URL='postgres://USER:PASSWORD@HOST:5432/supra_test'
-cargo test --locked db_tests::migrated_schema_enforces_user_boundaries -- --ignored
-```
+For a quick mixed Rust-only run from `backend/`, `cargo test --locked` still
+works; its total includes both unit and integration cases. It leaves database,
+supplied-feed and live-provider cases ignored. A successful mixed run does not
+replace the full integration step above.
 
-The test applies migrations to this database, exercises authenticated CRUD,
-cross-user ownership checks, and prediction/notification reads, and cleans up
-its fixtures on success. `cargo test` without `-- --ignored` reports it as
-ignored; a green unit-only run is **not** a verified database run.
-No demo seed or real Supabase account is needed: tests use locally signed JWTs
-and a mock JWKS endpoint. Test against real Supabase before production deployment.
+For a database-only run, use `python3 testing/scripts/run_database_tests.py` from
+the repository root. Tests use locally signed JWTs and a local JWKS endpoint,
+without a real Supabase account. See [testing/README.md](../testing/README.md)
+for prerequisites, fresh results and visible test scripts.
 
 ## Initial user-facing data sources
 
@@ -175,7 +176,7 @@ omitted flags default to true on creation and remain unchanged on update.
 
 Start the separate loopback intelligence service before using ML or news checks:
 see [ml/README.md](../ml/README.md) for installation, training, startup, model card,
-validation and the three testing steps. No new schema migration is needed.
+validation and the two testing steps. No new schema migration is needed.
 `INTELLIGENCE_URL` defaults to `http://127.0.0.1:8001`. The authenticated
 `/api/forecast/hourly` bridge validates model identity, location, horizon and
 freshness. News delivery uses the existing in-app notifications table and user
