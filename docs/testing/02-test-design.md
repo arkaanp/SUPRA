@@ -40,3 +40,7 @@ The runner rejects empty test results, records each check's exit code and count,
 and retains separate unit/integration logs. Analysis and inventory are supporting
 checks. Controlled integration responses establish adapter behavior; current
 external-provider availability requires an explicitly executed live integration.
+
+## 3. System testing
+
+The user supplied 21 screenshots and current notes in `guidelines/system-test/`. Unnoted features are accepted as implemented. Nine scenario groups are recorded: **5 PASS, 3 PARTIAL, 1 FAIL**. Six noted changes remain open. This reviews supplied manual evidence; it does not claim a new interactive execution or change the 152 automated-test total. Classify an unnoted state as PASS, a working feature with a noted gap as PARTIAL, and the unsuccessful password-recovery journey as FAIL. Do not infer additional defects from unnoted screenshots. Keep creation of saved routines separate from their pending Home/Alerts consumption and evaluation. See [system evidence and screenshots](../../testing/system/README.md).

@@ -1,7 +1,7 @@
 # 08 — Test summary report
 
 The test refactor and fresh run are complete. The existing **00–08** filenames
-are preserved, with **unit testing** and **integration testing** as the two steps.
+are preserved, with **unit**, **integration** and **system testing** documented.
 
 Executed **2026-11-16 at 05:30:56 UTC / 12:30:56 WIB** on
 `feat/ai-integration`, base commit `e6627b5c116f7b14734bf888e85bf426b013ce30`,
@@ -23,7 +23,7 @@ Transjakarta GTFS case 1. The database case verifies multiple authenticated
 persistence/ownership operations, including read-state and deletion behavior;
 it counts as one executable test, not one test per assertion.
 
-**Overall: 152 passed, zero failed.** Flutter analysis and inventory validation
+**Automated total: 152 passed, zero failed.** Flutter analysis and inventory validation
 also passed. See [06 — Test log](06-test-log.md) for raw evidence and the exact
 command. The first runner reporting issue was corrected before this final pass.
 
@@ -35,7 +35,11 @@ scripts remain visible in the repository, and generated evidence stays under
 `testing/evidence/`.
 
 Two public Commute API tests remain opt-in and were not rerun. Signed-in
-running-service probes, release builds, device walkthroughs, current provider
-availability and model retraining were outside this cycle. These results verify
+running-service probes, release builds, new interactive device executions, current provider
+availability and model retraining were outside the automated cycle. These results verify
 the executable contracts listed above, rather than a new live-service/model
 quality claim. Historical evidence is not added to current totals.
+
+## 3. System testing
+
+The user supplied 21 screenshots and current notes in `guidelines/system-test/`. Unnoted features are accepted as implemented. Nine scenario groups are recorded: **5 PASS, 3 PARTIAL, 1 FAIL**. Six noted changes remain open. This reviews supplied manual evidence; it does not claim a new interactive execution or change the 152 automated-test total. System acceptance remains incomplete until SYS-01-SYS-06 are implemented and retested. Existing saved-place/routine creation, profile controls, Home forecast display and route-condition/preview screenshots are accepted. See [system evidence and screenshots](../../testing/system/README.md).

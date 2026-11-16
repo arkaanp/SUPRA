@@ -69,7 +69,7 @@ notifications: those writes belong to server-side jobs.
 
 ## Tests
 
-Testing follows two steps. From the repository root:
+Automated testing follows unit and integration steps. From the repository root:
 
 ```sh
 python3 testing/scripts/run_checks.py --stage unit
@@ -190,3 +190,10 @@ additive `20261116000000_news_severity_preferences.sql` migration with
 `cargo run --locked -- migrate`. Profile/Alerts controls save alert flags and
 news severity thresholds. See [the contract](docs/assistant-and-alerts.md) for
 payloads, ownership, local-time handling, filters and verification.
+
+## Documented system testing
+
+The third testing stage reviews the supplied screenshots and current notes. See
+[the system-test record](../testing/system/README.md) for nine scenario outcomes
+and six required changes. These manual results are separate from the automated
+runner, and unnoted screenshots are accepted as implemented.
