@@ -1,0 +1,64 @@
+{
+  "rust": {
+    "unit": [
+      "alerts::tests::handles_midnight_and_weekdays",
+      "alerts::tests::hazards_detects_air_rain_traffic_and_ignores_low_confidence",
+      "alerts::tests::incident_validation_and_relevance_rules",
+      "alerts::tests::news_thresholds_are_ordered_and_unknown_values_are_rejected",
+      "alerts::tests::stale_or_forecast_signals_are_not_current_hazards",
+      "auth::tests::path_id_cannot_impersonate_another_user",
+      "conditions::tests::query_validation_rejects_invalid_or_out_of_scope_coordinates",
+      "conditions::tests::weather_chooses_closest_valid_time_and_cams_rejects_old_data",
+      "error::tests::internal_errors_do_not_expose_details",
+      "error::tests::pool_timeout_is_service_unavailable",
+      "error::tests::row_not_found_is_404",
+      "handlers::agent::tests::rejects_credentials_and_invalid_history",
+      "handlers::agent::tests::supplies_explicit_local_times_without_changing_provider_timestamps",
+      "handlers::agent::tests::validates_selected_route_and_never_fills_missing_signals",
+      "handlers::notifications::tests::unread_selection_requires_bounded_distinct_ids",
+      "handlers::users::avatar_tests::decodes_resizes_and_reencodes_avatar_as_png",
+      "handlers::users::avatar_tests::rejects_filename_only_signature_only_and_non_image_uploads",
+      "intelligence::tests::rejects_stale_wrong_location_invalid_probability_and_unsupported_traffic",
+      "mobility::tests::decodes_provider_geometry_and_rejects_broken_shapes",
+      "transit::tests::nearby_bus_stops_do_not_hide_rail_candidates",
+      "validation::tests::confirmed_trips_require_valid_complete_coordinates",
+      "validation::tests::reject_invalid_route"
+    ],
+    "integration": [
+      "alerts::tests::manual_evaluation_returns_before_database_or_provider_work",
+      "auth::tests::api_rejects_unauthed_and_spoofed_user_paths_without_database",
+      "auth::tests::failed_jwks_network_is_unavailable_not_invalid_session",
+      "auth::tests::middleware_rejects_missing_invalid_tokens_and_injects_verified_subject",
+      "auth::tests::verifies_signature_and_required_claims_against_jwks",
+      "conditions::tests::absent_credentials_and_bad_responses_are_explicit",
+      "conditions::tests::authenticated_http_lookup_normalizes_three_providers",
+      "conditions::tests::http_access_rate_limit_malformed_and_timeout_failures_are_sanitized",
+      "conditions::tests::weather_outage_falls_back_without_discarding_other_signals",
+      "handlers::agent::tests::gemini_receives_server_evidence_not_client_measurements",
+      "handlers::agent::tests::provider_failure_never_fabricates_a_reply",
+      "handlers::health::tests::readiness_bounds_pool_acquisition",
+      "handlers::health::tests::readiness_success_and_failure",
+      "mobility::tests::real_http_stand_in_routes_valhalla_and_otp",
+      "routes::tests::method_errors_are_json_and_keep_allow_header",
+      "routes::tests::public_health_routes_do_not_require_auth",
+      "routes::tests::router_builds_with_axum_capture_syntax",
+      "routes::tests::unmatched_routes_return_json_404",
+      "transit::gtfs::tests::csv_calendar_frequencies_shapes_and_transfer_route",
+      "transit::gtfs::tests::pickup_and_forbidden_same_stop_transfer_are_respected",
+      "transit::gtfs::tests::service_exceptions_and_after_midnight_service_day",
+      "transit::local_tests::api_outage_keeps_valid_local_bus_itinerary",
+      "transit::tests::public_api_uses_matching_vehicle_at_both_stations",
+      "validation::tests::invalid_requests_return_json_without_accessing_database"
+    ],
+    "database": [
+      "db_tests::migrated_schema_enforces_user_boundaries"
+    ],
+    "gtfs": [
+      "transit::gtfs::tests::supplied_transjakarta_feed_routes_blok_m_to_kota"
+    ],
+    "live": [
+      "transit::tests::live_commute_api_routes_gondangdia_to_depok",
+      "transit::tests::live_monas_ui_retains_bus_and_krl"
+    ]
+  }
+}

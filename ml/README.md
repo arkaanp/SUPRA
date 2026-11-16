@@ -119,21 +119,22 @@ conditions along selected geometry. Changing origin invalidates the previous
 forecast. Missing traffic/model values stay empty. Forecasts do not replace
 current-condition evidence for hazard alerts.
 
-## Three testing steps
+## Two testing steps
 
-1. Unit testing: `ml/.venv/bin/python -m unittest discover -s testing/python -v`
-   and `python3 testing/scripts/run_checks.py` (includes Python when installed).
-   Missing environments are reported; install requirements before claiming a full
-   ML pass. Checks cover leakage boundaries, stale/gap rejection, saved-weight
-   inference, RSS dates, trust boundaries, dateline filtering, UI and expiry.
-2. Integration testing: `python3 testing/scripts/run_database_tests.py` verifies
-   per-user inbox deduplication and opt-out preferences on an isolated database.
-   The model card records the real provider-history training/holdout run.
-3. System testing: run both services and the app, then execute
-   `python3 testing/scripts/intelligence_smoke.py --evaluate`. This reads the
-   desktop's local session without printing tokens and queues in-app news for
-   that account. Check ML on Home/Trip and publisher links/read state on the
-   presentation device. The script never saves a trip.
+1. Unit testing: `python3 testing/scripts/run_checks.py --stage unit` includes
+   `testing/python/unit/` for chronological split boundaries, invalid/stale/gap
+   rejection, RSS timestamps, trust, severity and hourly cache behavior, plus
+   Rust and Flutter unit coverage.
+2. Integration testing: `python3 testing/scripts/run_checks.py --stage integration`
+   includes `testing/python/integration/` for PyTorch checkpoint persistence and
+   twelve-hour inference, HTTP adapters and an isolated migrated database for
+   publisher inbox preferences and deduplication.
+
+Install `ml/.venv` and requirements first; a missing environment fails the runner.
+This cycle does not retrain the model or refresh the historical model-card metrics.
+Optional running-service integration: `python3 testing/scripts/intelligence_smoke.py`.
+Its `--evaluate` flag explicitly queues news for the desktop account and is not
+used by the default test runner. See [testing/README.md](../testing/README.md).
 
 Sources: [Open-Meteo weather](https://open-meteo.com/en/docs),
 [CAMS air-quality history/API](https://open-meteo.com/en/docs/air-quality-api),

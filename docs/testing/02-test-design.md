@@ -1,57 +1,42 @@
-# Test design
-
-> Current demo baseline: `main` application commit `967a477` (2026-11-09).
-> Documentation imported from `docs/testing`; application changes on that branch
-> are excluded. Results below distinguish current checks from earlier branch evidence.
+# 02 — Test design
 
 ## 1. Unit testing
 
-Test pure validation, parsers, models, rules and widgets with controlled fixtures.
-Use boundary values and state transitions; keep source tests in the packages.
+Unit tests exercise a bounded function, model, repository/cache or widget using
+injected dependencies. Flutter widget tests inspect rendering and local state
+without connecting to the backend. Python unit tests cover news parsing,
+chronological split boundaries, invalid/stale inputs and hourly cache behavior.
+Rust unit tests cover validation, hazards, freshness selection, payload bounds,
+image decoding, geometry parsing and error mapping.
+
+Sources: `mobile/test/unit/`, `testing/python/unit/`, and the `unit` list in
+[`testing/suites.json`](../../testing/suites.json). Rust assertions stay beside
+production modules so they can access private logic.
 
 ## 2. Integration testing
 
-Backend tests run handlers and adapters with local HTTP/JWKS stand-ins. Flutter
-tests use fake clients, injected loaders and widget fixtures. These establish
-component behavior; they do not prove live provider availability or complete
-runtime failure behavior. Some runtime paths differ from test configuration.
+Integration tests connect components across explicit boundaries:
 
-Database integration is opt-in and uses a separate disposable database.
-Readiness checks connectivity only; schema inspection checks metadata only.
-Neither verifies an authenticated profile/inbox/preferences transaction.
+| Boundary | Design |
+|---|---|
+| Router, authentication and providers | Axum middleware/handlers plus local HTTP/JWKS/provider responses; HTTP errors, timeouts and response normalization |
+| Flutter clients and auth | HTTP adapters, authenticated headers, status mapping, SDK contracts and loopback geocoding/routing servers |
+| Transit ingestion and planning | CSV/calendar/frequency/transfer fixtures and the supplied Transjakarta feed; API vehicle matching and outage fallback |
+| Model artifacts and inference | Save/load a PyTorch checkpoint, inject hourly history, verify twelve finite forecast hours and missing traffic |
+| API, migrations and database | New loopback PostgreSQL cluster, migrated schema, authenticated handlers, ownership and persistence assertions |
 
-## 3. System testing
+Sources: `mobile/test/integration/`, `testing/python/integration/`, and Rust
+manifest groups `integration`, `database`, `gtfs`, `live`. The two `live` tests
+call the public Commute API only when `--live` is selected.
 
-Exercise the already running backend through HTTP smoke, then complete the
-manual demo on the target device with the configured services. Record account
-refresh, trip persistence and user isolation across the full stack. Builds only
-establish that packaging succeeds.
+## Separation and evidence
 
-## Techniques and data across all three steps
+Mixed Flutter and Python files have been split at test boundaries. Rust uses
+exact full test names; discovery rejects duplicates, removed entries, empty
+groups and new unclassified tests. Four unit regressions guard this partition.
+Normal Cargo/Flutter totals are not reused as unit-only totals.
 
-- Boundary values: Jakarta coordinate envelope, weekday/departure/lead limits,
-  waypoint counts, payload bounds and environmental rule thresholds.
-- State transitions: sign-in/out, recovery, confirmed/finished trips and stale display.
-- Negative cases: missing/invalid tokens, cross-user IDs, provider errors,
-  malformed payloads, unavailable routes and late geocoding responses.
-- Contract checks: JSON models, provider geometry, normalized conditions and errors.
-- Cache checks: account/location/village separation and original timestamps using
-  injected loaders.
-
-## Main-specific display scope
-
-Home has an opt-in demo ML display using local calculation; this is not a trained
-model inference or accuracy test. Preference persistence and a shared Trip toggle
-from the docs branch are not delivered by this documentation merge. Dedicated
-16:9 regression files from that branch are also absent; assess layout manually.
-Assistant credentials are server-side. Provider-failure assertions in backend
-unit tests apply to test mode; manually verify the displayed runtime outcome.
-
-## Automation inventory
-
-- `backend/src/db_tests.rs`: ignored database integration.
-- Inline Rust test modules in auth, conditions, alerts, mobility, handlers,
-  routes and validation.
-- `mobile/test/`: authentication, API, conditions/cache, recommendations,
-  maps/geocoding, route planner, history, login, Home and assistant tests.
-- `testing/scripts/`: suite runner, HTTP smoke and read-only schema inspection.
+The runner rejects empty test results, records each check's exit code and count,
+and retains separate unit/integration logs. Analysis and inventory are supporting
+checks. Controlled integration responses establish adapter behavior; current
+external-provider availability requires an explicitly executed live integration.

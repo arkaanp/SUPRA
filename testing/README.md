@@ -1,145 +1,87 @@
 # SUPRA demo testing
 
-Run commands from the repository root. Source tests remain in
-[`backend/src/`](../backend/src/) and [`mobile/test/`](../mobile/test/).
-This directory contains demonstration runners and visible evidence locations.
+Run from the repository root. Testing has two steps: **unit testing**, then
+**integration testing**. The [00–08 documentation](../docs/testing/00-integration.md)
+keeps its existing filenames. Fresh results are in [RESULTS.md](RESULTS.md).
 
 ```sh
+# Both steps, followed by supporting static analysis
 python3 testing/scripts/run_checks.py
-python3 testing/scripts/smoke.py
-python3 testing/scripts/schema_audit.py --backend-env
+# Independently runnable steps
+python3 testing/scripts/run_checks.py --stage unit
+python3 testing/scripts/run_checks.py --stage integration
 ```
 
-The first command runs backend tests, Flutter analysis and Flutter tests, continuing
-through failures and returning a nonzero exit code if any check fails. It stores
-logs in `testing/evidence/<UTC timestamp>/`. Rust build output stays in
-`backend/target/`; Flutter uses `mobile/build/`. No `/tmp` test setup is needed.
+## Source layout
 
-The smoke script checks a running backend (default localhost:3000) for JSON
-health 200/200, protected-route 401 and unknown-route 404. Override with
-`--base-url http://your-demo-host:3000`. It does not start/stop any services.
+| Language | Unit testing | Integration testing |
+|---|---|---|
+| Rust | Inline cases selected by `suites.json` → `unit` | Inline cases selected by `integration`, `database`, `gtfs`, optional `live` |
+| Dart/Flutter | `mobile/test/unit/` | `mobile/test/integration/` |
+| Python/PyTorch | `testing/python/unit/` | `testing/python/integration/` |
 
-The schema script requires `psql`. It reads `DATABASE_URL` from the shell, or
-from `backend/.env` with `--backend-env`, and prints migration/schema metadata
-only. It does not change schema or print credentials. Its result does not
-establish that authenticated account loading succeeds.
+The runner checks every discovered Rust case is classified exactly once. New
+Rust tests require a `suites.json` entry. New Dart/Python tests belong in the
+matching stage directory; discovery includes them automatically. Mixed HTTP and
+isolated tests were split without dropping the existing regression cases.
+`fvm flutter test` in `mobile/` still runs both Flutter directories.
 
-Optional checks:
+## Prerequisites and results
 
-```sh
-# Set SUPRA_TEST_DATABASE_URL separately to a dedicated disposable *_test DB.
-python3 testing/scripts/run_checks.py --database
-python3 testing/scripts/run_checks.py --builds
-```
+Install Rust/Cargo, FVM/Flutter, PostgreSQL client/server tools (`initdb`, `pg_ctl`,
+`createdb`), the ML environment in [ml/README.md](../ml/README.md), and keep the
+supplied `file_gtfs/` directory available. The default run needs loopback sockets
+and installed dependencies, but no signed-in app, provider keys or demo services.
+A missing ML environment or other required dependency fails the run.
 
-Never use the application database for the integration test. Recovery emails,
-provider accounts, transit schedules, UI/device checks and demo sign-in still
-need manual verification. See [test documentation](../docs/testing/00-integration.md).
+Each run writes `testing/evidence/<UTC timestamp>/summary.json` with the tested
+commit, working-tree changes, exact commands, per-check counts and exit codes.
+Raw logs are divided into `unit/`, `integration/` and supporting checks. Inventory
+validation and Flutter analysis are supporting checks and do not add to totals.
+An empty or incomplete selected Rust result fails instead of reporting a pass.
+The runner continues through independent checks and returns nonzero on failure.
 
-Recorded execution: [RESULTS.md](RESULTS.md).
-
-## Three testing steps
-
-1. **Unit testing:** run `python3 testing/scripts/run_checks.py` and inspect the
-   unit/widget assertions and analyzer log. Package totals also include component
-   integration checks.
-2. **Integration testing:** review the stand-in/client-contract results, then run
-   `python3 testing/scripts/run_checks.py --database` with a dedicated test URL.
-   Use the schema audit as supporting metadata evidence. The flag reruns the
-   base suites; it does not create an additional set of unit results.
-3. **System testing:** use `--builds` for build preparation, run
-   `python3 testing/scripts/smoke.py`, then follow the manual end-to-end procedure
-   in [04-test-procedure.md](../docs/testing/04-test-procedure.md).
-
-These are the three test stages. Static analysis, metadata inspection and builds
-support them; they are not additional testing stages.
-
-## Timeout investigation and isolated database reproduction
+Integration testing creates a new loopback-only PostgreSQL cluster under its
+own evidence directory, applies migrations, exercises API ownership/persistence
+and stops the cluster. It never connects to the app database. Standalone use:
 
 ```sh
-python3 testing/scripts/account_diagnostics.py
-python3 testing/scripts/database_diagnostics.py --backend-env
 python3 testing/scripts/run_database_tests.py
 ```
 
-The account script reads the existing Linux app session from its local preferences
-and times authenticated profile, trip, inbox and preference GET requests. It
-prints status/duration only, redacts user IDs, never refreshes the token itself,
-and returns nonzero for failed reads. An expired session can return 401; restart
-or sign in through the app rather than exporting tokens into a terminal.
+Database logs/data remain under `testing/evidence/`. Build output remains in the
+package build directories. Checkpoint integration artifacts use `testing/` and
+are cleaned after the test. No test code or scripts live in `/tmp`.
 
-Database diagnostics show aggregate waits/locks and trigger names, without
-account rows or SQL text. The isolated test runner requires PostgreSQL tools
-(`initdb`, `pg_ctl`, `createdb`); it provisions a new loopback-only cluster under
-`testing/evidence/`, runs the ignored integration test, then stops the cluster.
-It retains logs/data for demonstration and never connects to the app database.
-The integration test now exercises avatar upload as well as confirmed-trip CRUD.
-
-Live provider recency audit: `python3 testing/scripts/provider_freshness.py`.
-This checks Jakarta weather/CAMS timestamps and nearby OpenAQ last-update metadata;
-it reports provider failures and never prints API keys.
-
-Authenticated three-point source/time check: `python3 testing/scripts/conditions_smoke.py`.
-It reads the local desktop session without printing tokens or account data.
-
-## Public transportation checks
+## Optional live integrations
 
 ```sh
-# Authenticated local API: fixed public sample locations; does not save trips.
-python3 testing/scripts/transit_smoke.py
-# Compare Transjakarta and KRL alternatives for Monas–UI during service hours:
-python3 testing/scripts/transit_smoke.py --case monas-ui
-# Resource-dependent integration checks (run explicitly):
-cd backend
-cargo test --locked transit::gtfs::tests::supplied -- --ignored --nocapture
-cargo test --locked transit::tests::live_commute -- --ignored --nocapture
-cargo test --locked transit::tests::live_monas_ui -- --ignored --nocapture
+# Public Commute API checks, including Monas–UI bus/KRL alternatives
+python3 testing/scripts/run_checks.py --stage integration --live
 ```
 
-The first Rust command needs `file_gtfs/`; the second calls the public API.
-The Monas–UI test uses both and asserts that bus and KRL alternatives survive.
-The authenticated smoke prints every option with its independent legs/times/fare.
-The ordinary suite uses small test fixtures and local HTTP stand-ins.
-See [transit setup](../backend/docs/public-transport.md) for defaults, service
-horizons, attribution and geometry limitations.
+The supplied Transjakarta feed is tested by default; the two public API tests
+are opt-in because they depend on network and service-time availability.
 
-## Python/PyTorch and real publisher news
+The following existing scripts probe running services and are also integration
+checks. They are not executed by the default runner and must be recorded
+separately before claiming they passed.
 
-Install/train/start using [ml/README.md](../ml/README.md), then:
+| Command under `python3 testing/scripts/` | Purpose / requirements |
+|---|---|
+| `smoke.py` | Local HTTP health/auth/404 responses |
+| `schema_audit.py --backend-env` | Read-only migration/schema metadata; configured DB and `psql` |
+| `account_diagnostics.py` | Read-only authenticated account GET timings using existing Linux app session |
+| `database_diagnostics.py --backend-env` | Read-only aggregate waits/locks and trigger metadata |
+| `provider_freshness.py` | Live weather/CAMS/OpenAQ timestamps and failures |
+| `conditions_smoke.py` | Signed-in three-location condition/source check |
+| `transit_smoke.py --case monas-ui` | Signed-in route alternatives; does not save trips |
+| `intelligence_smoke.py` | Python/backend news and forecast integration; `--evaluate` explicitly queues news for the account |
+| `assistant_smoke.py` | Read-only preference queries and one Gemini request; exit 2 reports fallback |
+| `alerts_smoke.py` | Read-only inbox preference filtering and mutation-route auth checks |
 
-```sh
-ml/.venv/bin/python -m unittest discover -s testing/python -v
-python3 testing/scripts/run_checks.py
-python3 testing/scripts/run_database_tests.py
-python3 testing/scripts/intelligence_smoke.py --evaluate
-```
-
-The combined runner includes Python checks when `ml/.venv` exists and explicitly
-reports a missing environment. The isolated DB check verifies publisher inbox
-preferences, deduplication and ownership. The system smoke uses the existing
-signed-in desktop session, never prints tokens, and queues in-app news only with
-`--evaluate`. Training data/runtime logs stay under `ml/data`, `ml/artifacts` and
-`testing/`; source tests and scripts remain visible here.
-
-## Selected-route assistant and news preferences
-
-`python3 testing/scripts/assistant_smoke.py` performs read-only account preference
-and severity-query checks plus one Gemini request for a public Monas–UI example.
-It records the model/engine, selected route, provider status/times and response;
-credentials and account IDs are never printed. Exit code 2 means the explicit
-server-data fallback was used instead of Gemini. See
-[the feature contract](../backend/docs/assistant-and-alerts.md).
-
-## Alert cleanup and preference refresh
-
-`python3 testing/scripts/alerts_smoke.py` performs read-only verification of both
-inbox APIs against saved preferences and checks that Delete read requires auth.
-It does not delete demo notifications or change settings. Actual dismissal,
-unread preservation, owner isolation and non-regeneration are exercised only in
-the disposable DB runner. Widget cases remain in
-`mobile/test/news_preferences_test.dart`.
-
-Read-state controls are now visible in the Alerts toolbar. Row checkboxes enable
-**Mark selected unread**, and each item supports an individual unread toggle.
-The read-only alerts smoke also verifies authentication on these mutation routes;
-actual read-state writes/deletion are covered with disposable DB/client fixtures.
+Probes do not print tokens. Actual alert mutation, read deletion, unread selection
+and owner isolation are tested in the disposable DB/client suites. The current
+alert widget regressions are in `mobile/test/unit/news_preferences_test.dart`.
+Release builds, manual device checks and model retraining are outside this test
+cycle. The default run does not modify the running demo account.
