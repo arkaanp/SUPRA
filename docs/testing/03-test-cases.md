@@ -34,3 +34,21 @@ arrow and application widget regressions.
 IT-07 is not part of the default offline-capable run. Optional running-service
 integration scripts are documented in [testing/README.md](../../testing/README.md)
 and have no passing status unless executed and recorded in the current cycle.
+
+## 3. System testing
+
+The user supplied 21 screenshots and current notes in `guidelines/system-test/`. Unnoted features are accepted as implemented. Nine scenario groups are recorded: **5 PASS, 3 PARTIAL, 1 FAIL**. Six noted changes remain open. This reviews supplied manual evidence; it does not claim a new interactive execution or change the 152 automated-test total.
+
+| ID | Scenario | Status | Outcome |
+|---|---|---|---|
+| ST-01 | Home: current/stale conditions, ML toggle and forecast strip | PASS | Figures 6.1-6.4; no note identifies a remaining change. |
+| ST-02 | Profile and alert-preference controls | PASS | Figure 6.5; controls are accepted as implemented. |
+| ST-03 | Saved places: map selection and saved list | PASS | Figures 6.6-6.8; saved Campus/Home entries are displayed. |
+| ST-04 | Routine configuration, time selection and saved routine | PASS | Figures 6.9-6.13; creation and saved listing are accepted. Downstream use remains open in ST-05. |
+| ST-05 | Alerts and routine consumption | PARTIAL | Figure 6.14 plus Home/routine evidence: current-trip alerts work; routine display and alert evaluation remain pending. |
+| ST-06 | Assistant route/weather conversation | PARTIAL | Figure 6.15: a weather answer is displayed, but the notes report occasional irrelevant news/information. |
+| ST-07 | Forgot-password email-to-reset journey | FAIL | Figure 6.16: email is sent, but its callback returns not_found instead of completing recovery. |
+| ST-08 | Motorcycle/transit route display and trip UX | PARTIAL | Figures 6.17-6.19: routes and transit legs work; default metadata visibility and unavailable-data communication need changes. |
+| ST-09 | Named route conditions, weather/air overlays and preview | PASS | Figures 6.20-6.21; no note identifies a remaining change. |
+
+All 21 source images are embedded and captioned in [system evidence and screenshots](../../testing/system/README.md).

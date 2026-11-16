@@ -46,3 +46,7 @@ database test as zero tests because the wrapper output omitted the nested Cargo
 log. The runner was corrected and the full two-step run above passed. See
 [07](07-test-incident-report.md). Previous branch/cumulative results remain
 historical in Git and older dated evidence, and are not included in current totals.
+
+## Supplied system-test record — 2026-11-16
+
+The user supplied 21 screenshots and current notes in `guidelines/system-test/`. Unnoted features are accepted as implemented. Nine scenario groups are recorded: **5 PASS, 3 PARTIAL, 1 FAIL**. Six noted changes remain open. This reviews supplied manual evidence; it does not claim a new interactive execution or change the 152 automated-test total. Dated captures identify 12:58-13:09 WIB on 16 November; other images belong to the supplied collection without individual timestamp claims. Six SYS items await implementation/retest. See [system evidence and screenshots](../../testing/system/README.md).

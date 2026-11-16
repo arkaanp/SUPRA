@@ -26,3 +26,7 @@ under `testing/` and are cleaned after the integration assertion. Generated run
 evidence and database files are ignored by Git; source tests/runners/docs are tracked.
 Historical evidence is retained as historical, without being relabeled into the
 new unit/integration totals.
+
+## System-test documentation addition
+
+Added `testing/system/README.md` as the visible scenario/change/figure index. Source evidence remains in the local, ignored `guidelines/system-test/` directory. `testing/system/forgot-password-error-detail.png` is a report excerpt that excludes the browser callback query; the original screenshot is preserved. The Google Docs Chapter 6 report includes all 21 source screenshots (recovery as an excerpt), while the existing 00-08 filenames are unchanged. This update documents the six required changes without modifying application code.

@@ -1,7 +1,7 @@
 # Current test results
 
-**PASS — 152 tests passed: 111 unit and 41 integration.**
-The 00–08 documentation filenames are retained with only these two testing steps.
+**Automated PASS — 152 tests passed: 111 unit and 41 integration.**
+The 00–08 filenames are retained. System testing is documented separately from these two automated stages.
 
 Executed **2026-11-16 at 05:30:56 UTC / 12:30:56 WIB** on
 `feat/ai-integration`, base commit `e6627b5c116f7b14734bf888e85bf426b013ce30`,
@@ -40,8 +40,12 @@ reporting issue was fixed and both steps rerun successfully. See
 [incidents](../docs/testing/07-test-incident-report.md) and the
 [full test log](../docs/testing/06-test-log.md).
 
-Optional live HTTP/provider/account probes, release builds, device walkthroughs
+Optional live HTTP/provider/account probes, release builds, new interactive device executions
 and model retraining were not rerun. The running demo account was not modified.
 Older results remain historical in Git and dated evidence, without contributing
 to this cycle's totals. Reproduction and prerequisites:
 [testing/README.md](README.md).
+
+## System-test evidence update
+
+The user supplied 21 screenshots and current notes in `guidelines/system-test/`. Unnoted features are accepted as implemented. Nine scenario groups are recorded: **5 PASS, 3 PARTIAL, 1 FAIL**. Six noted changes remain open. This reviews supplied manual evidence; it does not claim a new interactive execution or change the 152 automated-test total. System acceptance remains incomplete pending SYS-01-SYS-06. See [screenshots, scenarios and required retests](system/README.md).

@@ -1,7 +1,8 @@
 # SUPRA demo testing
 
-Run from the repository root. Testing has two steps: **unit testing**, then
-**integration testing**. The [00–08 documentation](../docs/testing/00-integration.md)
+Run from the repository root. Testing documents **unit**, **integration** and **system testing**.
+The runner executes the first two stages; supplied system-test evidence is recorded
+in [system/README.md](system/README.md). The [00–08 documentation](../docs/testing/00-integration.md)
 keeps its existing filenames. Fresh results are in [RESULTS.md](RESULTS.md).
 
 ```sh
@@ -83,5 +84,9 @@ separately before claiming they passed.
 Probes do not print tokens. Actual alert mutation, read deletion, unread selection
 and owner isolation are tested in the disposable DB/client suites. The current
 alert widget regressions are in `mobile/test/unit/news_preferences_test.dart`.
-Release builds, manual device checks and model retraining are outside this test
-cycle. The default run does not modify the running demo account.
+Release builds, new manual device executions and model retraining are outside this
+documentation update. The default run does not modify the running demo account.
+
+## Screenshot-based system testing
+
+The user supplied 21 screenshots and current notes in `guidelines/system-test/`. Unnoted features are accepted as implemented. Nine scenario groups are recorded: **5 PASS, 3 PARTIAL, 1 FAIL**. Six noted changes remain open. This reviews supplied manual evidence; it does not claim a new interactive execution or change the 152 automated-test total. See [all screenshots and required changes](system/README.md). The runner is unchanged; no new automated test run is claimed for this documentation update.

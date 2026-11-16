@@ -110,7 +110,7 @@ preference logic and remain visible regardless of this news threshold. The
 inbox selector immediately filters visible news, saves the account preference,
 and reloads server results; failed saves restore the previous selection.
 
-## Two testing steps
+## Automated testing
 
 1. Unit testing: `python3 testing/scripts/run_checks.py --stage unit` covers
    bounded inputs, route/evidence handling, view filtering, preferences, visible
@@ -184,3 +184,7 @@ copy and uses replacement lists for state changes, fixing the previous
 "Unsupported operation" error after a successful server deletion. Authenticated
 client and widget regression tests exercise exactly that immutable-snapshot
 path, including post-delete reload and repeat actions.
+
+## Screenshot-based system testing
+
+Current-trip alerts and profile controls are documented. Assistant relevance, routine visibility on Home/Alerts and routine-based alert evaluation remain open changes from the notes. See [the system-test record](../../testing/system/README.md) for source screenshots, outcomes and required retests.

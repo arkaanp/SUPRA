@@ -52,3 +52,20 @@ Optional signed-in service probes are listed in
 [testing/README.md](../../testing/README.md); they are not prerequisites for the
 local two-step run. Do not use account-mutating probe flags on the demo account
 as part of this procedure.
+
+## 3. System testing
+
+Review `guidelines/system-test/notes.txt` alongside every screenshot indexed in
+[the system record](../../testing/system/README.md). Unnoted screenshots are
+accepted as implemented, as instructed by the user. Record scenario outcomes
+and the six SYS change items separately from automated totals. The current
+record reviews supplied screenshots; no new interactive run is claimed.
+
+For the next execution, retest recovery from its email link through password
+update/sign-in; question/route relevance in assistant replies; saved-routine
+visibility on Home and Alerts; due/disabled/non-due routine alert evaluation;
+collapsed trip details; and clear public-transport unavailability messaging.
+Retain replacement screenshots and update the related note after each fix.
+
+The existing runner still supports only the two automated stages; there is no
+`--stage system` command. Keep its recorded 152 passing cases separate.

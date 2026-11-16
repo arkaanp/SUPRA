@@ -119,7 +119,7 @@ conditions along selected geometry. Changing origin invalidates the previous
 forecast. Missing traffic/model values stay empty. Forecasts do not replace
 current-condition evidence for hazard alerts.
 
-## Two testing steps
+## Automated testing
 
 1. Unit testing: `python3 testing/scripts/run_checks.py --stage unit` includes
    `testing/python/unit/` for chronological split boundaries, invalid/stale/gap
@@ -146,3 +146,7 @@ News severity is now classified from reported disruption keywords (Low/Medium/Hi
 Critical remains reserved for explicitly reviewed feeds. Profile/Alerts minimum
 preferences apply to new news delivery and inbox filtering. See
 [assistant and alert preferences](../backend/docs/assistant-and-alerts.md).
+
+## Screenshot-based system testing
+
+Home forecast-mode and current-condition screenshots are accepted as implemented. The manual evidence does not add a new forecast-accuracy evaluation to the automated checkpoint tests. See [the system-test record](../testing/system/README.md) for source screenshots, outcomes and required retests.

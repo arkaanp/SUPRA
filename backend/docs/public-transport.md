@@ -93,7 +93,7 @@ Primary contracts:
 - https://api.commute.shiorilabs.id/openapi.json
 - https://gtfs.org/documentation/schedule/reference/
 
-## Two testing steps
+## Automated testing
 
 1. Unit testing: isolated geometry/selection logic and Flutter transit model/widget
    cases in `mobile/test/unit/`.
@@ -113,3 +113,7 @@ The last command calls the public API. The default integration step uses the
 supplied `file_gtfs/` feed and local provider responses. See
 [the test procedure](../../docs/testing/04-test-procedure.md) for evidence and
 isolation details.
+
+## Screenshot-based system testing
+
+Available transit itineraries, walking legs and route-condition views are documented. Collapse route-card provider metadata by default and make missing public-transport data clearer; both remain open changes from the notes. See [the system-test record](../../testing/system/README.md) for source screenshots, outcomes and required retests.

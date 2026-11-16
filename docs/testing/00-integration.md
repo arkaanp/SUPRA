@@ -1,18 +1,20 @@
-# Test documentation — unit and integration testing
+# Test documentation — unit, integration and system testing
 
 SUPRA is a Flutter app with Rust/Axum, PostgreSQL, Supabase Auth, transit and
 environmental adapters, a Gemini assistant, and a Python/PyTorch service.
 This documentation covers the current demo on `feat/ai-integration`.
 
 The existing **00–08 filenames and document structure are retained**. There are
-exactly two testing steps:
+three testing steps:
 
 | Step | Purpose | Executable sources |
 |---|---|---|
 | 1. Unit testing | Validate isolated logic, models and widgets with injected dependencies | Rust cases classified as `unit`, `mobile/test/unit/`, `testing/python/unit/` |
 | 2. Integration testing | Validate HTTP/client contracts, middleware, providers, GTFS ingestion, model persistence, migrations and database ownership | Rust integration groups, `mobile/test/integration/`, `testing/python/integration/` |
 
-Static analysis and test-inventory validation support these two steps.
+| 3. System testing | Review documented user journeys, screenshots and current notes | `guidelines/system-test/`, `testing/system/README.md` |
+
+Static analysis and test-inventory validation support the automated stages.
 They do not contribute to test totals. Each test is counted in one step only.
 
 | Document | Purpose |
@@ -27,7 +29,11 @@ They do not contribute to test totals. Each test is counted in one step only.
 | [08 — Summary](08-test-summary-report.md) | Results and verification boundaries |
 
 Run `python3 testing/scripts/run_checks.py` from the repository root. The runner
-executes both steps, provisions its own PostgreSQL cluster, and retains raw logs
+executes the two automated steps, provisions its own PostgreSQL cluster, and retains raw logs
 under `testing/evidence/`. See [testing/README.md](../../testing/README.md) for
 individual steps and optional live integrations. Current results are in
 [testing/RESULTS.md](../../testing/RESULTS.md); older dated evidence remains historical.
+
+## System-test update
+
+The user supplied 21 screenshots and current notes in `guidelines/system-test/`. Unnoted features are accepted as implemented. Nine scenario groups are recorded: **5 PASS, 3 PARTIAL, 1 FAIL**. Six noted changes remain open. This reviews supplied manual evidence; it does not claim a new interactive execution or change the 152 automated-test total. See [system evidence and screenshots](../../testing/system/README.md).
