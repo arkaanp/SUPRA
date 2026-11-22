@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
 const newsSeverityLabels = <String, String>{
-  'low': 'All severities',
-  'medium': 'Medium or higher',
-  'high': 'High or higher',
-  'critical': 'Critical only',
+  'low': 'Semua tingkat',
+  'medium': 'Sedang atau lebih tinggi',
+  'high': 'Tinggi atau lebih tinggi',
+  'critical': 'Hanya kritis',
 };
 
 class NewsSeveritySelector extends StatelessWidget {
@@ -18,7 +18,7 @@ class NewsSeveritySelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) => InputDecorator(
     decoration: const InputDecoration(
-      labelText: 'News severity',
+      labelText: 'Tingkat keparahan berita',
       border: OutlineInputBorder(),
       isDense: true,
     ),

@@ -83,7 +83,7 @@ void main() {
         final nearest = findNearestLandmark(nearKemang);
         expect(nearest, isNotNull);
         expect(nearest!.name, 'Kemang');
-        expect(nearest.area, 'South Jakarta');
+        expect(nearest.area, 'Jakarta Selatan');
         expect(nearest.adm4, '31.74.04.1003');
       },
     );
@@ -111,8 +111,8 @@ void main() {
       );
 
       expect(find.byType(InteractiveLocationMap), findsOneWidget);
-      expect(find.text('Test canvas (no basemap)'), findsNothing);
-      expect(find.byTooltip('Map source'), findsOneWidget);
+      expect(find.text('Tampilan uji (tanpa peta dasar)'), findsNothing);
+      expect(find.byTooltip('Sumber peta'), findsOneWidget);
       expect(find.byIcon(Icons.location_on), findsOneWidget);
       expect(
         find.textContaining('Lat: -6.2000, Lon: 106.8200'),
@@ -220,7 +220,7 @@ void main() {
         await tester.tap(find.text('Open Picker'));
         await tester.pumpAndSettle();
 
-        expect(find.text('Select location on map'), findsOneWidget);
+        expect(find.text('Pilih lokasi di peta'), findsOneWidget);
         expect(find.text('Monas'), findsOneWidget);
         expect(find.text('Bundaran HI'), findsOneWidget);
 
@@ -229,7 +229,7 @@ void main() {
         await tester.pump();
 
         // Tap confirm button
-        await tester.tap(find.text('Confirm location'));
+        await tester.tap(find.text('Konfirmasi lokasi'));
         await tester.pumpAndSettle();
 
         expect(result, isNotNull);
@@ -255,20 +255,20 @@ void main() {
         ),
       );
 
-      expect(find.text('Pick on map'), findsOneWidget);
+      expect(find.text('Pilih di peta'), findsOneWidget);
 
       // Tap Pick on map
-      await tester.tap(find.text('Pick on map'));
+      await tester.tap(find.text('Pilih di peta'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Select location in Greater Jakarta'), findsOneWidget);
+      expect(find.text('Pilih lokasi di Jabodetabek'), findsOneWidget);
 
       // Select Bundaran HI preset
       await tester.tap(find.widgetWithText(ChoiceChip, 'Bundaran HI'));
       await tester.pump();
 
       // Confirm
-      await tester.tap(find.text('Confirm location'));
+      await tester.tap(find.text('Konfirmasi lokasi'));
       await tester.pumpAndSettle();
 
       // Check that Latitude and Longitude fields have been updated
@@ -311,13 +311,13 @@ void main() {
       expect(find.byType(InteractiveLocationMap), findsNothing);
 
       // Tap layer icon to show inline map
-      await tester.tap(find.byTooltip('Show map'));
+      await tester.tap(find.byTooltip('Tampilkan peta'));
       await tester.pumpAndSettle();
 
       expect(find.byType(InteractiveLocationMap), findsOneWidget);
 
       // Tap layer icon again to hide
-      await tester.tap(find.byTooltip('Hide map'));
+      await tester.tap(find.byTooltip('Sembunyikan peta'));
       await tester.pumpAndSettle();
 
       expect(find.byType(InteractiveLocationMap), findsNothing);
@@ -332,22 +332,22 @@ void main() {
           const MaterialApp(home: Scaffold(body: TripScreen())),
         );
 
-        expect(find.byTooltip('Select start location on map'), findsNothing);
-        expect(find.byTooltip('Select on map'), findsWidgets);
+        expect(find.byTooltip('Pilih lokasi awal di peta'), findsNothing);
+        expect(find.byTooltip('Pilih di peta'), findsWidgets);
 
         // Tap the first map icon (for start location)
-        await tester.tap(find.byTooltip('Select on map').first);
+        await tester.tap(find.byTooltip('Pilih di peta').first);
         await tester.pumpAndSettle();
 
-        expect(find.text('Select start location on map'), findsOneWidget);
-        expect(find.text('Nearest Locations:'), findsOneWidget);
+        expect(find.text('Pilih lokasi awal di peta'), findsOneWidget);
+        expect(find.text('Lokasi terdekat:'), findsOneWidget);
 
         // Tap Monas from the nearest locations list
         await tester.tap(find.widgetWithText(ListTile, 'Monas').first);
         await tester.pump();
 
         // Confirm start location
-        await tester.tap(find.text('Confirm location'));
+        await tester.tap(find.text('Konfirmasi lokasi'));
         await tester.pumpAndSettle();
 
         // Start field now contains Monas, and Show Route button is present
@@ -359,7 +359,7 @@ void main() {
           ),
           findsOneWidget,
         );
-        expect(find.text('Show Route'), findsOneWidget);
+        expect(find.text('Tampilkan rute'), findsOneWidget);
       },
     );
 
@@ -371,14 +371,14 @@ void main() {
         );
 
         // Tap the map icon to enter picking mode
-        await tester.tap(find.byTooltip('Select on map').first);
+        await tester.tap(find.byTooltip('Pilih di peta').first);
         await tester.pumpAndSettle();
 
         // Find the map search field
         final searchField = find.byWidgetPredicate(
           (w) =>
               w is TextField &&
-              (w.decoration?.hintText?.contains('Search start') ?? false),
+              (w.decoration?.hintText?.contains('Cari lokasi awal') ?? false),
         );
         expect(searchField, findsOneWidget);
 
@@ -415,8 +415,8 @@ void main() {
         // On idle main screen: tapping the map does NOT enter picking mode (map is read-only for picking)
         await tester.tap(find.byType(InteractiveLocationMap));
         await tester.pumpAndSettle();
-        expect(find.text('Select destination on map'), findsNothing);
-        expect(find.text('Where do you want to go?'), findsOneWidget);
+        expect(find.text('Pilih tujuan di peta'), findsNothing);
+        expect(find.text('Ke mana tujuan Anda?'), findsOneWidget);
 
         // User picks destination by clicking the destination input field
         await tester.tap(
@@ -429,20 +429,20 @@ void main() {
         await tester.pumpAndSettle();
 
         // Now picking mode is active for destination!
-        expect(find.text('Select destination on map'), findsOneWidget);
-        expect(find.textContaining('Nearest Locations:'), findsOneWidget);
+        expect(find.text('Pilih tujuan di peta'), findsOneWidget);
+        expect(find.textContaining('Lokasi terdekat:'), findsOneWidget);
 
         // Map IS now tappable to designate destination!
         await tester.tap(find.byType(InteractiveLocationMap));
         await tester.pumpAndSettle();
 
         // Pin is designated and user can confirm location
-        expect(find.text('Confirm location'), findsOneWidget);
-        await tester.tap(find.text('Confirm location'));
+        expect(find.text('Konfirmasi lokasi'), findsOneWidget);
+        await tester.tap(find.text('Konfirmasi lokasi'));
         await tester.pumpAndSettle();
 
         // Back on main screen with destination set and Show Route available
-        expect(find.text('Show Route'), findsOneWidget);
+        expect(find.text('Tampilkan rute'), findsOneWidget);
       },
     );
 
@@ -464,13 +464,13 @@ void main() {
         await tester.pumpAndSettle();
 
         // Should now be in map picking mode for destination
-        expect(find.text('Select destination on map'), findsOneWidget);
+        expect(find.text('Pilih tujuan di peta'), findsOneWidget);
 
         // Search field should be present
         final searchField = find.byWidgetPredicate(
           (w) =>
               w is TextField &&
-              (w.decoration?.hintText?.contains('Search destination') ?? false),
+              (w.decoration?.hintText?.contains('Cari tujuan') ?? false),
         );
         expect(searchField, findsOneWidget);
 
@@ -493,9 +493,9 @@ void main() {
           findsOneWidget,
         );
 
-        // Back on main screen: routes NOT calculated yet until "Show Route" clicked
+        // Back on main screen: routes NOT calculated yet until "Tampilkan rute" clicked
         expect(find.text('Start Route Navigation'), findsNothing);
-        expect(find.text('Show Route'), findsOneWidget);
+        expect(find.text('Tampilkan rute'), findsOneWidget);
 
         // Verify routeWaypoints is null (no straight line or route polyline drawn!)
         final mapBeforeRoute = tester.widget<InteractiveLocationMap>(
@@ -504,7 +504,7 @@ void main() {
         expect(mapBeforeRoute.routeWaypoints, isNull);
 
         // Click Show Route
-        await tester.tap(find.text('Show Route'));
+        await tester.tap(find.text('Tampilkan rute'));
         await tester.pumpAndSettle();
 
         // Offline/headless mode must not substitute fabricated road geometry.
@@ -514,16 +514,10 @@ void main() {
         expect(mapAfterRoute.routeWaypoints, isNull);
 
         // No fake modes or confirmation are offered when routing is unavailable.
-        expect(
-          find.textContaining('Car (Automobile)', skipOffstage: false),
-          findsNothing,
-        );
-        expect(
-          find.textContaining('Motorcycle (Two-Wheeler)', skipOffstage: false),
-          findsNothing,
-        );
+        expect(find.text('Mobil', skipOffstage: false), findsNothing);
+        expect(find.text('Motor', skipOffstage: false), findsNothing);
         expect(find.textContaining('Transjakarta'), findsNothing);
-        expect(find.textContaining('Route unavailable.'), findsOneWidget);
+        expect(find.textContaining('Rute tidak tersedia.'), findsOneWidget);
       },
     );
 
@@ -604,7 +598,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
 
       expect(find.textContaining('Kemang → Sudirman CBD'), findsOneWidget);
-      expect(find.textContaining('Motorcycle'), findsWidgets);
+      expect(find.textContaining('Motor'), findsWidgets);
 
       // Tap map to inspect
       await tester.tap(find.byType(InteractiveLocationMap));

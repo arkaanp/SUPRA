@@ -1,3 +1,5 @@
+import '../utils/display_text.dart';
+
 import 'package:flutter/material.dart';
 
 import '../models/commute.dart';
@@ -37,7 +39,7 @@ class _CommutesScreenState extends State<CommutesScreen> {
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) setState(() => _error = displayError(e));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -53,7 +55,9 @@ class _CommutesScreenState extends State<CommutesScreen> {
   Future<void> _editRoutine([RoutineTrip? routine]) async {
     if (_places.length < 2) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Save at least two places first.')),
+        const SnackBar(
+          content: Text('Simpan minimal dua tempat terlebih dahulu.'),
+        ),
       );
       return;
     }
@@ -69,20 +73,20 @@ class _CommutesScreenState extends State<CommutesScreen> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text(place ? 'Delete place?' : 'Delete routine?'),
+        title: Text(place ? 'Hapus tempat?' : 'Hapus rutinitas?'),
         content: Text(
           place
-              ? 'Routines using this place will also be deleted. Trip history is preserved.'
-              : 'This removes its future alert subscription, not trip history.',
+              ? 'Rutinitas yang menggunakan tempat ini juga akan dihapus. Riwayat perjalanan tetap tersimpan.'
+              : 'Peringatan berikutnya untuk rutinitas ini akan dihentikan. Riwayat perjalanan tetap tersimpan.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
+            child: const Text('Batal'),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Delete'),
+            child: const Text('Hapus'),
           ),
         ],
       ),
@@ -98,7 +102,7 @@ class _CommutesScreenState extends State<CommutesScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$e')));
+            .showSnackBar(SnackBar(content: Text(displayError(e))));
       }
     }
   }
@@ -108,11 +112,11 @@ class _CommutesScreenState extends State<CommutesScreen> {
     length: 2,
     child: Scaffold(
       appBar: AppBar(
-        title: const Text('Saved places & routines'),
+        title: const Text('Tempat dan rutinitas tersimpan'),
         bottom: const TabBar(
           tabs: [
-            Tab(text: 'Places'),
-            Tab(text: 'Routines'),
+            Tab(text: 'Tempat'),
+            Tab(text: 'Rutinitas'),
           ],
         ),
       ),
@@ -124,7 +128,7 @@ class _CommutesScreenState extends State<CommutesScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(_error!),
-                  TextButton(onPressed: _load, child: const Text('Retry')),
+                  TextButton(onPressed: _load, child: const Text('Coba lagi')),
                 ],
               ),
             )
@@ -136,13 +140,13 @@ class _CommutesScreenState extends State<CommutesScreen> {
                     FilledButton.icon(
                       onPressed: () => _editPlace(),
                       icon: const Icon(Icons.add_location_alt_outlined),
-                      label: const Text('Save a place'),
+                      label: const Text('Simpan tempat'),
                     ),
                     if (_places.isEmpty)
                       const Padding(
                         padding: EdgeInsets.all(16),
                         child: Text(
-                          'Save Home, Work, School or a custom location.',
+                          'Simpan lokasi rumah, kantor, sekolah, atau tempat lainnya.',
                         ),
                       ),
                     for (final p in _places)
@@ -150,11 +154,11 @@ class _CommutesScreenState extends State<CommutesScreen> {
                         child: ListTile(
                           title: Text(p.label),
                           subtitle: Text(
-                            '${p.kind} · ${p.point.latitude.toStringAsFixed(4)}, ${p.point.longitude.toStringAsFixed(4)}',
+                            '${placeKindLabel(p.kind)} · ${p.point.latitude.toStringAsFixed(4)}, ${p.point.longitude.toStringAsFixed(4)}',
                           ),
                           onTap: () => _editPlace(p),
                           trailing: IconButton(
-                            tooltip: 'Delete place',
+                            tooltip: 'Hapus tempat',
                             icon: const Icon(Icons.delete_outline),
                             onPressed: () => _delete(p.id, true),
                           ),
@@ -168,12 +172,12 @@ class _CommutesScreenState extends State<CommutesScreen> {
                     FilledButton.icon(
                       onPressed: () => _editRoutine(),
                       icon: const Icon(Icons.add_alarm),
-                      label: const Text('Create routine'),
+                      label: const Text('Buat rutinitas'),
                     ),
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 12),
                       child: Text(
-                        'Routine schedules use Asia/Jakarta (WIB). Alerts respect both routine and profile preferences.',
+                        'Jadwal rutinitas menggunakan WIB. Peringatan mengikuti preferensi rutinitas dan profil.',
                       ),
                     ),
                     for (final r in _routines)
@@ -183,11 +187,11 @@ class _CommutesScreenState extends State<CommutesScreen> {
                             ListTile(
                               title: Text(r.label),
                               subtitle: Text(
-                                '${r.departureLabel} WIB · ${r.mode}\n${r.weekdays.map((d) => ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][d]).join(', ')} · ${r.enabled ? 'Enabled' : 'Paused'}',
+                                '${r.departureLabel} WIB · ${travelModeLabel(r.mode)}\n${r.weekdays.map((d) => ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'][d]).join(', ')} · ${r.enabled ? 'Aktif' : 'Dijeda'}',
                               ),
                               onTap: () => _editRoutine(r),
                               trailing: IconButton(
-                                tooltip: 'Delete routine',
+                                tooltip: 'Hapus rutinitas',
                                 icon: const Icon(Icons.delete_outline),
                                 onPressed: () => _delete(r.id, false),
                               ),
@@ -195,7 +199,7 @@ class _CommutesScreenState extends State<CommutesScreen> {
                             if (widget.onPlan != null)
                               TextButton.icon(
                                 icon: const Icon(Icons.route),
-                                label: const Text('Plan now'),
+                                label: const Text('Rencanakan sekarang'),
                                 onPressed: () {
                                   final origin = _places.firstWhere(
                                         (p) => p.id == r.originId,
@@ -239,7 +243,7 @@ class _PlaceEditorState extends State<_PlaceEditor> {
 
   Future<void> _save() async {
     if (_point == null || _label.text.trim().isEmpty) {
-      setState(() => _error = 'Choose a location and enter a label.');
+      setState(() => _error = 'Pilih lokasi dan masukkan nama tempat.');
       return;
     }
     setState(() => _busy = true);
@@ -252,7 +256,7 @@ class _PlaceEditorState extends State<_PlaceEditor> {
       );
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) setState(() => _error = displayError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -261,22 +265,22 @@ class _PlaceEditorState extends State<_PlaceEditor> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: Text(widget.place == null ? 'Save place' : 'Edit place'),
+      title: Text(widget.place == null ? 'Simpan tempat' : 'Ubah tempat'),
     ),
     body: ListView(
       padding: const EdgeInsets.all(20),
       children: [
         TextField(
           controller: _label,
-          decoration: const InputDecoration(labelText: 'Label'),
+          decoration: const InputDecoration(labelText: 'Nama tempat'),
           maxLength: 120,
         ),
         DropdownButtonFormField<String>(
           initialValue: _kind,
-          decoration: const InputDecoration(labelText: 'Place type'),
+          decoration: const InputDecoration(labelText: 'Jenis tempat'),
           items: [
             for (final k in ['home', 'work', 'school', 'custom'])
-              DropdownMenuItem(value: k, child: Text(k)),
+              DropdownMenuItem(value: k, child: Text(placeKindLabel(k))),
           ],
           onChanged: _busy ? null : (v) => setState(() => _kind = v!),
         ),
@@ -284,7 +288,7 @@ class _PlaceEditorState extends State<_PlaceEditor> {
         OutlinedButton.icon(
           icon: const Icon(Icons.map),
           label: Text(
-            _point == null ? 'Choose location on map' : 'Change saved location',
+            _point == null ? 'Pilih lokasi di peta' : 'Ubah lokasi tersimpan',
           ),
           onPressed: _busy
               ? null
@@ -306,7 +310,7 @@ class _PlaceEditorState extends State<_PlaceEditor> {
           Text(_error!, style: const TextStyle(color: Colors.red)),
         FilledButton(
           onPressed: _busy ? null : _save,
-          child: Text(_busy ? 'Saving…' : 'Save place'),
+          child: Text(_busy ? 'Menyimpan…' : 'Simpan tempat'),
         ),
       ],
     ),
@@ -326,8 +330,8 @@ class _RoutineEditorState extends State<_RoutineEditor> {
   late String _origin = widget.routine?.originId ?? widget.places.first.id,
       _dest = widget.routine?.destinationId ?? widget.places.last.id;
   late String _mode = widget.routine?.mode ?? 'car';
-  late final Set<int> _days =
-      (widget.routine?.weekdays ?? [0, 1, 2, 3, 4]).toSet();
+  late final Set<int> _days = (widget.routine?.weekdays ?? [0, 1, 2, 3, 4])
+      .toSet();
   late int _minute = widget.routine?.departureMinute ?? 420,
       _lead = widget.routine?.leadMinutes ?? 30;
   late bool _enabled = widget.routine?.enabled ?? true,
@@ -344,8 +348,8 @@ class _RoutineEditorState extends State<_RoutineEditor> {
   Future<void> _save() async {
     if (_label.text.trim().isEmpty || _origin == _dest || _days.isEmpty) {
       setState(
-        () =>
-            _error = 'Enter a name, distinct places and at least one weekday.',
+        () => _error =
+            'Masukkan nama, dua tempat berbeda, dan minimal satu hari.',
       );
       return;
     }
@@ -366,7 +370,7 @@ class _RoutineEditorState extends State<_RoutineEditor> {
       }, routineId: widget.routine?.id);
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      if (mounted) setState(() => _error = displayError(e));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -375,20 +379,20 @@ class _RoutineEditorState extends State<_RoutineEditor> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: Text(widget.routine == null ? 'Create routine' : 'Edit routine'),
+      title: Text(widget.routine == null ? 'Buat rutinitas' : 'Ubah rutinitas'),
     ),
     body: ListView(
       padding: const EdgeInsets.all(20),
       children: [
         TextField(
           controller: _label,
-          decoration: const InputDecoration(labelText: 'Routine name'),
+          decoration: const InputDecoration(labelText: 'Nama rutinitas'),
           maxLength: 120,
         ),
         for (final origin in [true, false])
           DropdownButtonFormField<String>(
             initialValue: origin ? _origin : _dest,
-            decoration: InputDecoration(labelText: origin ? 'From' : 'To'),
+            decoration: InputDecoration(labelText: origin ? 'Dari' : 'Ke'),
             items: [
               for (final p in widget.places)
                 DropdownMenuItem(value: p.id, child: Text(p.label)),
@@ -403,10 +407,10 @@ class _RoutineEditorState extends State<_RoutineEditor> {
           ),
         DropdownButtonFormField<String>(
           initialValue: _mode,
-          decoration: const InputDecoration(labelText: 'Travel mode'),
+          decoration: const InputDecoration(labelText: 'Moda transportasi'),
           items: [
             for (final m in ['car', 'motorcycle', 'walk', 'public_transit'])
-              DropdownMenuItem(value: m, child: Text(m)),
+              DropdownMenuItem(value: m, child: Text(travelModeLabel(m))),
           ],
           onChanged: (v) => setState(() => _mode = v!),
         ),
@@ -416,7 +420,7 @@ class _RoutineEditorState extends State<_RoutineEditor> {
             for (var d = 0; d < 7; d++)
               FilterChip(
                 label: Text(
-                  ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][d],
+                  ['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'][d],
                 ),
                 selected: _days.contains(d),
                 onSelected: (on) => setState(() {
@@ -430,7 +434,7 @@ class _RoutineEditorState extends State<_RoutineEditor> {
           ],
         ),
         ListTile(
-          title: const Text('Departure time (WIB)'),
+          title: const Text('Waktu keberangkatan (WIB)'),
           subtitle: Text(
             '${(_minute ~/ 60).toString().padLeft(2, '0')}:${(_minute % 60).toString().padLeft(2, '0')}',
           ),
@@ -447,7 +451,7 @@ class _RoutineEditorState extends State<_RoutineEditor> {
         DropdownButtonFormField<int>(
           initialValue: _lead,
           decoration: const InputDecoration(
-            labelText: 'Check before departure (minutes)',
+            labelText: 'Periksa sebelum berangkat (menit)',
           ),
           items: [
             for (final n in {15, 30, 60, 120, 180, _lead}.toList()..sort())
@@ -456,18 +460,20 @@ class _RoutineEditorState extends State<_RoutineEditor> {
           onChanged: (n) => setState(() => _lead = n!),
         ),
         SwitchListTile(
-          title: const Text('Routine enabled'),
+          title: const Text('Rutinitas aktif'),
           value: _enabled,
           onChanged: (v) => setState(() => _enabled = v),
         ),
         SwitchListTile(
-          title: const Text('Environmental and traffic alerts'),
+          title: const Text('Peringatan lingkungan dan lalu lintas'),
           value: _alerts,
           onChanged: (v) => setState(() => _alerts = v),
         ),
         SwitchListTile(
-          title: const Text('Relevant verified news'),
-          subtitle: const Text('Requires a configured trusted incident feed.'),
+          title: const Text('Berita relevan'),
+          subtitle: const Text(
+            'Berita dari sumber tepercaya yang sesuai dengan perjalanan Anda.',
+          ),
           value: _news,
           onChanged: (v) => setState(() => _news = v),
         ),
@@ -475,7 +481,7 @@ class _RoutineEditorState extends State<_RoutineEditor> {
           Text(_error!, style: const TextStyle(color: Colors.red)),
         FilledButton(
           onPressed: _busy ? null : _save,
-          child: Text(_busy ? 'Saving…' : 'Save routine'),
+          child: Text(_busy ? 'Menyimpan…' : 'Simpan rutinitas'),
         ),
       ],
     ),

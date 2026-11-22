@@ -32,7 +32,7 @@ void main() {
         throwsA(
           isA<ApiException>()
               .having((e) => e.status, 'status', 409)
-              .having((e) => e.message, 'message', 'Resource already exists'),
+              .having((e) => e.message, 'message', 'Data sudah ada.'),
         ),
       );
     },
@@ -49,7 +49,11 @@ void main() {
     );
     final expected = isA<ApiException>()
         .having((e) => e.status, 'status', 504)
-        .having((e) => e.message, 'message', contains('Refresh to check'));
+        .having(
+          (e) => e.message,
+          'message',
+          contains('Perbarui untuk memeriksa'),
+        );
     await expectLater(api.request('POST', '/api/trips', {}), throwsA(expected));
     await expectLater(
       api.uploadBytes('/api/profile/avatar', [1]),

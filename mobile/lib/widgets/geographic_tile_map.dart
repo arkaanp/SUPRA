@@ -199,7 +199,7 @@ class GeographicTileMapState extends State<GeographicTileMap> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Text(
-                    'Basemap tiles unavailable. Check connection/provider access; pins alone are not a basemap.',
+                    'Peta dasar tidak tersedia. Periksa koneksi atau akses penyedia peta.',
                     style: TextStyle(fontSize: 11),
                   ),
                   TextButton(
@@ -207,7 +207,7 @@ class GeographicTileMapState extends State<GeographicTileMap> {
                       _tileError = false;
                       _tileRevision++;
                     }),
-                    child: const Text('Retry basemap'),
+                    child: const Text('Muat ulang peta'),
                   ),
                 ],
               ),

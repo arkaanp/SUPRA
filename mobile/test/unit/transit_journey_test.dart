@@ -182,12 +182,12 @@ void main() {
       expect(find.textContaining('Rp 4000'), findsOneWidget);
       expect(find.textContaining('08:08 WIB → 08:53 WIB'), findsOneWidget);
       expect(
-        find.text('Walking connection; not street navigation'),
+        find.text('Jalur penghubung pejalan kaki; bukan navigasi jalan'),
         findsOneWidget,
       );
       expect(find.textContaining('ODbL-1.0'), findsNothing);
-      await tester.ensureVisible(find.byTooltip('Transit sources'));
-      await tester.tap(find.byTooltip('Transit sources'));
+      await tester.ensureVisible(find.byTooltip('Sumber transportasi umum'));
+      await tester.tap(find.byTooltip('Sumber transportasi umum'));
       await tester.pumpAndSettle();
       expect(find.textContaining('ODbL-1.0'), findsOneWidget);
       expect(tester.takeException(), isNull);

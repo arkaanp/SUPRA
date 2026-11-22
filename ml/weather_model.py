@@ -56,7 +56,7 @@ def forecast(latitude, longitude, now=None):
     return {'model_id': card['model_id'], 'scope': 'weather_only', 'framework': 'PyTorch',
             'latitude': latitude, 'longitude': longitude, 'generated_at': now.isoformat(),
             'input_through': anchor.isoformat(), 'expires_at': (anchor + dt.timedelta(hours=1)).isoformat(),
-            'sources': {'attribution': SOURCE + ' Weather-only model trained on Open-Meteo weather (CC BY 4.0).',
+            'sources': {'attribution': SOURCE + ' Model cuaca dilatih dengan data Open-Meteo (CC BY 4.0).',
                         'provider_issued_at': weather['issued_at']},
             'validation': card['validation'], 'hourly': hourly}
 

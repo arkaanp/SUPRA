@@ -1,3 +1,5 @@
+import '../utils/display_text.dart';
+
 import 'package:flutter/material.dart';
 
 import 'home_screen.dart';
@@ -37,7 +39,7 @@ class _SupraShellState extends State<SupraShell> {
     try {
       await SupraService.instance.loadAccount();
     } catch (error) {
-      if (mounted) setState(() => _error = '$error');
+      if (mounted) setState(() => _error = displayError(error));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -77,21 +79,23 @@ class _SupraShellState extends State<SupraShell> {
                 children: [
                   if (_error != null)
                     MaterialBanner(
-                      content: Text('Account refresh unavailable. $_error'),
+                      content: Text('Akun gagal diperbarui. $_error'),
                       actions: [
                         TextButton(
                           onPressed: _load,
-                          child: const Text('Retry'),
+                          child: const Text('Coba lagi'),
                         ),
                         TextButton(
                           onPressed: () async {
                             try {
                               await SupraService.instance.logout();
                             } catch (error) {
-                              if (mounted) setState(() => _error = '$error');
+                              if (mounted) {
+                                setState(() => _error = displayError(error));
+                              }
                             }
                           },
-                          child: const Text('Sign out'),
+                          child: const Text('Logout'),
                         ),
                       ],
                     ),
@@ -108,27 +112,27 @@ class _SupraShellState extends State<SupraShell> {
           BottomNavigationBarItem(
             icon: Icon(Icons.home_outlined),
             activeIcon: Icon(Icons.home),
-            label: 'Home',
+            label: 'Beranda',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.route_outlined),
             activeIcon: Icon(Icons.route),
-            label: 'Trip',
+            label: 'Perjalanan',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.chat_bubble_outline),
             activeIcon: Icon(Icons.chat_bubble),
-            label: 'Assistant',
+            label: 'Asisten',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.notifications_outlined),
             activeIcon: Icon(Icons.notifications),
-            label: 'Alerts',
+            label: 'Peringatan',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.person_outline),
             activeIcon: Icon(Icons.person),
-            label: 'Profile',
+            label: 'Profil',
           ),
         ],
       ),

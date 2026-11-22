@@ -42,7 +42,7 @@ class NotificationTile extends StatelessWidget {
             children: [
               if (onSelectionChanged != null)
                 Semantics(
-                  label: 'Select alert: ${notification.title}',
+                  label: 'Pilih peringatan: ${notification.displayTitle}',
                   child: Checkbox(
                     value: selected,
                     onChanged: actionsEnabled
@@ -51,7 +51,7 @@ class NotificationTile extends StatelessWidget {
                   ),
                 ),
               Tooltip(
-                message: notification.isRead ? 'Read' : 'Unread',
+                message: notification.isRead ? 'Sudah dibaca' : 'Belum dibaca',
                 child: Container(
                   width: 10,
                   height: 10,
@@ -87,7 +87,7 @@ class NotificationTile extends StatelessWidget {
                     ),
                     SizedBox(width: 3),
                     Text(
-                      'PUBLISHER NEWS',
+                      'BERITA',
                       style: TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.w800,
@@ -100,7 +100,7 @@ class NotificationTile extends StatelessWidget {
             ],
             Expanded(
               child: Text(
-                notification.title,
+                notification.displayTitle,
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   fontSize: 13.5,
@@ -129,7 +129,7 @@ class NotificationTile extends StatelessWidget {
             const SizedBox(height: 6),
             if (notification.expiresAt?.isBefore(DateTime.now()) == true)
               const Text(
-                'Expired report — kept for history',
+                'Berita kedaluwarsa — disimpan sebagai riwayat',
                 style: TextStyle(fontSize: 11, color: Colors.grey),
               ),
             if (onToggleRead != null)
@@ -144,7 +144,9 @@ class NotificationTile extends StatelessWidget {
                     size: 16,
                   ),
                   label: Text(
-                    notification.isRead ? 'Mark unread' : 'Mark read',
+                    notification.isRead
+                        ? 'Tandai belum dibaca'
+                        : 'Tandai sudah dibaca',
                   ),
                 ),
               ),
@@ -170,7 +172,7 @@ class NotificationTile extends StatelessWidget {
                       onPressed: onReadNews,
                     ),
                   SourceInfoButton(
-                    title: 'News source',
+                    title: 'Sumber berita',
                     details: notification.sourceUrl!,
                     url: notification.sourceUrl,
                   ),

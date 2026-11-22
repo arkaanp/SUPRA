@@ -10,14 +10,14 @@ void main() {
     final freshWeather = ConditionSignal(
       status: 'available',
       source: 'open_meteo',
-      message: 'Clear',
+      message: 'Cerah',
       validAt: now,
       data: {'precipitation_mm': 2.5, 'temperature_c': 33.0},
     );
     final freshAir = ConditionSignal(
       status: 'available',
       source: 'openaq',
-      message: 'Station',
+      message: 'Stasiun',
       validAt: now,
       data: {'pm25_ug_m3': 45.0, 'aqi': 120.0},
     );
@@ -69,7 +69,7 @@ void main() {
 
     final transit = RouteOption(
       mode: TransportMode.publicTransit,
-      title: 'Transit',
+      title: 'Transportasi umum',
       estimatedDuration: const Duration(minutes: 35),
       distanceKm: 14.0,
       waypoints: const [LatLng(latitude: -6.2, longitude: 106.8)],
@@ -90,11 +90,30 @@ void main() {
     // Estimated durations must remain intact (no ETA modification)
     expect(recommended.estimatedDuration, const Duration(minutes: 35));
 
-    final evaluatedMoto = ranked.firstWhere((r) => r.mode == TransportMode.motorcycle);
-    expect(evaluatedMoto.protectiveMeasures, contains('Wear an approved helmet and protective riding clothing.'));
-    expect(evaluatedMoto.protectiveMeasures, contains('Bring waterproof riding gear.'));
-    expect(evaluatedMoto.protectiveMeasures, contains('Consider a well-fitting particulate respirator for outdoor exposure.'));
-    expect(evaluatedMoto.protectiveMeasures, contains('Bring water and sun protection.'));
-    expect(evaluatedMoto.identifiedRisks, anyElement(contains('Nearest-road traffic indicates congestion')));
+    final evaluatedMoto = ranked.firstWhere(
+      (r) => r.mode == TransportMode.motorcycle,
+    );
+    expect(
+      evaluatedMoto.protectiveMeasures,
+      contains('Gunakan helm berstandar dan pakaian pelindung berkendara.'),
+    );
+    expect(
+      evaluatedMoto.protectiveMeasures,
+      contains('Bawa perlengkapan berkendara tahan air.'),
+    );
+    expect(
+      evaluatedMoto.protectiveMeasures,
+      contains(
+        'Pertimbangkan masker partikulat yang pas untuk paparan di luar ruangan.',
+      ),
+    );
+    expect(
+      evaluatedMoto.protectiveMeasures,
+      contains('Bawa air minum dan pelindung dari sinar matahari.'),
+    );
+    expect(
+      evaluatedMoto.identifiedRisks,
+      anyElement(contains('Lalu lintas jalan terdekat menunjukkan kemacetan')),
+    );
   });
 }

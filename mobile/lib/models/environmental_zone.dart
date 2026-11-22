@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'current_conditions.dart';
 import 'location.dart';
 import 'prediction.dart';
+import '../utils/display_text.dart';
+import '../widgets/weather_icon.dart';
 
 enum EnvironmentalOverlayMode { all, airQuality, rain }
 
@@ -49,24 +51,26 @@ class EnvironmentalZone {
         ? 'AQI ${aqi.round()}'
         : pm25 != null
         ? 'PM2.5 ${pm25!.round()}'
-        : 'Air unavailable';
+        : 'Kualitas udara tidak tersedia';
     final weatherText = temperature != null
         ? '${temperature.round()}°C'
-        : 'Weather unavailable';
+        : 'Cuaca tidak tersedia';
     final description = weather?.data?['description'];
     final rain = weather?.number('precipitation_mm');
     final detail = [
-      if (description is String && description.isNotEmpty) description,
+      if (description is String && description.isNotEmpty)
+        weatherPresentation(description: description).$1,
       if (rain != null) '${rain.toStringAsFixed(1)} mm',
-      if (weather?.kind == 'provider_forecast') 'Forecast',
+      if (weather?.kind == 'provider_forecast') 'Prakiraan',
     ].join(' · ');
     final label = (aqi != null ? aqiReading : air)?.kind == 'model_estimate'
         ? 'model'
-        : 'station';
-    return '$name · $airText ($label)${(aqi != null ? aqiReading : air)?.isStale == true ? " STALE" : ""}\n$weatherText $detail${weather?.isStale == true ? " STALE" : ""}';
+        : 'stasiun';
+    return '$name · $airText ($label)${(aqi != null ? aqiReading : air)?.isStale == true ? " DATA LAMA" : ""}\n$weatherText $detail${weather?.isStale == true ? " DATA LAMA" : ""}';
   }
 
-  String get aqiCategory => pm25 == null ? 'Unavailable' : 'PM2.5, not AQI';
+  String get aqiCategory =>
+      pm25 == null ? 'Tidak tersedia' : 'PM2.5, bukan AQI';
   // No unsupported area-wide interpolation from a single station sample.
   Color get pm25Color => Colors.transparent;
   Color get rainColor => Colors.transparent;
@@ -87,40 +91,40 @@ class EnvironmentalZone {
   Color get solidAqiColor =>
       _colorBand == null ? Colors.grey : AqiLevel.values[_colorBand!].color();
   String get colorBandLabel => _colorBand == null
-      ? 'Unavailable'
+      ? 'Tidak tersedia'
       : usAqi != null
       ? AqiLevel.values[_colorBand!].label()
-      : 'PM2.5 band · ${['Low', 'Moderate', 'Elevated', 'High', 'Very high', 'Extreme'][_colorBand!]}';
+      : 'Rentang PM2.5 · ${['Rendah', 'Sedang', 'Meningkat', 'Tinggi', 'Sangat tinggi', 'Ekstrem'][_colorBand!]}';
 
   String get cardinalWindDirection {
-    if (windDirectionDegrees == null) return 'Unavailable';
+    if (windDirectionDegrees == null) return 'Tidak tersedia';
     final d = (windDirectionDegrees! % 360 + 360) % 360;
     return [
-      'N',
-      'NE',
-      'E',
-      'SE',
+      'U',
+      'TL',
+      'T',
+      'TG',
       'S',
-      'SW',
-      'W',
-      'NW',
+      'BD',
+      'B',
+      'BL',
     ][((d + 22.5) / 45).floor() % 8];
   }
 
   String get weatherSummary =>
-      '${conditions?.weather.agedAt(DateTime.now()).isStale == true ? "STALE · " : ""}'
-      '${weatherDescription ?? (rainfallMm == null ? 'Weather unavailable' : 'Precipitation ${rainfallMm!.toStringAsFixed(1)} mm')}';
+      '${conditions?.weather.agedAt(DateTime.now()).isStale == true ? "DATA LAMA · " : ""}'
+      '${weatherDescription == null ? (rainfallMm == null ? 'Cuaca tidak tersedia' : 'Curah hujan ${rainfallMm!.toStringAsFixed(1)} mm') : weatherPresentation(description: weatherDescription).$1}';
   String get descriptiveLabel =>
       '$name · $weatherSummary · '
-      '${pm25 == null ? "PM2.5 unavailable" : "${conditions?.airQuality.kind == "model_estimate" ? "Model" : "Station"} PM2.5 ${pm25!.toStringAsFixed(1)} µg/m³ (not AQI)"}'
-      '${conditions == null ? "" : " · ${conditions!.airQuality.status}"}';
+      '${pm25 == null ? "PM2.5 tidak tersedia" : "${conditions?.airQuality.kind == "model_estimate" ? "Model" : "Stasiun"} PM2.5 ${pm25!.toStringAsFixed(1)} µg/m³ (bukan AQI)"}'
+      '${conditions == null ? "" : " · ${signalStatusLabel(conditions!.airQuality.status)}"}';
   String get healthAdvisory =>
-      'Location sample only, not area-wide exposure. '
-      '${conditions == null ? "Current conditions unavailable." : "${conditions!.airQuality.message} ${conditions!.weather.message} "
-                "Retrieved ${conditions!.retrievedAt.toUtc().toIso8601String()}. "
-                "Air valid at ${conditions!.airQuality.validAt?.toUtc().toIso8601String() ?? 'unavailable'}; "
-                "weather ${conditions!.weather.source}/${conditions!.weather.kind ?? 'unavailable'} "
-                "valid at ${conditions!.weather.validAt?.toUtc().toIso8601String() ?? 'unavailable'}."}';
+      'Data titik lokasi, bukan paparan seluruh wilayah. '
+      '${conditions == null ? "Kondisi terkini tidak tersedia." : "${conditions!.airQuality.message} ${conditions!.weather.message} "
+                "Diperiksa ${conditions!.retrievedAt.toUtc().toIso8601String()}. "
+                "Data udara berlaku pada ${conditions!.airQuality.validAt?.toUtc().toIso8601String() ?? 'unavailable'}; "
+                "cuaca ${conditions!.weather.providerLabel}/${signalKindLabel(conditions!.weather.kind)} "
+                "berlaku pada ${conditions!.weather.validAt?.toUtc().toIso8601String() ?? 'unavailable'}."}';
 
   bool contains(LatLng point) {
     if (polygonBounds.length < 3) return center.distanceTo(point) <= radiusKm;

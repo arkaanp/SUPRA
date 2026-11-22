@@ -1,3 +1,5 @@
+import '../utils/display_text.dart';
+
 import 'package:flutter/material.dart';
 
 import 'source_info_button.dart';
@@ -62,7 +64,7 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
       initialLocation: initial.isInGreaterJakarta
           ? initial
           : const LatLng(latitude: -6.2, longitude: 106.82),
-      title: 'Select location in Greater Jakarta',
+      title: 'Pilih lokasi di Jabodetabek',
     );
 
     if (picked != null && mounted) {
@@ -89,7 +91,7 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
         lon < 106.3 ||
         lon > 107.3) {
       setState(
-        () => _error = 'Enter coordinates in Greater Jakarta (latitude -6.9 to -5.8, longitude 106.3 to 107.3).',
+        () => _error = 'Masukkan koordinat di Jabodetabek (lintang -6,9 hingga -5,8; bujur 106,3 hingga 107,3).',
       );
       return;
     }
@@ -105,7 +107,7 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
       );
       if (mounted) setState(() => _result = result);
     } catch (error) {
-      if (mounted) setState(() => _error = '$error');
+      if (mounted) setState(() => _error = displayError(error));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -134,26 +136,26 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
                 ),
               ),
               SourceInfoButton(
-                title: '$title source',
+                title: 'Sumber ${title.toLowerCase()}',
                 details: [signal.sourceDetails, attributionUrl].join('\n'),
                 url: attributionUrl,
               ),
             ],
           ),
           Text(
-            '${signal.status}${signal.kind == null ? '' : ' · ${signal.kind!.replaceAll('_', ' ')}'}',
+            '${signalStatusLabel(signal.status)}${signal.kind == null ? '' : ' · ${signalKindLabel(signal.kind)}'}',
           ),
           if (signal.status == 'stale')
             const Text(
-              'STALE — do not treat this reading as current.',
+              'DATA LAMA — data ini bukan kondisi terkini.',
               style: TextStyle(color: Colors.deepOrange),
             ),
           if (signal.validAt != null)
-            Text('Valid/observed: ${_wib(signal.validAt!)}'),
+            Text('Berlaku/diamati: ${_wib(signal.validAt!)}'),
           if (signal.receivedAt != null)
-            Text('Fetched: ${_wib(signal.receivedAt!)}'),
+            Text('Diambil: ${_wib(signal.receivedAt!)}'),
           for (final detail in details) Text(detail),
-          if (signal.status == 'unavailable') Text('$title unavailable'),
+          if (signal.status == 'unavailable') Text('$title tidak tersedia'),
         ],
       ),
     ),
@@ -183,12 +185,9 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          'Location conditions',
-          style: Theme.of(context).textTheme.titleLarge,
-        ),
+        Text('Kondisi lokasi', style: Theme.of(context).textTheme.titleLarge),
         const Text(
-          'Latest available provider data, not Supra ML predictions or route-wide conditions. Air quality is a nearby station reading or a labelled CAMS model estimate.',
+          'Data terbaru dari penyedia untuk lokasi ini. Kualitas udara berasal dari stasiun terdekat atau perkiraan model CAMS yang ditandai. Data ini berbeda dari prediksi ML SUPRA dan tidak mencakup seluruh rute.',
         ),
         Wrap(
           spacing: 8,
@@ -220,7 +219,7 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
             ),
             TextButton.icon(
               icon: const Icon(Icons.map_outlined, size: 16),
-              label: const Text('Pick on map'),
+              label: const Text('Pilih di peta'),
               onPressed: _loading ? null : _pickOnMap,
             ),
             IconButton(
@@ -228,7 +227,7 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
                 _showInlineMap ? Icons.layers_clear : Icons.layers_outlined,
                 size: 20,
               ),
-              tooltip: _showInlineMap ? 'Hide map' : 'Show map',
+              tooltip: _showInlineMap ? 'Sembunyikan peta' : 'Tampilkan peta',
               onPressed: () => setState(() => _showInlineMap = !_showInlineMap),
             ),
           ],
@@ -262,10 +261,10 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
             signed: true,
           ),
           decoration: InputDecoration(
-            labelText: 'Latitude',
+            labelText: 'Lintang',
             suffixIcon: IconButton(
               icon: const Icon(Icons.pin_drop_outlined),
-              tooltip: 'Select on map',
+              tooltip: 'Pilih di peta',
               onPressed: _loading ? null : _pickOnMap,
             ),
           ),
@@ -282,10 +281,10 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
             signed: true,
           ),
           decoration: InputDecoration(
-            labelText: 'Longitude',
+            labelText: 'Bujur',
             suffixIcon: IconButton(
               icon: const Icon(Icons.pin_drop_outlined),
-              tooltip: 'Select on map',
+              tooltip: 'Pilih di peta',
               onPressed: _loading ? null : _pickOnMap,
             ),
           ),
@@ -295,35 +294,35 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
           onChanged: (_) => setState(() => _result = null),
           enabled: !_loading,
           decoration: const InputDecoration(
-            labelText: 'BMKG village adm4 (optional)',
+            labelText: 'Kode kelurahan BMKG (opsional)',
             hintText: '31.71.03.1001',
-            helperText: 'Use the matching village code for a weather fallback.',
+            helperText: 'Gunakan kode kelurahan yang sesuai untuk sumber cuaca cadangan.',
           ),
         ),
         ElevatedButton(
           onPressed: _loading ? null : _lookup,
-          child: Text(_loading ? 'Loading conditions…' : 'Load conditions'),
+          child: Text(_loading ? 'Memuat kondisi…' : 'Muat kondisi'),
         ),
         if (_error != null)
           Text(_error!, style: const TextStyle(color: Colors.red)),
         if (result != null) ...[
           Text(
-            'Requested: ${result.latitude}, ${result.longitude}\nRetrieved: ${_wib(result.retrievedAt)}',
+            'Koordinat: ${result.latitude}, ${result.longitude}\nDiperiksa: ${_wib(result.retrievedAt)}',
           ),
           _signal(
-            'Weather',
+            'Cuaca',
             result.weather,
             [
               if (weather?['temperature_c'] != null)
-                'Temperature: ${weather!['temperature_c']} °C',
+                'Suhu: ${weather!['temperature_c']} °C',
               if (weather?['humidity_percent'] != null)
-                'Humidity: ${weather!['humidity_percent']}%',
+                'Kelembapan: ${weather!['humidity_percent']}%',
               if (weather?['description'] != null) '${weather!['description']}',
               if (weather?['wind_speed_kmh'] != null)
-                'Wind: ${weather!['wind_speed_kmh']} km/h',
+                'Angin: ${weather!['wind_speed_kmh']} km/h',
               if (weather?['precipitation_mm'] != null)
-                'Precipitation: ${weather!['precipitation_mm']} mm'
-                    '${weather['interval_seconds'] == null ? '' : ' (provider interval: ${weather['interval_seconds']} seconds)'}',
+                'Curah hujan: ${weather!['precipitation_mm']} mm'
+                    '${weather['interval_seconds'] == null ? '' : ' (interval penyedia: ${weather['interval_seconds']} detik)'}',
             ],
             switch (result.weather.source) {
               'bmkg' => 'https://www.bmkg.go.id/',
@@ -332,12 +331,12 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
             },
           ),
           _signal(
-            'Air quality',
+            'Kualitas udara',
             result.airQuality,
             [
-              if (air?['aqi'] != null) 'US AQI (provider): ${air!['aqi']}',
+              if (air?['aqi'] != null) 'AQI AS (penyedia): ${air!['aqi']}',
               if (air?['resolution_km'] != null)
-                'Model grid: approximately ${air!['resolution_km']} km',
+                'Resolusi model: sekitar ${air!['resolution_km']} km',
               if (air?['pm25_ug_m3'] != null)
                 'PM2.5: ${air!['pm25_ug_m3']} µg/m³',
             ],
@@ -345,14 +344,14 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
                 ? 'https://open-meteo.com/en/docs/air-quality-api'
                 : 'https://openaq.org/',
           ),
-          _signal('Traffic — nearest road fragment', result.traffic, [
+          _signal('Lalu lintas — ruas jalan terdekat', result.traffic, [
             if (traffic?['speed_kmh'] != null)
-              'Speed: ${traffic!['speed_kmh']} km/h (free flow ${traffic['free_flow_speed_kmh']} km/h)',
+              'Kecepatan: ${traffic!['speed_kmh']} km/h (saat lancar ${traffic['free_flow_speed_kmh']} km/h)',
             if (traffic?['travel_time_seconds'] != null)
-              'Fragment travel time: ${traffic!['travel_time_seconds']} seconds',
+              'Waktu tempuh ruas: ${traffic!['travel_time_seconds']} detik',
             if (traffic?['confidence'] != null)
-              'Provider confidence: ${traffic!['confidence']}',
-            if (traffic?['road_closed'] == true) 'ROAD CLOSED',
+              'Tingkat keyakinan penyedia: ${traffic!['confidence']}',
+            if (traffic?['road_closed'] == true) 'JALAN DITUTUP',
           ], 'https://www.tomtom.com/'),
         ],
       ],

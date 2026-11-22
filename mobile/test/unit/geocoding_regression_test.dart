@@ -26,12 +26,12 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(home: TripScreen(geocodingService: geocoder)),
       );
-      await tester.tap(find.byTooltip('Select on map').last);
+      await tester.tap(find.byTooltip('Pilih di peta').last);
       await tester.pumpAndSettle();
       final search = find.byWidgetPredicate(
         (w) =>
             w is TextField &&
-            (w.decoration?.hintText?.contains('Search destination') ?? false),
+            (w.decoration?.hintText?.contains('Cari tujuan') ?? false),
       );
       await tester.enterText(search, 'old query');
       await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -41,7 +41,7 @@ void main() {
       expect(
         tester
             .widget<ElevatedButton>(
-              find.widgetWithText(ElevatedButton, 'Confirm location'),
+              find.widgetWithText(ElevatedButton, 'Konfirmasi lokasi'),
             )
             .onPressed,
         isNull,

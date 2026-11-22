@@ -89,7 +89,7 @@ class _SplashScreenState extends State<SplashScreen>
               ),
               const SizedBox(height: 8),
               const Text(
-                'Trip-based dynamic AQI & weather forecast',
+                'Prakiraan AQI dan cuaca sesuai perjalanan',
                 style: TextStyle(
                   color: Color(0xFFCDDDE7),
                   fontSize: 15,

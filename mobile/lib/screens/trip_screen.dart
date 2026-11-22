@@ -1,3 +1,5 @@
+import '../utils/display_text.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -45,8 +47,8 @@ class NearbySnapOption {
 /// - Location input sheet with swipeable top grey bar to expand to full screen.
 /// - Clicking a name input opens the map view with search automatically focused in typing mode.
 /// - Predictive search autocomplete matching specific venues (e.g., McDonald's, Cibinong, malls).
-/// - Vertical "Nearest Locations:" list scrolling top to bottom.
-/// - Explicit "Show Route" button to confirm both locations before route and modes are rendered.
+/// - Vertical "Lokasi terdekat:" list scrolling top to bottom.
+/// - Explicit "Tampilkan rute" button to confirm both locations before route and modes are rendered.
 /// - Only configured routing modes are offered; no synthetic offline routes.
 class TripScreen extends StatefulWidget {
   const TripScreen({
@@ -91,7 +93,8 @@ class TripScreenState extends State<TripScreen> {
   bool _isPickingOnMap = false;
   bool _isPickingStart = false;
   LatLng? _tempTappedPoint;
-  String _tempTappedName = 'Tap on map or type above to place pin';
+  String _tempTappedName =
+      'Ketuk peta atau ketik di atas untuk menentukan titik';
   List<NearbySnapOption> _nearestSnapOptions = [];
   List<GeocodedPlace> _mapSearchResults = [];
   Timer? _searchDebounce;
@@ -184,7 +187,7 @@ class TripScreenState extends State<TripScreen> {
     super.initState();
     _geocoder = widget.geocodingService ?? GeocodingService();
     _routingService = widget.routingService ?? RoutingService();
-    _start.text = 'Monas (Central Jakarta)';
+    _start.text = 'Monas (Jakarta Pusat)';
     if (widget.routingService != null || !MapConfig.isTestEnvironment) {
       _originConditions = ConditionsRepository.staleFallbackSnapshot(
         _defaultCurrentLocation,
@@ -245,7 +248,7 @@ class TripScreenState extends State<TripScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'This planned trip has no confirmed coordinates. Select both locations first.',
+            'Koordinat perjalanan ini belum dikonfirmasi. Pilih lokasi awal dan tujuan terlebih dahulu.',
           ),
         ),
       );
@@ -316,7 +319,7 @@ class TripScreenState extends State<TripScreen> {
         final distMeters = (closest.distanceKm * 1000).round();
         _tempTappedName = distMeters < 50
             ? closest.name
-            : '${closest.name} (~$distMeters m away)';
+            : '${closest.name} (~$distMeters m dari titik)';
       }
     });
   }
@@ -419,15 +422,15 @@ class TripScreenState extends State<TripScreen> {
         SnackBar(
           content: Text(
             results.isEmpty
-                ? 'No matching places. Try a fuller address or choose on the map.'
-                : 'Select a search result to confirm its location.',
+                ? 'Tempat tidak ditemukan. Coba alamat yang lebih lengkap atau pilih di peta.'
+                : 'Pilih hasil pencarian untuk mengonfirmasi lokasi.',
           ),
         ),
       );
     } catch (error) {
       if (mounted && generation == _searchGeneration) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$error')));
+            .showSnackBar(SnackBar(content: Text(displayError(error))));
       }
     }
   }
@@ -486,9 +489,13 @@ class TripScreenState extends State<TripScreen> {
       if (!mounted) return;
       final matches = places.where((p) => p.kind == kind);
       if (matches.isEmpty) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Save a $kind location first.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Simpan lokasi ${placeKindLabel(kind)} terlebih dahulu.',
+            ),
+          ),
+        );
         await _openCommutes();
         return;
       }
@@ -496,7 +503,7 @@ class TripScreenState extends State<TripScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$e')));
+            .showSnackBar(SnackBar(content: Text(displayError(e))));
       }
     }
   }
@@ -602,7 +609,7 @@ class TripScreenState extends State<TripScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Current frequency: ${trip.frequency} trips recorded',
+                    'Frekuensi saat ini: ${trip.frequency} perjalanan tercatat',
                     style: const TextStyle(
                       fontSize: 12,
                       color: SupraTheme.textSecondary,
@@ -619,14 +626,14 @@ class TripScreenState extends State<TripScreen> {
                       ),
                     ),
                     title: const Text(
-                      'Reduce frequency (-1)',
+                      'Kurangi frekuensi (-1)',
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 13,
                       ),
                     ),
                     subtitle: Text(
-                      'Decrease count from ${trip.frequency}x to ${trip.frequency - 1}x',
+                      'Kurangi jumlah dari ${trip.frequency}x menjadi ${trip.frequency - 1}x',
                       style: const TextStyle(
                         fontSize: 11,
                         color: SupraTheme.textSecondary,
@@ -641,7 +648,7 @@ class TripScreenState extends State<TripScreen> {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
-                            'Reduced frequency for "${trip.destination}" to ${trip.frequency - 1}x',
+                            'Frekuensi perjalanan untuk "${trip.destination}" menjadi ${trip.frequency - 1}x',
                           ),
                           duration: const Duration(seconds: 2),
                         ),
@@ -659,7 +666,7 @@ class TripScreenState extends State<TripScreen> {
                       ),
                     ),
                     title: const Text(
-                      'Delete trip completely',
+                      'Hapus perjalanan',
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 13,
@@ -667,7 +674,7 @@ class TripScreenState extends State<TripScreen> {
                       ),
                     ),
                     subtitle: const Text(
-                      'Remove this route entirely from Trip History',
+                      'Hapus rute ini dari riwayat perjalanan',
                       style: TextStyle(
                         fontSize: 11,
                         color: SupraTheme.textSecondary,
@@ -680,7 +687,7 @@ class TripScreenState extends State<TripScreen> {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
-                            'Deleted "${trip.destination}" from history',
+                            'Perjalanan ke "${trip.destination}" dihapus dari riwayat',
                           ),
                           duration: const Duration(seconds: 3),
                         ),
@@ -709,7 +716,9 @@ class TripScreenState extends State<TripScreen> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not delete trip: $error')),
+          SnackBar(
+            content: Text('Perjalanan gagal dihapus: ${displayError(error)}'),
+          ),
         );
       }
       return false;
@@ -719,12 +728,12 @@ class TripScreenState extends State<TripScreen> {
   }
 
   /// Calculates and confirms the route between Start and Destination.
-  /// Only called when the user explicitly clicks "Show Route".
+  /// Only called when the user explicitly clicks "Tampilkan rute".
   Future<void> _fetchRoutes() async {
     if (_destCoord == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please select a destination first'),
+          content: Text('Pilih tujuan terlebih dahulu'),
           duration: Duration(seconds: 2),
         ),
       );
@@ -785,9 +794,9 @@ class TripScreenState extends State<TripScreen> {
             content: Text(
               _requestedMode == TransportMode.publicTransit
                   ? error is ApiException && error.status == 404
-                        ? 'No scheduled transit journey reaches this destination in the next 6 hours. Check service hours and nearby stations.'
-                        : 'Transit lookup failed. The service may be waking up or the timetable provider may be unavailable. Please retry.'
-                  : 'Route unavailable. Check your connection and try again.',
+                        ? 'Tidak ada jadwal transportasi umum ke tujuan ini dalam 6 jam ke depan. Periksa jam layanan dan stasiun terdekat.'
+                        : 'Pencarian transportasi umum gagal. Layanan mungkin sedang memulai atau penyedia jadwal tidak tersedia. Coba lagi.'
+                  : 'Rute tidak tersedia. Periksa koneksi dan coba lagi.',
             ),
           ),
         );
@@ -879,7 +888,7 @@ class TripScreenState extends State<TripScreen> {
       if (mounted) {
         _showTopNotification(
           message:
-              'Trip saved: $startName → $destName. Route preview active (not live GPS navigation).',
+              'Perjalanan tersimpan: $startName → $destName. Pratinjau rute aktif (bukan navigasi GPS langsung).',
           icon: Icons.navigation_rounded,
           color: SupraTheme.brand,
         );
@@ -887,7 +896,7 @@ class TripScreenState extends State<TripScreen> {
     } catch (e) {
       if (mounted) {
         _showTopNotification(
-          message: 'Trip could not be saved: $e',
+          message: 'Perjalanan gagal disimpan: ${displayError(e)}',
           icon: Icons.error_outline,
           color: const Color(0xFFEF4444),
         );
@@ -920,7 +929,7 @@ class TripScreenState extends State<TripScreen> {
               SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Close Route Preview?',
+                  'Tutup pratinjau rute?',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
@@ -931,7 +940,7 @@ class TripScreenState extends State<TripScreen> {
             ],
           ),
           content: Text(
-            'Close this route preview to ${_destination.text}? Your confirmed trip remains in history. Live GPS navigation is not connected.',
+            'Tutup pratinjau rute ke ${_destination.text}? Perjalanan yang dikonfirmasi tetap tersimpan di riwayat. Navigasi GPS langsung belum tersedia.',
             style: const TextStyle(
               fontSize: 13,
               color: SupraTheme.textSecondary,
@@ -952,7 +961,7 @@ class TripScreenState extends State<TripScreen> {
               ),
               onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text(
-                'Keep Preview',
+                'Lanjutkan pratinjau',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   color: SupraTheme.textSecondary,
@@ -976,7 +985,7 @@ class TripScreenState extends State<TripScreen> {
               ),
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: const Text(
-                'Close Preview',
+                'Tutup pratinjau',
                 style: TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
               ),
             ),
@@ -997,7 +1006,9 @@ class TripScreenState extends State<TripScreen> {
         await SupraService.instance.finishTrip(_activeTripId!);
       } catch (e) {
         if (mounted) {
-          _showTopNotification(message: 'Could not finish trip alerts: $e');
+          _showTopNotification(
+            message: 'Peringatan perjalanan gagal diakhiri: ${displayError(e)}',
+          );
         }
         return;
       }
@@ -1014,7 +1025,7 @@ class TripScreenState extends State<TripScreen> {
       _mapKey.currentState?.fitToRoute(routeWaypoints);
     });
     _showTopNotification(
-      message: 'Route preview closed',
+      message: 'Pratinjau rute ditutup',
       icon: Icons.info_outline,
       color: const Color(0xFF475569),
     );
@@ -1180,7 +1191,7 @@ class TripScreenState extends State<TripScreen> {
                                           color: SupraTheme.onSurface,
                                           size: 20,
                                         ),
-                                        tooltip: 'Back',
+                                        tooltip: 'Kembali',
                                         onPressed: () => setState(
                                           () => _isPickingOnMap = false,
                                         ),
@@ -1197,8 +1208,8 @@ class TripScreenState extends State<TripScreen> {
                                           ),
                                           decoration: InputDecoration(
                                             hintText: _isPickingStart
-                                                ? 'Search start (Enter to search online)'
-                                                : 'Search destination (Enter to search online)',
+                                                ? 'Cari lokasi awal (Enter untuk pencarian daring)'
+                                                : 'Cari tujuan (Enter untuk pencarian daring)',
                                             border: InputBorder.none,
                                             isDense: true,
                                             contentPadding:
@@ -1247,7 +1258,7 @@ class TripScreenState extends State<TripScreen> {
                                         _mapSearchFocusNode.unfocus();
                                         _teleportToPoint(
                                           point,
-                                          'Current location',
+                                          'Lokasi saat ini',
                                         );
                                       },
                                     ),
@@ -1364,7 +1375,7 @@ class TripScreenState extends State<TripScreen> {
                                       ),
                                     ),
                                     SourceInfoButton(
-                                      title: 'Trip conditions sources',
+                                      title: 'Sumber kondisi perjalanan',
                                       compact: true,
                                       details: [
                                         if (_showMlPredictions &&
@@ -1373,7 +1384,7 @@ class TripScreenState extends State<TripScreen> {
                                         (_selectedRoute?.conditions ??
                                                     _originConditions)
                                                 ?.sourceDetails ??
-                                            'No source readings available.',
+                                            'Data sumber belum tersedia.',
                                       ].join('\n\n'),
                                     ),
                                   ],
@@ -1478,16 +1489,16 @@ class TripScreenState extends State<TripScreen> {
     final cond = (_selectedRoute?.conditions ?? _originConditions)?.agedAt(now);
     final speed = cond?.traffic.number('speed_kmh');
     final traffic = speed == null
-        ? 'Traffic: ${cond?.traffic.unavailableLabel.toLowerCase() ?? "unavailable"}'
-        : 'Traffic${cond!.traffic.isStale ? " · STALE" : ""} ${speed.round()} km/h';
+        ? 'Lalu lintas: ${cond?.traffic.unavailableLabel.toLowerCase() ?? "tidak tersedia"}'
+        : 'Lalu lintas${cond!.traffic.isStale ? " · DATA LAMA" : ""} ${speed.round()} km/h';
     final h = _showMlPredictions ? _mlForecast?.nextAt(now) : null;
     if (h != null) {
       final time = h.targetTime.toUtc().add(const Duration(hours: 7));
-      return 'ML · origin ${time.hour.toString().padLeft(2, '0')}:00 WIB${h.displayAqi == null ? "" : " · AQI ${h.displayAqi!.round()}${h.providerAqi != null
-                ? " forecast"
+      return 'ML · lokasi awal ${time.hour.toString().padLeft(2, '0')}:00 WIB${h.displayAqi == null ? "" : " · AQI ${h.displayAqi!.round()}${h.providerAqi != null
+                ? " prakiraan"
                 : h.estimatedAqi != null
-                ? " ML estimate"
-                : ""}"} · Rain ${h.precipitationMm.toStringAsFixed(1)} mm (${(h.rainProbability * 100).round()}%) · ${h.temperatureC.round()}°C · $traffic';
+                ? " perkiraan ML"
+                : ""}"} · Hujan ${h.precipitationMm.toStringAsFixed(1)} mm (${(h.rainProbability * 100).round()}%) · ${h.temperatureC.round()}°C · $traffic';
     }
     final pm25 =
         _selectedRoute?.pm25UgM3 ?? cond?.airQuality.number('pm25_ug_m3');
@@ -1496,16 +1507,18 @@ class TripScreenState extends State<TripScreen> {
         _selectedRoute?.rainfallMm ?? cond?.weather.number('precipitation_mm');
     final weather = cond?.weather;
     final rainValue = rain == null
-        ? (weather?.data?['description'] ?? 'unavailable')
+        ? (weather?.data?['description'] ?? 'tidak tersedia')
         : '${rain.toStringAsFixed(1)} mm';
     return [
       if (_showMlPredictions)
-        _loadingMl ? 'Loading forecast…' : _mlError ?? 'ML forecast expired',
+        _loadingMl
+            ? 'Memuat prakiraan…'
+            : _mlError ?? 'Prakiraan ML kedaluwarsa',
       if (aqi != null)
-        'AQI $aqi${cond?.aqiSignal.isStale == true ? " · STALE" : ""}',
+        'AQI $aqi${cond?.aqiSignal.isStale == true ? " · DATA LAMA" : ""}',
       if (pm25 != null)
-        'PM2.5 ${pm25.toStringAsFixed(1)}${cond?.airQuality.isStale == true ? " · STALE" : ""}',
-      'Rain${weather?.kind == "provider_forecast" ? " forecast" : ""} $rainValue${weather?.isStale == true ? " · STALE" : ""}',
+        'PM2.5 ${pm25.toStringAsFixed(1)}${cond?.airQuality.isStale == true ? " · DATA LAMA" : ""}',
+      '${weather?.kind == "provider_forecast" ? "Prakiraan hujan" : "Hujan"} $rainValue${weather?.isStale == true ? " · DATA LAMA" : ""}',
       traffic,
     ].join(' · ');
   }
@@ -1552,8 +1565,8 @@ class TripScreenState extends State<TripScreen> {
             // Title
             Text(
               _isPickingStart
-                  ? 'Select start location on map'
-                  : 'Select destination on map',
+                  ? 'Pilih lokasi awal di peta'
+                  : 'Pilih tujuan di peta',
               style: const TextStyle(
                 fontWeight: FontWeight.w800,
                 fontSize: 15,
@@ -1579,7 +1592,7 @@ class TripScreenState extends State<TripScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Selected: $_tempTappedName',
+                          'Terpilih: $_tempTappedName',
                           style: const TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 12,
@@ -1603,9 +1616,9 @@ class TripScreenState extends State<TripScreen> {
             ),
             const SizedBox(height: 8),
 
-            // Nearest Locations Section Title (Only says "Nearest Locations:")
+            // Nearest Locations Section Title (Only says "Lokasi terdekat:")
             const Text(
-              'Nearest Locations:',
+              'Lokasi terdekat:',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
@@ -1650,7 +1663,7 @@ class TripScreenState extends State<TripScreen> {
                       ),
                     ),
                     subtitle: Text(
-                      '$distMeters m away',
+                      '$distMeters m dari titik',
                       style: const TextStyle(
                         fontSize: 11,
                         color: SupraTheme.textSecondary,
@@ -1679,7 +1692,7 @@ class TripScreenState extends State<TripScreen> {
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.check_circle_outline, size: 18),
                 label: const Text(
-                  'Confirm location',
+                  'Konfirmasi lokasi',
                   style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
                 ),
                 style: ElevatedButton.styleFrom(
@@ -1701,7 +1714,7 @@ class TripScreenState extends State<TripScreen> {
 
     // -------------------------------------------------------------------------
     // Mode B: Environmental Route Options (Traffic, Weather, Air Pollution Evaluation)
-    // Only rendered when user explicitly clicked "Show Route"
+    // Only rendered when user explicitly clicked "Tampilkan rute"
     // -------------------------------------------------------------------------
     if (_calculatedRoutes.isNotEmpty) {
       return Padding(
@@ -1773,7 +1786,7 @@ class TripScreenState extends State<TripScreen> {
                 ),
                 TextButton.icon(
                   icon: const Icon(Icons.edit, size: 14),
-                  label: const Text('Change', style: TextStyle(fontSize: 12)),
+                  label: const Text('Ubah', style: TextStyle(fontSize: 12)),
                   style: TextButton.styleFrom(
                     visualDensity: VisualDensity.compact,
                   ),
@@ -1830,7 +1843,7 @@ class TripScreenState extends State<TripScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Route preview (not live GPS): ${_destination.text}',
+                        'Pratinjau rute (bukan GPS langsung): ${_destination.text}',
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
@@ -1852,7 +1865,7 @@ class TripScreenState extends State<TripScreen> {
                   ? ElevatedButton.icon(
                       icon: const Icon(Icons.cancel_outlined, size: 18),
                       label: const Text(
-                        'Close Preview',
+                        'Tutup pratinjau',
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 15,
@@ -1884,7 +1897,7 @@ class TripScreenState extends State<TripScreen> {
                             )
                           : const Icon(Icons.check_circle_outline, size: 18),
                       label: const Text(
-                        'Confirm',
+                        'Konfirmasi',
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 15,
@@ -1907,7 +1920,7 @@ class TripScreenState extends State<TripScreen> {
     }
 
     // -------------------------------------------------------------------------
-    // Mode C: Initial Origin & Destination Search (with Explicit "Show Route" button)
+    // Mode C: Initial Origin & Destination Search (with Explicit "Tampilkan rute" button)
     // -------------------------------------------------------------------------
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -1919,7 +1932,7 @@ class TripScreenState extends State<TripScreen> {
             children: [
               const Expanded(
                 child: Text(
-                  'Where do you want to go?',
+                  'Ke mana tujuan Anda?',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
@@ -1981,7 +1994,7 @@ class TripScreenState extends State<TripScreen> {
                         decoration: const InputDecoration(
                           isDense: true,
                           contentPadding: EdgeInsets.symmetric(vertical: 2),
-                          hintText: 'Pick-up location',
+                          hintText: 'Lokasi awal',
                           border: InputBorder.none,
                         ),
                       ),
@@ -1992,7 +2005,7 @@ class TripScreenState extends State<TripScreen> {
                         size: 18,
                         color: SupraTheme.brand,
                       ),
-                      tooltip: 'Select on map',
+                      tooltip: 'Pilih di peta',
                       onPressed: () =>
                           _startPickingMode(forStart: true, focusSearch: false),
                       visualDensity: VisualDensity.compact,
@@ -2043,7 +2056,8 @@ class TripScreenState extends State<TripScreen> {
                         decoration: const InputDecoration(
                           isDense: true,
                           contentPadding: EdgeInsets.symmetric(vertical: 2),
-                          hintText: 'Where to? (e.g. Cibinong City Mall)',
+                          hintText:
+                              'Lokasi tujuan (misalnya Cibinong City Mall)',
                           border: InputBorder.none,
                         ),
                       ),
@@ -2054,7 +2068,7 @@ class TripScreenState extends State<TripScreen> {
                         size: 18,
                         color: SupraTheme.brand,
                       ),
-                      tooltip: 'Select on map',
+                      tooltip: 'Pilih di peta',
                       onPressed: () => _startPickingMode(
                         forStart: false,
                         focusSearch: false,
@@ -2073,17 +2087,17 @@ class TripScreenState extends State<TripScreen> {
             children: [
               _buildQuickActionChip(
                 icon: Icons.home,
-                label: 'Home',
+                label: 'Rumah',
                 onTap: () => _useSavedPlace('home'),
               ),
               const SizedBox(width: 6),
               _buildQuickActionChip(
                 icon: Icons.work,
-                label: 'Work',
+                label: 'Kantor',
                 onTap: () => _useSavedPlace('work'),
               ),
               IconButton(
-                tooltip: 'Saved places & routines',
+                tooltip: 'Tempat dan rutinitas tersimpan',
                 onPressed: _openCommutes,
                 visualDensity: VisualDensity.compact,
                 padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -2109,7 +2123,7 @@ class TripScreenState extends State<TripScreen> {
                     ),
                     SizedBox(height: 12),
                     Text(
-                      'Calculating optimal eco-routes...',
+                      'Menghitung pilihan rute…',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
@@ -2118,7 +2132,7 @@ class TripScreenState extends State<TripScreen> {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'Loading route and available origin conditions',
+                      'Memuat rute dan kondisi lokasi awal',
                       style: TextStyle(
                         fontSize: 11,
                         color: SupraTheme.textSecondary,
@@ -2179,7 +2193,7 @@ class TripScreenState extends State<TripScreen> {
 
           const SizedBox(height: 4),
 
-          // Explicit "Show Route" Button: Erased while loading so it never appears in the middle
+          // Explicit "Tampilkan rute" Button: Erased while loading so it never appears in the middle
           if (!_loadingRoutes)
             SizedBox(
               width: double.infinity,
@@ -2187,7 +2201,7 @@ class TripScreenState extends State<TripScreen> {
               child: ElevatedButton.icon(
                 icon: const Icon(Icons.alt_route, size: 18),
                 label: const Text(
-                  'Show Route',
+                  'Tampilkan rute',
                   style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14),
                 ),
                 style: ElevatedButton.styleFrom(
@@ -2224,33 +2238,41 @@ class TripScreenState extends State<TripScreen> {
   }
 
   Widget _buildTripHistoryHeader(int count) {
-    return Row(
+    return Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 12,
+      runSpacing: 8,
       children: [
-        const Text(
-          'Trip History',
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w800,
-            color: SupraTheme.onSurface,
-          ),
-        ),
-        const SizedBox(width: 6),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
-          decoration: BoxDecoration(
-            color: SupraTheme.brand.withValues(alpha: 0.1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            '$count',
-            style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              color: SupraTheme.brand,
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Riwayat perjalanan',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: SupraTheme.onSurface,
+              ),
             ),
-          ),
+            const SizedBox(width: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+              decoration: BoxDecoration(
+                color: SupraTheme.brand.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                '$count',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  color: SupraTheme.brand,
+                ),
+              ),
+            ),
+          ],
         ),
-        const Spacer(),
         // Segmented Sort Selector on the right side: Recent vs Frequency
         Container(
           height: 28,
@@ -2264,14 +2286,14 @@ class TripScreenState extends State<TripScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               _buildSortSegment(
-                title: 'Recent',
+                title: 'Terbaru',
                 icon: Icons.access_time_rounded,
                 isSelected: _historySort == TripHistorySort.recent,
                 onTap: () =>
                     setState(() => _historySort = TripHistorySort.recent),
               ),
               _buildSortSegment(
-                title: 'Frequency',
+                title: 'Frekuensi',
                 icon: Icons.local_fire_department_rounded,
                 isSelected: _historySort == TripHistorySort.frequency,
                 onTap: () =>
@@ -2337,7 +2359,7 @@ class TripScreenState extends State<TripScreen> {
         child: Padding(
           padding: EdgeInsets.all(16.0),
           child: Text(
-            'No saved trips yet.\nSave a route or search a destination to add one!',
+            'Belum ada perjalanan tersimpan.\nSimpan rute atau cari tujuan untuk menambahkannya.',
             textAlign: TextAlign.center,
             style: TextStyle(fontSize: 12, color: SupraTheme.textSecondary),
           ),
@@ -2388,7 +2410,7 @@ class TripScreenState extends State<TripScreen> {
               overflow: TextOverflow.ellipsis,
             ),
             subtitle: Text(
-              'From: ${item.start} • ${item.timeAgo}',
+              'Dari: ${item.start} • ${item.timeAgo}',
               style: const TextStyle(
                 fontSize: 10.5,
                 color: SupraTheme.textSecondary,
@@ -2428,7 +2450,7 @@ class TripScreenState extends State<TripScreen> {
                     size: 18,
                     color: SupraTheme.textSecondary,
                   ),
-                  tooltip: 'Delete or reduce frequency',
+                  tooltip: 'Hapus atau kurangi frekuensi',
                   visualDensity: VisualDensity.compact,
                   padding: const EdgeInsets.all(4),
                   constraints: const BoxConstraints(),
@@ -2453,26 +2475,27 @@ class TripScreenState extends State<TripScreen> {
       case TransportMode.car:
         icon = Icons.directions_car;
         iconColor = const Color(0xFF2563EB);
-        modeLabel = 'Car (Automobile)';
-        vehicleSub = 'Driving estimate, not live-traffic ETA';
+        modeLabel = 'Mobil';
+        vehicleSub =
+            'Perkiraan waktu berkendara tanpa kondisi lalu lintas terkini';
         break;
       case TransportMode.motorcycle:
         icon = Icons.two_wheeler;
         iconColor = const Color(0xFFF59E0B);
-        modeLabel = 'Motorcycle (Two-Wheeler)';
-        vehicleSub = 'Mode-specific routing required';
+        modeLabel = 'Motor';
+        vehicleSub = 'Rute khusus motor';
         break;
       case TransportMode.publicTransit:
         icon = Icons.directions_bus;
         iconColor = const Color(0xFF0F766E);
         modeLabel = opt.title;
-        vehicleSub = opt.transitJourney?.boardingSummary ?? 'Transit';
+        vehicleSub = opt.transitJourney?.boardingSummary ?? 'Transportasi umum';
         break;
       case TransportMode.walk:
         icon = Icons.directions_walk;
         iconColor = const Color(0xFF7C3AED);
-        modeLabel = 'Walking';
-        vehicleSub = 'Pedestrian routing • Outdoor exposure';
+        modeLabel = 'Jalan kaki';
+        vehicleSub = 'Rute pejalan kaki • Paparan luar ruangan';
         break;
     }
 
@@ -2495,29 +2518,29 @@ class TripScreenState extends State<TripScreen> {
     String trafficDesc;
     if (effectiveDensity == null) {
       trafficDesc = effectiveSpeed == null
-          ? 'Traffic: ${fallbackCond?.traffic.unavailableLabel.toLowerCase() ?? "unavailable"}'
-          : 'Traffic ${effectiveSpeed.round()} km/h';
+          ? 'Lalu lintas: ${fallbackCond?.traffic.unavailableLabel.toLowerCase() ?? "tidak tersedia"}'
+          : 'Lalu lintas ${effectiveSpeed.round()} km/h';
     } else if (effectiveDensity < 0.35) {
       trafficDesc =
-          '${trafficStale ? "STALE · " : ""}Smooth flow${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
+          '${trafficStale ? "DATA LAMA · " : ""}Lancar${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
     } else if (effectiveDensity < 0.65) {
       trafficDesc =
-          '${trafficStale ? "STALE · " : ""}Moderate congestion${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
+          '${trafficStale ? "DATA LAMA · " : ""}Kemacetan sedang${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
     } else {
       trafficDesc =
-          '${trafficStale ? "STALE · " : ""}Heavy traffic delay${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
+          '${trafficStale ? "DATA LAMA · " : ""}Kemacetan parah${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
     }
 
     final String rainChipLabel;
     if (mlHour != null) {
       rainChipLabel =
-          'ML origin · ${mlHour.precipitationMm.toStringAsFixed(1)} mm (${(mlHour.rainProbability * 100).round()}%)';
+          'ML lokasi awal · ${mlHour.precipitationMm.toStringAsFixed(1)} mm (${(mlHour.rainProbability * 100).round()}%)';
     } else if (effectiveRain != null) {
       final label = fallbackCond?.weather.kind == 'provider_forecast'
-          ? 'Rain forecast'
-          : 'Precipitation';
+          ? 'Prakiraan hujan'
+          : 'Curah hujan';
       rainChipLabel =
-          '${fallbackCond?.weather.isStale == true ? "STALE · " : ""}$label: ${effectiveRain.toStringAsFixed(1)} mm';
+          '${fallbackCond?.weather.isStale == true ? "DATA LAMA · " : ""}$label: ${effectiveRain.toStringAsFixed(1)} mm';
     } else {
       rainChipLabel =
           fallbackCond?.weather.data?['description'] as String? ??
@@ -2527,18 +2550,18 @@ class TripScreenState extends State<TripScreen> {
     final String airChipLabel;
     if (mlHour?.aqi != null && mlHour?.pm25 != null) {
       airChipLabel =
-          'ML origin · US AQI ${mlHour!.aqi!.round()} · PM2.5 ${mlHour.pm25!.toStringAsFixed(1)} µg/m³';
+          'ML lokasi awal · AQI AS ${mlHour!.aqi!.round()} · PM2.5 ${mlHour.pm25!.toStringAsFixed(1)} µg/m³';
     } else if (mlHour?.estimatedAqi != null) {
       airChipLabel =
-          'ML estimate · AQI ${mlHour!.estimatedAqi!.round()} · PM2.5 ${mlHour.estimatedPm25!.toStringAsFixed(1)} µg/m³';
+          'Perkiraan ML · AQI ${mlHour!.estimatedAqi!.round()} · PM2.5 ${mlHour.estimatedPm25!.toStringAsFixed(1)} µg/m³';
     } else if (mlHour?.providerAqi != null) {
-      airChipLabel = 'AQI forecast · ${mlHour!.providerAqi!.round()}';
+      airChipLabel = 'Prakiraan AQI · ${mlHour!.providerAqi!.round()}';
     } else if (effectivePm25 != null || effectiveAqi != null) {
       airChipLabel = [
         if (effectiveAqi != null)
-          '${fallbackCond?.aqiSignal.isStale == true ? "STALE · " : ""}AQI $effectiveAqi',
+          '${fallbackCond?.aqiSignal.isStale == true ? "DATA LAMA · " : ""}AQI $effectiveAqi',
         if (effectivePm25 != null)
-          '${fallbackCond?.airQuality.isStale == true ? "STALE · " : ""}PM2.5: ${effectivePm25.toStringAsFixed(1)} µg/m³',
+          '${fallbackCond?.airQuality.isStale == true ? "DATA LAMA · " : ""}PM2.5: ${effectivePm25.toStringAsFixed(1)} µg/m³',
       ].join(' · ');
     } else {
       airChipLabel = opt.pm25Label;
@@ -2615,7 +2638,7 @@ class TripScreenState extends State<TripScreen> {
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: const Text(
-                                'RECOMMENDED',
+                                'DISARANKAN',
                                 style: TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.w800,
@@ -2782,13 +2805,13 @@ class TripScreenState extends State<TripScreen> {
             Padding(
               padding: const EdgeInsets.only(top: 8),
               child: SourceInfoButton(
-                title: 'Route sources',
+                title: 'Sumber rute',
                 details: opt.provenanceLabel,
               ),
             ),
             if (opt.transitJourney != null)
               TransitJourneyDetails(journey: opt.transitJourney!),
-            // Health & Safety Advisory
+            // Anjuran kesehatan dan keselamatan
             if (opt.protectiveMeasures.isNotEmpty) ...[
               const SizedBox(height: 6),
               Container(

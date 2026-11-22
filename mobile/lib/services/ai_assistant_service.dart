@@ -98,7 +98,7 @@ class AiAssistantService extends ChangeNotifier {
       id: 'welcome',
       sender: MessageSender.assistant,
       timestamp: DateTime.now(),
-      text: 'Halo! Saya asisten perjalanan SUPRA. Pilih lokasi di Home atau rute di Trip; saya akan membaca sumber kondisi dan prediksi server saat Anda bertanya.',
+      text: 'Halo! Saya asisten perjalanan SUPRA. Pilih lokasi di Beranda atau rute di Perjalanan; saya akan membaca sumber kondisi dan prediksi server saat Anda bertanya.',
     ),
   );
 
@@ -479,7 +479,7 @@ class AiAssistantService extends ChangeNotifier {
       if (response['simulated'] == true ||
           result is! String ||
           result.trim().isEmpty) {
-        throw StateError('Assistant response unavailable');
+        throw StateError('Jawaban asisten tidak tersedia');
       }
       reply = result;
       model = response['model'] as String? ?? 'server';

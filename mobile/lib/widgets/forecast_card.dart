@@ -44,19 +44,19 @@ class ForecastCard extends StatelessWidget {
             Row(
               children: [
                 _miniBar(
-                  'Rain',
+                  'Hujan',
                   prediction.predictedRainfallProbability,
                   SupraTheme.rain,
                 ),
                 const SizedBox(width: 12),
-                _miniBar('Traffic', traffic, trafficColor),
+                _miniBar('Lalu lintas', traffic, trafficColor),
               ],
             ),
             const SizedBox(height: 4),
             Row(
               children: [
                 Text(
-                  'Rain ${prediction.rainLabel} · ${prediction.trafficLabel}',
+                  'Hujan ${prediction.rainLabel} · ${prediction.trafficLabel}',
                   style: const TextStyle(
                     fontSize: 11,
                     color: Color(0xFF64748B),

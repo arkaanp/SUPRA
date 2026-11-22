@@ -4,6 +4,21 @@ This is the mobile package in the monorepo; Axum lives in `../backend/`.
 Flutter is managed with **FVM** (`.fvmrc` uses the reference project's stable
 channel). Use `fvm flutter` / `fvm dart`, not an unrelated system SDK.
 
+## Interface language and data times
+
+The app uses Indonesian (`id_ID`), including built-in date/time dialogs. Familiar
+account terms such as login, sign up, username and password remain in use.
+API field names, status codes and stored enum values retain their original format;
+display labels are translated separately. User-entered names and publisher titles
+keep their original text.
+
+With ML disabled, Home shows **Pembaruan data terakhir** for weather, air quality
+and traffic. Weather uses its issue time when provided; other readings use their
+valid/observation time, or the original fetch time if observation time is absent.
+All labels include a WIB date and time. Retaining cached readings after a failed
+refresh preserves those timestamps and marks them as **data lama**. Missing
+readings have no invented update time.
+
 ## Run locally
 
 1. Install/select the configured SDK with `fvm install`.

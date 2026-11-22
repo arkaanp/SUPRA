@@ -1,3 +1,5 @@
+import '../utils/display_text.dart';
+
 import 'package:flutter/material.dart';
 
 import '../models/user.dart';
@@ -50,8 +52,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       Navigator.of(context).popUntil((route) => route.isFirst);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Could not sign out: $error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Logout gagal: ${displayError(error)}')),
+      );
     }
   }
 
@@ -73,12 +76,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (!mounted) return;
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile picture updated successfully')),
+        const SnackBar(content: Text('Foto profil berhasil diperbarui')),
       );
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to upload profile picture: $error')),
+        SnackBar(
+          content: Text('Foto profil gagal diunggah: ${displayError(error)}'),
+        ),
       );
     } finally {
       if (mounted) setState(() => _uploadingAvatar = false);
@@ -100,7 +105,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           builder: (context, setDialogState) {
             return AlertDialog(
               title: Text(
-                'Edit Profile',
+                'Ubah profil',
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w700,
                   color: colorScheme.onSurface,
@@ -114,7 +119,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   enabled: !submitting,
                   decoration: const InputDecoration(
                     labelText: 'Username',
-                    hintText: 'Enter your username',
+                    hintText: 'Masukkan username Anda',
                   ),
                   validator: (value) => User.isValidUsername(value ?? '')
                       ? null
@@ -126,7 +131,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onPressed: submitting
                       ? null
                       : () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
+                  child: const Text('Batal'),
                 ),
                 ElevatedButton(
                   onPressed: submitting
@@ -146,7 +151,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ScaffoldMessenger.of(dialogContext).showSnackBar(
                                 SnackBar(
                                   content: Text(
-                                    'Failed to update profile: $error',
+                                    'Profil gagal diperbarui: ${displayError(error)}',
                                   ),
                                 ),
                               );
@@ -155,7 +160,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Text(submitting ? 'Saving...' : 'Save'),
+                    child: Text(submitting ? 'Menyimpan…' : 'Simpan'),
                   ),
                 ),
               ],
@@ -169,7 +174,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (updatedName != null && mounted) {
       setState(() {});
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Profile updated successfully')),
+        const SnackBar(content: Text('Profil berhasil diperbarui')),
       );
     }
   }
@@ -191,7 +196,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           builder: (context, setDialogState) {
             return AlertDialog(
               title: Text(
-                'Change Password',
+                'Ubah password',
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w700,
                   color: colorScheme.onSurface,
@@ -208,8 +213,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       obscureText: obscureCurrent,
                       enabled: !submitting,
                       decoration: InputDecoration(
-                        labelText: 'Current Password',
-                        hintText: 'Enter your current password',
+                        labelText: 'Password saat ini',
+                        hintText: 'Masukkan password saat ini',
                         suffixIcon: IconButton(
                           icon: Icon(
                             obscureCurrent
@@ -223,7 +228,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
-                          return 'Please enter your current password';
+                          return 'Masukkan password saat ini';
                         }
                         return null;
                       },
@@ -234,8 +239,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       obscureText: obscureNew,
                       enabled: !submitting,
                       decoration: InputDecoration(
-                        labelText: 'New Password',
-                        hintText: 'Minimum 6 characters',
+                        labelText: 'Password baru',
+                        hintText: 'Minimal 6 karakter',
                         suffixIcon: IconButton(
                           icon: Icon(
                             obscureNew
@@ -248,10 +253,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
-                          return 'Please enter a new password';
+                          return 'Masukkan password baru';
                         }
                         if (value.length < 6) {
-                          return 'Password must be at least 6 characters';
+                          return 'Password harus terdiri dari minimal 6 karakter';
                         }
                         return null;
                       },
@@ -264,7 +269,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onPressed: submitting
                       ? null
                       : () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('Cancel'),
+                  child: const Text('Batal'),
                 ),
                 ElevatedButton(
                   onPressed: submitting
@@ -287,7 +292,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ScaffoldMessenger.of(dialogContext).showSnackBar(
                                 SnackBar(
                                   content: Text(
-                                    'Failed to change password: $error',
+                                    'Password gagal diubah: ${displayError(error)}',
                                   ),
                                 ),
                               );
@@ -296,7 +301,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Text(submitting ? 'Updating...' : 'Update'),
+                    child: Text(submitting ? 'Memperbarui…' : 'Perbarui'),
                   ),
                 ),
               ],
@@ -310,7 +315,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     newPasswordController.dispose();
     if (changed == true && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password updated successfully')),
+        const SnackBar(content: Text('Password berhasil diperbarui')),
       );
     }
   }
@@ -327,14 +332,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           builder: (context, setDialogState) {
             return AlertDialog(
               title: Text(
-                'Delete Account',
+                'Hapus akun',
                 style: theme.textTheme.titleLarge?.copyWith(
                   fontWeight: FontWeight.w700,
                   color: colorScheme.error,
                 ),
               ),
               content: Text(
-                'Are you sure? This action is irreversible.',
+                'Yakin ingin menghapus akun? Tindakan ini tidak dapat dibatalkan.',
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: colorScheme.error,
                   fontWeight: FontWeight.w600,
@@ -345,7 +350,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onPressed: deleting
                       ? null
                       : () => Navigator.of(dialogContext).pop(false),
-                  child: const Text('Cancel'),
+                  child: const Text('Batal'),
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
@@ -367,7 +372,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                               ScaffoldMessenger.of(dialogContext).showSnackBar(
                                 SnackBar(
                                   content: Text(
-                                    'Failed to delete account: $error',
+                                    'Akun gagal dihapus: ${displayError(error)}',
                                   ),
                                 ),
                               );
@@ -376,7 +381,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                         },
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Text(deleting ? 'Deleting...' : 'Delete'),
+                    child: Text(deleting ? 'Menghapus…' : 'Hapus'),
                   ),
                 ),
               ],
@@ -411,7 +416,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4),
           child: Text(
-            'Settings',
+            'Pengaturan',
             style: textTheme.headlineSmall?.copyWith(
               fontWeight: FontWeight.w800,
               color: colorScheme.onSurface,
@@ -432,7 +437,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Profile',
+                  'Profil',
                   style: textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w800,
                     color: colorScheme.onSurface,
@@ -526,7 +531,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                     Text(
                                       (user?.username.isNotEmpty ?? false)
                                           ? user!.username
-                                          : 'User',
+                                          : 'Pengguna',
                                       style: textTheme.titleMedium?.copyWith(
                                         fontWeight: FontWeight.w700,
                                         color: colorScheme.onSurface,
@@ -564,7 +569,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Account',
+                  'Akun',
                   style: textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w800,
                     color: colorScheme.onSurface,
@@ -578,7 +583,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     color: colorScheme.primary,
                   ),
                   title: Text(
-                    'Edit Profile',
+                    'Ubah profil',
                     style: textTheme.bodyLarge?.copyWith(
                       fontWeight: FontWeight.w600,
                       color: colorScheme.onSurface,
@@ -598,7 +603,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.lock_outline, color: colorScheme.primary),
                   title: Text(
-                    'Change Password',
+                    'Ubah password',
                     style: textTheme.bodyLarge?.copyWith(
                       fontWeight: FontWeight.w600,
                       color: colorScheme.onSurface,
@@ -615,7 +620,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     Icons.bookmarks_outlined,
                     color: colorScheme.primary,
                   ),
-                  title: const Text('Saved places & routines'),
+                  title: const Text('Tempat dan rutinitas tersimpan'),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute<void>(
                       builder: (_) => const CommutesScreen(),
@@ -630,7 +635,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   contentPadding: EdgeInsets.zero,
                   leading: Icon(Icons.delete_outline, color: colorScheme.error),
                   title: Text(
-                    'Delete Account',
+                    'Hapus akun',
                     style: textTheme.bodyLarge?.copyWith(
                       fontWeight: FontWeight.w600,
                       color: colorScheme.error,
@@ -650,7 +655,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Row(
             children: [
               Text(
-                'Alert preferences',
+                'Preferensi peringatan',
                 style: textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w800,
                   color: colorScheme.onSurface,
@@ -667,7 +672,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  _saving ? 'Saving…' : 'Auto-save',
+                  _saving ? 'Menyimpan…' : 'Tersimpan otomatis',
                   style: textTheme.labelSmall?.copyWith(
                     color: colorScheme.primary,
                     fontWeight: FontWeight.w700,
@@ -691,14 +696,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
               children: [
                 SwitchListTile(
                   title: Text(
-                    'Unhealthy AQI alerts',
+                    'Peringatan AQI tidak sehat',
                     style: textTheme.bodyLarge?.copyWith(
                       fontWeight: FontWeight.w600,
                       color: colorScheme.onSurface,
                     ),
                   ),
                   subtitle: Text(
-                    'Notify when AQI reaches unhealthy levels',
+                    'Beri tahu saat AQI mencapai tingkat tidak sehat',
                     style: textTheme.bodySmall?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                     ),
@@ -716,14 +721,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 SwitchListTile(
                   title: Text(
-                    'Heavy rain alerts',
+                    'Peringatan hujan lebat',
                     style: textTheme.bodyLarge?.copyWith(
                       fontWeight: FontWeight.w600,
                       color: colorScheme.onSurface,
                     ),
                   ),
                   subtitle: Text(
-                    'Notify when rain probability is high on your route',
+                    'Beri tahu saat peluang hujan tinggi di rute Anda',
                     style: textTheme.bodySmall?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                     ),
@@ -739,14 +744,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 SwitchListTile(
                   title: Text(
-                    'Severe traffic alerts',
+                    'Peringatan kemacetan parah',
                     style: textTheme.bodyLarge?.copyWith(
                       fontWeight: FontWeight.w600,
                       color: colorScheme.onSurface,
                     ),
                   ),
                   subtitle: Text(
-                    'Notify when traffic density hits heavy levels',
+                    'Beri tahu saat lalu lintas mengalami kemacetan parah',
                     style: textTheme.bodySmall?.copyWith(
                       color: colorScheme.onSurfaceVariant,
                     ),
@@ -757,9 +762,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       : (v) => _update(alertSevereTraffic: v),
                 ),
                 SwitchListTile(
-                  title: const Text('Relevant publisher news'),
+                  title: const Text('Berita relevan'),
                   subtitle: const Text(
-                    'Publisher reports matched to your trip or area.',
+                    'Berita yang sesuai dengan perjalanan atau wilayah Anda.',
                   ),
                   value: _prefs.alertRelevantNews,
                   onChanged: _saving
@@ -778,7 +783,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 const Padding(
                   padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
                   child: Text(
-                    'News severity describes the reported disruption. It is an app classification, not an official live warning.',
+                    'Tingkat keparahan berita menggambarkan gangguan yang dilaporkan. Klasifikasi ini dibuat oleh aplikasi, bukan peringatan resmi terkini.',
                     style: TextStyle(fontSize: 12),
                   ),
                 ),
@@ -799,7 +804,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               elevation: 0,
             ),
             child: Text(
-              'Sign out',
+              'Logout',
               style: textTheme.titleMedium?.copyWith(
                 color: colorScheme.error,
                 fontWeight: FontWeight.w600,
@@ -837,7 +842,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (mounted) {
         setState(() => _prefs = previous);
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$error')));
+            .showSnackBar(SnackBar(content: Text(displayError(error))));
       }
     } finally {
       if (mounted) setState(() => _saving = false);

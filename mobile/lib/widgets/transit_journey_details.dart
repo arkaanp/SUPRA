@@ -14,8 +14,8 @@ class TransitJourneyDetails extends StatelessWidget {
       const Divider(),
       Text(
         journey.fareIdr == null
-            ? 'Fare unavailable'
-            : 'Estimated fare · Rp ${journey.fareIdr!.toStringAsFixed(0)}',
+            ? 'Tarif tidak tersedia'
+            : 'Perkiraan tarif · Rp ${journey.fareIdr!.toStringAsFixed(0)}',
         style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
       ),
       const SizedBox(height: 6),
@@ -42,7 +42,7 @@ class TransitJourneyDetails extends StatelessWidget {
                     children: [
                       Text(
                         leg.mode == 'WALK'
-                            ? 'Walk approximately ${(leg.distanceKm * 1000).round()} m'
+                            ? 'Jalan kaki sekitar ${(leg.distanceKm * 1000).round()} m'
                             : leg.line,
                         style: const TextStyle(
                           fontWeight: FontWeight.w700,
@@ -54,7 +54,7 @@ class TransitJourneyDetails extends StatelessWidget {
                         style: const TextStyle(fontSize: 11),
                       ),
                       Text(
-                        '${TransitLeg.wib(leg.departure)} → ${TransitLeg.wib(leg.arrival)} · ${leg.estimated ? 'Estimate' : 'Timetable'}',
+                        '${TransitLeg.wib(leg.departure)} → ${TransitLeg.wib(leg.arrival)} · ${leg.estimated ? 'Perkiraan' : 'Jadwal'}',
                         style: const TextStyle(
                           fontSize: 10,
                           color: Colors.blueGrey,
@@ -63,8 +63,8 @@ class TransitJourneyDetails extends StatelessWidget {
                       if (leg.geometryKind.startsWith('schematic'))
                         Text(
                           leg.mode == 'WALK'
-                              ? 'Walking connection; not street navigation'
-                              : 'Station sequence; not track geometry',
+                              ? 'Jalur penghubung pejalan kaki; bukan navigasi jalan'
+                              : 'Urutan stasiun; bukan jalur rel sebenarnya',
                           style: const TextStyle(
                             fontSize: 10,
                             color: Colors.blueGrey,
@@ -76,7 +76,10 @@ class TransitJourneyDetails extends StatelessWidget {
               ],
             ),
           ),
-      SourceInfoButton(title: 'Transit sources', details: journey.attribution),
+      SourceInfoButton(
+        title: 'Sumber transportasi umum',
+        details: journey.attribution,
+      ),
     ],
   );
 }

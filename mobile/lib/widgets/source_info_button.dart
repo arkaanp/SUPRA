@@ -37,7 +37,7 @@ class SourceInfoButton extends StatelessWidget {
           actions: [
             if (uri != null && uri.scheme == 'https' && uri.host.isNotEmpty)
               TextButton(
-                child: const Text('Open source'),
+                child: const Text('Buka sumber'),
                 onPressed: () async {
                   try {
                     if (await launchUrl(uri)) return;
@@ -47,7 +47,7 @@ class SourceInfoButton extends StatelessWidget {
                   if (dialog.mounted) {
                     ScaffoldMessenger.of(dialog).showSnackBar(
                       const SnackBar(
-                        content: Text('Could not open the source link.'),
+                        content: Text('Tautan sumber gagal dibuka.'),
                       ),
                     );
                   }
@@ -55,7 +55,7 @@ class SourceInfoButton extends StatelessWidget {
               ),
             TextButton(
               onPressed: () => Navigator.pop(dialog),
-              child: const Text('Close'),
+              child: const Text('Tutup'),
             ),
           ],
         );

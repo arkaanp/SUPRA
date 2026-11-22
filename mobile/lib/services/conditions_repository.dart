@@ -166,7 +166,6 @@ class ConditionsRepository {
   static const unavailable = ConditionSignal(
     status: 'unavailable',
     source: 'supra_backend',
-    message:
-        'No current reading available. No cached reading for this location.',
+    message: 'Data terkini dan data tersimpan untuk lokasi ini belum tersedia.',
   );
 }

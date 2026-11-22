@@ -13,8 +13,8 @@ class ForecastRepository {
   final bool useNetwork;
   final DateTime Function() now;
   static String failureMessage(Object error) => error is ApiException
-      ? 'ML forecast unavailable. ${error.message}'
-      : 'ML forecast unavailable. Try refreshing.';
+      ? 'Prakiraan ML tidak tersedia. ${error.message}'
+      : 'Prakiraan ML tidak tersedia. Coba perbarui.';
 
   final _cache = <String, (DateTime, MlForecast)>{};
   final _pending = <String, Future<MlForecast>>{};

@@ -12,7 +12,7 @@ Map<String, dynamic> sample() => {
     'source': 'open_meteo',
     'kind': null,
     'valid_at': null,
-    'message': 'Weather unavailable',
+    'message': 'Cuaca tidak tersedia',
     'data': null,
   },
   'air_quality': {
@@ -79,21 +79,21 @@ void main() {
         ),
       );
       expect(calls, 0, reason: 'no automatic paid-provider polling');
-      await tester.ensureVisible(find.text('Load conditions'));
-      await tester.tap(find.text('Load conditions'));
+      await tester.ensureVisible(find.text('Muat kondisi'));
+      await tester.tap(find.text('Muat kondisi'));
       await tester.pumpAndSettle();
       expect(calls, 1);
-      expect(find.text('Weather unavailable'), findsOneWidget);
-      expect(find.textContaining('STALE —'), findsWidgets);
+      expect(find.text('Cuaca tidak tersedia'), findsOneWidget);
+      expect(find.textContaining('DATA LAMA —'), findsWidgets);
       expect(find.textContaining('Test provider'), findsNothing);
-      expect(find.textContaining('Speed: 20'), findsOneWidget);
+      expect(find.textContaining('Kecepatan: 20'), findsOneWidget);
       expect(find.textContaining('WIB'), findsWidgets);
-      await tester.ensureVisible(find.byTooltip('Air quality source'));
-      await tester.tap(find.byTooltip('Air quality source'));
+      await tester.ensureVisible(find.byTooltip('Sumber kualitas udara'));
+      await tester.tap(find.byTooltip('Sumber kualitas udara'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('Provider: Test provider'), findsOneWidget);
-      expect(find.textContaining('Station: Test station'), findsOneWidget);
-      expect(find.text('Open source'), findsOneWidget);
+      expect(find.textContaining('Penyedia: Test provider'), findsOneWidget);
+      expect(find.textContaining('Stasiun: Test station'), findsOneWidget);
+      expect(find.text('Buka sumber'), findsOneWidget);
     },
   );
 
@@ -116,12 +116,12 @@ void main() {
       ),
     );
     await tester.enterText(find.byType(TextField).first, '0');
-    await tester.ensureVisible(find.text('Load conditions'));
-    await tester.tap(find.text('Load conditions'));
+    await tester.ensureVisible(find.text('Muat kondisi'));
+    await tester.tap(find.text('Muat kondisi'));
     await tester.pumpAndSettle();
     expect(calls, 0);
     expect(
-      find.textContaining('Enter coordinates in Greater Jakarta'),
+      find.textContaining('Masukkan koordinat di Jabodetabek'),
       findsOneWidget,
     );
   });

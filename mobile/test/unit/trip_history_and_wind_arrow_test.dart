@@ -20,7 +20,7 @@ void main() {
     userId: user,
     name: 'Commute',
     startLocation: 'School',
-    destination: 'Station',
+    destination: 'Stasiun',
     plannedDeparture: DateTime.utc(2030),
     confirmedAt: confirmed ? at ?? DateTime.utc(2026, 1, 1) : null,
     startPoint: origin,
@@ -55,7 +55,7 @@ void main() {
       expect(trip.startPoint, origin);
       expect(trip.destPoint, destination);
       expect(trip.toTrip().destPoint, destination);
-      expect(trip.timeAgo, isNot('Just now'));
+      expect(trip.timeAgo, isNot('Baru saja'));
     },
   );
   test('Planned, incomplete, and other-user trips are not journey history', () {

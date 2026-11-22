@@ -77,7 +77,7 @@ class ChatMessage {
 /// The backend puts citations in a separate Sources paragraph for display.
 (String, String?) replyWithSources(String text) {
   final heading = RegExp(
-    r'^Sources:[ \t]*\r?$',
+    r'^(?:Sumber|Sources):[ \t]*\r?$',
     multiLine: true,
   ).firstMatch(text);
   if (heading == null || heading.start == 0) return (text, null);

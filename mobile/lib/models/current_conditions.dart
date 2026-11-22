@@ -1,3 +1,5 @@
+import '../utils/display_text.dart';
+
 class ConditionSignal {
   const ConditionSignal({
     required this.status,
@@ -25,34 +27,42 @@ class ConditionSignal {
     'open_meteo_cams' => 'Open-Meteo / CAMS',
     'openaq' => 'OpenAQ',
     'tomtom' => 'TomTom',
+    'supra_backend' => 'Server SUPRA',
     _ => source,
   };
 
   String get unavailableLabel => switch (message) {
-    'not_configured' => 'Not configured',
-    'provider_invalid_credentials' => 'Invalid provider key',
-    'provider_access_denied' => 'Access denied',
-    'provider_rate_limited' => 'Rate limited',
-    'provider_timeout' => 'Timed out',
-    _ => 'Unavailable',
+    'not_configured' => 'Belum dikonfigurasi',
+    'provider_invalid_credentials' => 'API key penyedia tidak valid',
+    'provider_access_denied' => 'Akses ditolak',
+    'provider_rate_limited' => 'Batas permintaan tercapai',
+    'provider_timeout' => 'Waktu tunggu habis',
+    'invalid_provider_response' => 'Respons penyedia tidak valid',
+    'stale_provider_data' => 'Data penyedia sudah lama',
+    _ => 'Tidak tersedia',
   };
 
   String get sourceDetails => [
-    '$providerLabel · $status${kind == null ? '' : ' · ${kind!.replaceAll('_', ' ')}'}',
-    if (validAt != null) 'Valid: ${validAt!.toUtc().toIso8601String()}',
-    if (receivedAt != null) 'Fetched: ${receivedAt!.toUtc().toIso8601String()}',
-    if (data?['station_name'] != null) 'Station: ${data!['station_name']}',
+    '$providerLabel · ${signalStatusLabel(status)}${kind == null ? '' : ' · ${signalKindLabel(kind)}'}',
+    if (validAt != null) 'Berlaku: ${formatWib(validAt!)}',
+    if (receivedAt != null) 'Diambil: ${formatWib(receivedAt!)}',
+    if (data?['station_name'] != null) 'Stasiun: ${data!['station_name']}',
     if (data?['distance_km'] is num)
-      'Distance: ${(data!['distance_km'] as num).toStringAsFixed(1)} km',
+      'Jarak: ${(data!['distance_km'] as num).toStringAsFixed(1)} km',
     if (data?['provider']?['name'] != null)
-      'Provider: ${data!['provider']['name']}',
-    if (data?['owner']?['name'] != null) 'Owner: ${data!['owner']['name']}',
+      'Penyedia: ${data!['provider']['name']}',
+    if (data?['owner']?['name'] != null) 'Pemilik: ${data!['owner']['name']}',
     for (final l in data?['licenses'] as List? ?? [])
-      'License: ${l['name'] ?? 'See source terms'}${l['attribution']?['name'] == null ? '' : ' · ${l['attribution']['name']}'}',
+      'Lisensi: ${l['name'] ?? 'Lihat ketentuan sumber'}${l['attribution']?['name'] == null ? '' : ' · ${l['attribution']['name']}'}',
     if (source == 'tomtom' && message == 'provider_invalid_credentials')
-      'TomTom rejected the server API key (HTTP 401). Update TOMTOM_API_KEY on the backend.'
+      'TomTom menolak API key server (HTTP 401). Perbarui TOMTOM_API_KEY di server.'
     else if (source == 'tomtom' && message == 'provider_access_denied')
-      'Check Flow Segment Data access and server-side key restrictions in TomTom.'
+      'Periksa akses Flow Segment Data dan pembatasan API key server di TomTom.'
+    else if (message.startsWith('provider_') ||
+        message == 'not_configured' ||
+        message == 'invalid_provider_response' ||
+        message == 'stale_provider_data')
+      unavailableLabel
     else if (message.isNotEmpty)
       message,
   ].join('\n');
@@ -84,7 +94,9 @@ class ConditionSignal {
         ? const Duration(minutes: 2)
         : const Duration(hours: 3);
     if (time != null && now.toUtc().difference(time.toUtc()) > maxAge) {
-      return asStale('Last-known reading; freshness window exceeded.');
+      return asStale(
+        'Data terakhir tersimpan; batas waktu kesegaran data terlampaui.',
+      );
     }
     return this;
   }
@@ -157,7 +169,7 @@ class CurrentConditions {
     if (airIndex != null) airIndex!.sourceDetails,
     weather.sourceDetails,
     traffic.sourceDetails,
-    'Retrieved ${retrievedAt.toUtc().toIso8601String()}',
+    'Diperiksa ${formatWib(retrievedAt)}',
   ].join('\n\n');
 
   CurrentConditions agedAt(DateTime now) => CurrentConditions(
@@ -180,7 +192,7 @@ class CurrentConditions {
           retrievedAt.toUtc().difference(oldTime.toUtc()) <=
               const Duration(hours: 24)) {
         return old!.asStale(
-          'Latest lookup unavailable. Showing last-known data. ${next.message}',
+          'Data terbaru tidak tersedia. Menampilkan data terakhir tersimpan. ${next.message}',
         );
       }
       return next;
@@ -212,7 +224,7 @@ class CurrentConditions {
     final time = previous.validAt ?? previous.receivedAt;
     return time != null && now.difference(time) <= const Duration(hours: 24)
         ? previous.asStale(
-            'Latest AQI unavailable. Showing the last-known index.',
+            'AQI terbaru tidak tersedia. Menampilkan indeks terakhir tersimpan.',
           )
         : null;
   }

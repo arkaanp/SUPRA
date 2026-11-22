@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'config/map_config.dart';
 import 'services/supra_api_service.dart';
@@ -34,6 +35,9 @@ class SupraApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Supra',
+      locale: const Locale('id', 'ID'),
+      supportedLocales: const [Locale('id', 'ID')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       debugShowCheckedModeBanner: false,
       theme: SupraTheme.light(),
       scrollBehavior: const AppScrollBehavior(),

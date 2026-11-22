@@ -26,7 +26,7 @@ class User {
     'created_at': createdAt.toIso8601String(),
   };
 
-  static const usernameHint = 'Use 3–32 letters, numbers or underscores.';
+  static const usernameHint = 'Gunakan 3–32 huruf, angka, atau garis bawah.';
   static final _handle = RegExp(r'^[A-Za-z0-9_]{3,32}$');
   static bool isValidUsername(String value) => _handle.hasMatch(value.trim());
 

@@ -102,9 +102,9 @@ void main() {
       expect(route.rainProbability, isNull);
       expect(route.rainfallMm, isNull);
       expect(route.trafficDensity, isNull);
-      expect(route.trafficCategory, contains('unavailable'));
+      expect(route.trafficCategory, contains('tidak tersedia'));
       expect(route.provenanceLabel, contains('OpenAQ'));
-      expect(route.recommendationReason, contains('not a live-traffic ETA'));
+      expect(route.recommendationReason, contains('tanpa lalu lintas terkini'));
     });
     test(
       'Stale station data is preserved as evidence but not treated as current',
@@ -118,8 +118,8 @@ void main() {
           ),
         ).calculateRoutes(start: start, destination: end)).single;
         expect(route.pm25UgM3, 0);
-        expect(route.pm25Label, startsWith('STALE'));
-        expect(route.provenanceLabel, contains('stale'));
+        expect(route.pm25Label, startsWith('DATA LAMA'));
+        expect(route.provenanceLabel, contains('Data lama'));
       },
     );
     test(

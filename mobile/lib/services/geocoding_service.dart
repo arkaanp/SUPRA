@@ -72,7 +72,7 @@ class GeocodingService {
 
   Future<String> reverseGeocode(LatLng location) async {
     final fallback =
-        'Point (${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)})';
+        'Titik (${location.latitude.toStringAsFixed(5)}, ${location.longitude.toStringAsFixed(5)})';
     if (!useNetwork) return fallback;
     final key = '$baseUrl:${location.latitude},${location.longitude}';
     if (_reverseCache.containsKey(key)) return _reverseCache[key]!;
@@ -153,7 +153,7 @@ class GeocodingService {
           ),
         );
         if (response.statusCode != 200) {
-          throw StateError('Location provider unavailable');
+          throw StateError('Penyedia lokasi tidak tersedia');
         }
         final values = jsonDecode(response.body) as List;
         final network = <GeocodedPlace>[];
@@ -176,7 +176,7 @@ class GeocodingService {
       } catch (_) {
         if (local.isEmpty) {
           throw StateError(
-            'Location search unavailable. Retry or choose on the map.',
+            'Pencarian lokasi tidak tersedia. Coba lagi atau pilih di peta.',
           );
         }
       } finally {

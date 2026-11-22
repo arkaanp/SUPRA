@@ -65,7 +65,7 @@ class ChatBubble extends StatelessWidget {
                     Clipboard.setData(ClipboardData(text: message.text));
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('Pesan disalin ke clipboard'),
+                        content: Text('Pesan disalin'),
                         duration: Duration(seconds: 1),
                         behavior: SnackBarBehavior.floating,
                       ),
@@ -128,7 +128,7 @@ class ChatBubble extends StatelessWidget {
                               const SizedBox(width: 8),
                               Text(
                                 message.statusText ??
-                                    'SUPRA Assistant sedang berpikir…',
+                                    'Asisten SUPRA sedang berpikir…',
                                 style: const TextStyle(
                                   fontSize: 12,
                                   color: SupraTheme.textSecondary,
@@ -154,7 +154,7 @@ class ChatBubble extends StatelessWidget {
                         !message.isStreaming &&
                         (sources != null || message.model != null))
                       SourceInfoButton(
-                        title: 'Assistant sources',
+                        title: 'Sumber informasi asisten',
                         details: [
                           if (message.model != null) message.model!,
                           ?sources,

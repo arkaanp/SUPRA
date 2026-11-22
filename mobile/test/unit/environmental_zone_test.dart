@@ -14,8 +14,8 @@ void main() {
       expect(zone.pm25, isNull);
       expect(zone.rainfallMm, isNull);
       expect(zone.windSpeedKmh, isNull);
-      expect(zone.weatherSummary, contains('unavailable'));
-      expect(zone.healthAdvisory, contains('unavailable'));
+      expect(zone.weatherSummary, contains('tidak tersedia'));
+      expect(zone.healthAdvisory, contains('tidak tersedia'));
     }
   });
   test('Station sample does not imply AQI or a measured city polygon', () {
@@ -26,10 +26,10 @@ void main() {
       pm25: 20,
       rainfallMm: 0,
     );
-    expect(zone.aqiCategory, 'PM2.5, not AQI');
+    expect(zone.aqiCategory, 'PM2.5, bukan AQI');
     expect(zone.pm25Color, Colors.transparent);
     expect(zone.compositeAreaColor, Colors.transparent);
-    expect(zone.weatherSummary, 'Precipitation 0.0 mm');
+    expect(zone.weatherSummary, 'Curah hujan 0.0 mm');
   });
   test('Only explicit selected sample is fetched; partial/stale signals stay unknown', () async {
     var calls = 0;
@@ -69,7 +69,7 @@ void main() {
     expect(sample.pm25, 45);
     expect(sample.rainfallMm, 0);
     expect(sample.conditions!.airQuality.status, 'stale');
-    expect(sample.descriptiveLabel, contains('stale'));
+    expect(sample.descriptiveLabel, contains('Data lama'));
     expect(sample.conditions!.airQuality.providerLabel, 'OpenAQ');
   });
   test(
@@ -115,8 +115,8 @@ void main() {
         destinationName: 'Universitas Indonesia',
       );
       expect(calls, 5);
-      expect(samples.first.name, 'Start · Monas');
-      expect(samples.last.name, 'Destination · Universitas Indonesia');
+      expect(samples.first.name, 'Awal · Monas');
+      expect(samples.last.name, 'Tujuan · Universitas Indonesia');
       expect(samples[1].name, 'Jalan Sudirman, Setiabudi, Jakarta Selatan');
       expect(samples.any((s) => s.name.contains('Route sample')), isFalse);
       expect(samples.map((s) => s.id).toSet().length, 5);
@@ -166,7 +166,7 @@ void main() {
       zone.contains(const LatLng(latitude: -6.6, longitude: 106.8)),
       false,
     );
-    expect(zone.cardinalWindDirection, 'Unavailable');
-    expect(zone.copyWith(windDirectionDegrees: 90).cardinalWindDirection, 'E');
+    expect(zone.cardinalWindDirection, 'Tidak tersedia');
+    expect(zone.copyWith(windDirectionDegrees: 90).cardinalWindDirection, 'T');
   });
 }

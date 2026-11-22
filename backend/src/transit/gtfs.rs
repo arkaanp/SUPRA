@@ -473,7 +473,7 @@ impl Feed {
                     let mut legs = label.legs.clone();
                     legs.push(last.clone());
                     best=Some(Itinerary{source:"transjakarta_gtfs".into(),departure_at:at,arrival_at:last.arrival_at,fare_idr:None,legs,
-                    attribution:"Transjakarta — supplied GTFS. Frequency-based waiting and walking times are estimates; walking links are schematic, not street navigation. Not live vehicle tracking.".into()});
+                    attribution:"Transjakarta — GTFS tersedia. Waktu tunggu berdasarkan frekuensi dan waktu berjalan merupakan perkiraan. Jalur penghubung bersifat skematis, bukan navigasi jalan. Pelacakan kendaraan langsung belum tersedia.".into()});
                 }
             }
             labels = next;

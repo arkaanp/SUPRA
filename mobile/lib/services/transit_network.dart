@@ -1100,8 +1100,9 @@ abstract final class TransitNetwork {
     // Leg 2: Transit Corridor Path through all physical stations/haltes
     if (depStation.line == arrStation.line) {
       // Same line: collect all stations along the corridor in correct directional sequence
-      final sameLine =
-          sysStations.where((s) => s.line == depStation.line).toList();
+      final sameLine = sysStations
+          .where((s) => s.line == depStation.line)
+          .toList();
       final depIdx = sameLine.indexWhere((s) => s.id == depStation.id);
       final arrIdx = sameLine.indexWhere((s) => s.id == arrStation.id);
 
@@ -1131,8 +1132,9 @@ abstract final class TransitNetwork {
       }
 
       // Add dep leg to hub
-      final depLine =
-          sysStations.where((s) => s.line == depStation.line).toList();
+      final depLine = sysStations
+          .where((s) => s.line == depStation.line)
+          .toList();
       final depIdx = depLine.indexWhere((s) => s.id == depStation.id);
       final hubIdx1 = depLine.indexWhere((s) => s.id == hub?.id);
 
@@ -1154,8 +1156,9 @@ abstract final class TransitNetwork {
       }
 
       // Add hub leg to arr
-      final arrLine =
-          sysStations.where((s) => s.line == arrStation.line).toList();
+      final arrLine = sysStations
+          .where((s) => s.line == arrStation.line)
+          .toList();
       final hubIdx2 = arrLine.indexWhere((s) => s.id == hub?.id);
       final arrIdx = arrLine.indexWhere((s) => s.id == arrStation.id);
 
@@ -1197,8 +1200,10 @@ abstract final class TransitNetwork {
         ? 40.0
         : (system == TransitSystem.transjakarta ? 24.0 : 42.0);
     final int dwellMinutes = intermediate.length + 2;
-    final transitMins =
-        max(6, (transitKm / transitSpeed * 60).round() + dwellMinutes);
+    final transitMins = max(
+      6,
+      (transitKm / transitSpeed * 60).round() + dwellMinutes,
+    );
     final totalDuration = Duration(minutes: walkMins + transitMins);
 
     // Generate authentic, turn-by-turn navigation instructions
@@ -1206,19 +1211,21 @@ abstract final class TransitNetwork {
     final cleanArrName = arrStation.name.split(' (').first;
 
     final steps = <String>[
-      'Walk ${walkToStationKm < 1.0 ? "${(walkToStationKm * 1000).round()} m" : "${walkToStationKm.toStringAsFixed(1)} km"} to $cleanDepName',
+      'Jalan kaki ${walkToStationKm < 1.0 ? "${(walkToStationKm * 1000).round()} m" : "${walkToStationKm.toStringAsFixed(1)} km"} ke $cleanDepName',
     ];
 
     if (system == TransitSystem.transjakarta) {
-      steps.add('Tap electronic money card at $cleanDepName entrance turnstile');
+      steps.add('Tempelkan kartu uang elektronik di pintu masuk $cleanDepName');
       steps.add(
-        'Board ${depStation.line} (Dedicated Busway Corridor) heading towards $cleanArrName',
+        'Naik ${depStation.line} (koridor khusus bus) menuju $cleanArrName',
       );
     } else if (system == TransitSystem.krl) {
-      steps.add('Tap KRL Commuter Multi-Trip card at $cleanDepName fare gates');
-      steps.add('Board ${depStation.line} train at Platform');
+      steps.add('Tempelkan kartu KRL di pintu masuk $cleanDepName');
+      steps.add('Naik kereta ${depStation.line} di peron');
     } else {
-      steps.add('Tap card and board ${depStation.system.displayName} at $cleanDepName');
+      steps.add(
+        'Tempelkan kartu dan naik ${depStation.system.displayName} di $cleanDepName',
+      );
     }
 
     if (intermediate.isNotEmpty) {
@@ -1232,14 +1239,16 @@ abstract final class TransitNetwork {
                 .first,
           )
           .toList();
-      steps.add('Pass ${intermediate.length} transit stops: ${names.take(5).join(", ")}${names.length > 5 ? " and ${names.length - 5} more" : ""}');
+      steps.add(
+        'Lewati ${intermediate.length} pemberhentian: ${names.take(5).join(", ")}${names.length > 5 ? " dan ${names.length - 5} lainnya" : ""}',
+      );
     } else {
-      steps.add('Direct express ride along transit corridor');
+      steps.add('Perjalanan langsung di sepanjang koridor');
     }
 
-    steps.add('Alight at $cleanArrName');
+    steps.add('Turun di $cleanArrName');
     steps.add(
-      'Walk ${walkFromStationKm < 1.0 ? "${(walkFromStationKm * 1000).round()} m" : "${walkFromStationKm.toStringAsFixed(1)} km"} to ${destinationName ?? "Final Destination"}',
+      'Jalan kaki ${walkFromStationKm < 1.0 ? "${(walkFromStationKm * 1000).round()} m" : "${walkFromStationKm.toStringAsFixed(1)} km"} ke ${destinationName ?? "Tujuan akhir"}',
     );
 
     return TransitRouteResult(

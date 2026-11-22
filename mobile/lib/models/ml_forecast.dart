@@ -129,12 +129,12 @@ class MlForecast {
         if (j['air_forecast'] is Map)
           [
             j['air_forecast']['model_id'],
-            'Station: ${j['air_forecast']['station']['station_name']}',
-            'Distance: ${(j['air_forecast']['station']['distance_km'] as num).toStringAsFixed(1)} km',
-            'Inputs through ${j['air_forecast']['input_through']}',
+            'Stasiun: ${j['air_forecast']['station']['station_name']}',
+            'Jarak: ${(j['air_forecast']['station']['distance_km'] as num).toStringAsFixed(1)} km',
+            'Data masukan hingga ${j['air_forecast']['input_through']}',
             j['air_forecast']['limitations'],
-            'Provider: ${j['air_forecast']['station']['provider']}',
-            'Licenses: ${j['air_forecast']['station']['licenses']}',
+            'Penyedia: ${j['air_forecast']['station']['provider']}',
+            'Lisensi: ${j['air_forecast']['station']['licenses']}',
           ].join('\n'),
         if (j['sources']['air_forecast'] is String)
           j['sources']['air_forecast'] as String,

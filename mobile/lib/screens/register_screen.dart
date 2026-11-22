@@ -29,7 +29,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (_password.text != _confirm.text) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Passwords do not match'),
+          content: Text('Password tidak cocok'),
           backgroundColor: Colors.red,
         ),
       );
@@ -44,7 +44,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Account created. Sign in with your username.'),
+          content: Text('Akun berhasil dibuat. Login dengan username Anda.'),
         ),
       );
       Navigator.of(context).popUntil((route) => route.isFirst);
@@ -61,7 +61,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Create account')),
+      appBar: AppBar(title: const Text('Sign up')),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -70,7 +70,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                'Create account',
+                'Sign up',
                 style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
                 textAlign: TextAlign.center,
               ),
@@ -99,13 +99,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 controller: _confirm,
                 obscureText: true,
                 decoration: const InputDecoration(
-                  labelText: 'Confirm password',
+                  labelText: 'Konfirmasi password',
                   prefixIcon: Icon(Icons.lock_outline),
                 ),
               ),
               const SizedBox(height: 12),
               const Text(
-                'You can change your username in Profile. Keep your password safe. Forgotten passwords cannot be reset in the app.',
+                'Anda dapat mengubah username di Profil. Simpan password dengan aman. Password yang terlupa belum dapat direset melalui aplikasi.',
               ),
               const SizedBox(height: 24),
               ElevatedButton(
@@ -119,12 +119,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           color: Colors.white,
                         ),
                       )
-                    : const Text('Create account'),
+                    : const Text('Sign up'),
               ),
               const SizedBox(height: 16),
               TextButton(
                 onPressed: () => Navigator.of(context).pop(),
-                child: const Text('Already have an account? Sign in'),
+                child: const Text('Sudah punya akun? Login'),
               ),
             ],
           ),

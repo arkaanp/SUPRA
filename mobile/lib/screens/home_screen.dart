@@ -20,6 +20,7 @@ import '../services/supra_api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/interactive_location_map.dart';
 import '../widgets/current_location_button.dart';
+import '../utils/display_text.dart';
 
 /// Hourly forecast data point for the 12-hour combined local forecast.
 class HourlyForecast {
@@ -50,7 +51,7 @@ class HourlyForecast {
     this.aqiStale = false,
     required this.aqiBgColor,
     required this.aqiTextColor,
-    this.status = 'ML pending',
+    this.status = 'Prediksi ML nonaktif',
   });
 }
 
@@ -214,10 +215,10 @@ class _HomeScreenState extends State<HomeScreen> {
           'point': [_selectedLocation.latitude, _selectedLocation.longitude],
           'aqi': aqi,
           'temperature': temp == null
-              ? 'Unavailable'
+              ? 'Tidak tersedia'
               : '${temp.toStringAsFixed(0)}°C',
           'weather':
-              'Rain ${rain ?? "unavailable"} mm, PM2.5 ${pm25 ?? "unavailable"} µg/m³, traffic ${speed ?? "unavailable"} km/h (${isStale ? "stale" : "latest"})',
+              'Hujan ${rain ?? "tidak tersedia"} mm, PM2.5 ${pm25 ?? "tidak tersedia"} µg/m³, lalu lintas ${speed ?? "tidak tersedia"} km/h (${isStale ? "data lama" : "terbaru"})',
         },
       );
       final reply = response['reply'] as String?;
@@ -232,7 +233,7 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (_) {
       if (mounted) {
         setState(
-          () => _geminiConditionsInsight = 'Conditions summary unavailable. Source readings are shown above.',
+          () => _geminiConditionsInsight = 'Ringkasan kondisi tidak tersedia. Data sumber ditampilkan di atas.',
         );
       }
     } finally {
@@ -248,45 +249,45 @@ class _HomeScreenState extends State<HomeScreen> {
   _getAqiMeta(int aqi) {
     if (aqi <= 50) {
       return (
-        'Good',
+        'Baik',
         const Color(0xFFDCFCE7),
         const Color(0xFF15803D),
-        'Air quality is satisfactory and poses little or no risk to health.',
+        'Kualitas udara baik dengan risiko kesehatan rendah.',
       );
     } else if (aqi <= 100) {
       return (
-        'Moderate',
+        'Sedang',
         const Color(0xFFFEF08A),
         const Color(0xFF713F12),
-        'Air is acceptable. Sensitive groups should limit prolonged outdoor activity.',
+        'Kualitas udara cukup baik. Kelompok sensitif sebaiknya membatasi aktivitas luar ruangan yang lama.',
       );
     } else if (aqi <= 150) {
       return (
-        'Unhealthy for Sensitive Groups',
+        'Tidak sehat bagi kelompok sensitif',
         const Color(0xFFFFEDD5),
         const Color(0xFFC2410C),
-        'Sensitive groups may experience health effects. General public not likely affected.',
+        'Kelompok sensitif dapat mengalami dampak kesehatan. Dampak pada masyarakat umum cenderung lebih kecil.',
       );
     } else if (aqi <= 200) {
       return (
-        'Unhealthy',
+        'Tidak sehat',
         const Color(0xFFFEE2E2),
         const Color(0xFFB91C1C),
-        'Everyone may begin to experience health effects. Wear a mask and limit outdoor exertion.',
+        'Semua orang dapat mengalami dampak kesehatan. Gunakan masker dan batasi aktivitas berat di luar ruangan.',
       );
     } else if (aqi <= 300) {
       return (
-        'Very Unhealthy',
+        'Sangat tidak sehat',
         const Color(0xFFF3E8FF),
         const Color(0xFF6B21A8),
-        'Health alert: risk of health effects increased for everyone. Avoid prolonged outdoor exertion.',
+        'Risiko kesehatan meningkat bagi semua orang. Hindari aktivitas berat yang lama di luar ruangan.',
       );
     } else {
       return (
-        'Hazardous',
+        'Berbahaya',
         const Color(0xFFFFE4E6),
         const Color(0xFF881337),
-        'Health warning of emergency conditions: everyone is more likely to be affected.',
+        'Kondisi darurat kesehatan: semua orang berisiko terdampak.',
       );
     }
   }
@@ -308,11 +309,11 @@ class _HomeScreenState extends State<HomeScreen> {
       description: weather?.data?['description'] as String?,
     );
     for (int i = 0; i < count; i++) {
-      final hourTime = now.add(Duration(hours: i));
+      final hourTime = now.toUtc().add(Duration(hours: 7 + i));
       final hourNum = hourTime.hour;
       final timeStr = i == 0
-          ? 'Now'
-          : '${hourNum % 12 == 0 ? 12 : hourNum % 12} ${hourNum >= 12 ? 'PM' : 'AM'}';
+          ? 'Sekarang'
+          : '${hourNum.toString().padLeft(2, '0')}:00 WIB';
 
       final current = i == 0;
       final temp = current ? weather?.number('temperature_c')?.round() : null;
@@ -337,20 +338,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 : Icons.water_drop_outlined,
             weatherColor: h == null ? Colors.grey : Colors.blue,
             weatherCondition: h == null
-                ? 'Weather —'
-                : '${h.weatherSymbol != null ? '$label\n' : ''}Rain ${(h.rainProbability * 100).round()}% · ${h.precipitationMm.toStringAsFixed(1)} mm',
+                ? 'Cuaca —'
+                : '${h.weatherSymbol != null ? '$label\n' : ''}Hujan ${(h.rainProbability * 100).round()}% · ${h.precipitationMm.toStringAsFixed(1)} mm',
             temperatureC: h?.temperatureC.round(),
             aqi: aqi,
             providerAqi: h?.providerAqi != null,
             estimatedAqi: h?.estimatedAqi != null,
-            aqiCategory: meta?.$1 ?? 'No prediction',
+            aqiCategory: meta?.$1 ?? 'Belum ada prediksi',
             aqiBgColor: meta?.$2 ?? const Color(0xFFF1F5F9),
             aqiTextColor: meta?.$3 ?? const Color(0xFF64748B),
             status: h != null
-                ? 'ML forecast'
+                ? 'Prakiraan ML'
                 : _loadingForecast
-                ? 'ML loading'
-                : 'ML unavailable',
+                ? 'Memuat prediksi ML'
+                : 'Prediksi ML tidak tersedia',
           ),
         );
         continue;
@@ -373,22 +374,22 @@ class _HomeScreenState extends State<HomeScreen> {
           weatherColor: const Color(0xFF64748B),
           weatherCondition: current && weather?.hasData == true
               ? weatherText
-              : 'Weather —',
+              : 'Cuaca —',
           temperatureC: temp,
           aqi: current ? effectiveNowAqi : null,
           aqiStale: current && snapshot?.aqiSignal.isStale == true,
-          aqiCategory: nowMeta?.$1 ?? 'No prediction',
+          aqiCategory: nowMeta?.$1 ?? 'Belum ada prediksi',
           aqiBgColor: nowMeta?.$2 ?? const Color(0xFFF1F5F9),
           aqiTextColor: nowMeta?.$3 ?? const Color(0xFF64748B),
           status: current
               ? (temp == null
-                    ? 'No data'
+                    ? 'Belum ada data'
                     : weather?.isStale == true
-                    ? 'Stale'
+                    ? 'Data lama'
                     : weather?.kind == 'provider_forecast'
-                    ? 'Weather forecast'
-                    : 'Latest')
-              : 'ML pending',
+                    ? 'Prakiraan cuaca'
+                    : 'Terbaru')
+              : 'Prediksi ML nonaktif',
         ),
       );
     }
@@ -443,7 +444,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(width: 8),
                     const Expanded(
                       child: Text(
-                        'Change Location',
+                        'Ubah lokasi',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -459,7 +460,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Choose your current location, a Greater Jakarta landmark, or a point on the map.',
+                  'Pilih lokasi saat ini, tempat di Jabodetabek, atau titik di peta.',
                   style: TextStyle(
                     color: SupraTheme.textSecondary,
                     fontSize: 13,
@@ -469,7 +470,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 CurrentLocationButton(
                   onSelected: (point) {
                     Navigator.pop(ctx);
-                    _chooseLocation(point, 'Current location');
+                    _chooseLocation(point, 'Lokasi saat ini');
                   },
                 ),
                 const SizedBox(height: 8),
@@ -479,7 +480,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     final picked = await showLocationPickerSheet(
                       context: context,
                       initialLocation: _selectedLocation,
-                      title: 'Select location in Greater Jakarta',
+                      title: 'Pilih lokasi di Jabodetabek',
                     );
                     if (picked != null && mounted) {
                       final nearest = findNearestLandmark(picked);
@@ -491,7 +492,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     }
                   },
                   icon: const Icon(Icons.map_outlined),
-                  label: const Text('Pick on Interactive Map'),
+                  label: const Text('Pilih di peta interaktif'),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: SupraTheme.brand,
                     side: const BorderSide(color: SupraTheme.brand),
@@ -503,7 +504,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 16),
                 const Text(
-                  'Popular Jabodetabek Locations',
+                  'Lokasi populer di Jabodetabek',
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
                     fontSize: 14,
@@ -523,29 +524,29 @@ class _HomeScreenState extends State<HomeScreen> {
                       final presets = [
                         const NamedLocation(
                           name: 'Kuningan, Jakarta',
-                          area: 'South Jakarta',
+                          area: 'Jakarta Selatan',
                           point: LatLng(latitude: -6.2297, longitude: 106.8295),
                           adm4: '31.74.02.1008',
                         ),
                         const NamedLocation(
-                          name: 'Monas (Central Jakarta)',
-                          area: 'Central Jakarta',
+                          name: 'Monas (Jakarta Pusat)',
+                          area: 'Jakarta Pusat',
                           point: LatLng(latitude: -6.1754, longitude: 106.8272),
                           adm4: '31.71.01.1001',
                         ),
                         const NamedLocation(
                           name: 'Bundaran HI',
-                          area: 'Central Jakarta',
+                          area: 'Jakarta Pusat',
                           point: LatLng(latitude: -6.1950, longitude: 106.8230),
                         ),
                         const NamedLocation(
                           name: 'Sudirman CBD (SCBD)',
-                          area: 'South Jakarta',
+                          area: 'Jakarta Selatan',
                           point: LatLng(latitude: -6.2250, longitude: 106.8080),
                         ),
                         const NamedLocation(
                           name: 'Gelora Bung Karno (GBK)',
-                          area: 'Central Jakarta',
+                          area: 'Jakarta Pusat',
                           point: LatLng(latitude: -6.2185, longitude: 106.8025),
                         ),
                         const NamedLocation(
@@ -560,7 +561,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         const NamedLocation(
                           name: 'BSD City',
-                          area: 'South Tangerang',
+                          area: 'Tangerang Selatan',
                           point: LatLng(latitude: -6.3020, longitude: 106.6520),
                         ),
                       ];
@@ -622,45 +623,45 @@ class _HomeScreenState extends State<HomeScreen> {
         final bands = [
           (
             '0 - 50',
-            'Good',
+            'Baik',
             const Color(0xFF22C55E),
             const Color(0xFFDCFCE7),
-            'Air quality is satisfactory. Safe for all outdoor activities and open ventilation.',
+            'Kualitas udara baik. Risiko akibat polusi udara cenderung rendah.',
           ),
           (
             '51 - 100',
-            'Moderate',
+            'Sedang',
             const Color(0xFFCA8A04),
             const Color(0xFFFEF08A),
-            'Air is acceptable. Sensitive individuals (asthma/allergies) should limit prolonged outdoor exertion.',
+            'Kualitas udara cukup baik. Orang dengan asma atau alergi sebaiknya membatasi aktivitas berat yang lama di luar ruangan.',
           ),
           (
             '101 - 150',
-            'Unhealthy for Sensitive Groups',
+            'Tidak sehat bagi kelompok sensitif',
             const Color(0xFFEA580C),
             const Color(0xFFFFEDD5),
-            'Elderly, children, and people with lung disease at risk. Motorcyclists and cyclists should wear masks.',
+            'Lansia, anak-anak, dan penderita penyakit paru berisiko terdampak. Pengendara motor dan pesepeda sebaiknya memakai masker.',
           ),
           (
             '151 - 200',
-            'Unhealthy',
+            'Tidak sehat',
             const Color(0xFFDC2626),
             const Color(0xFFFEE2E2),
-            'Everyone may experience health effects. Wear N95 respirator masks outdoors; keep car windows closed with AC recirculation.',
+            'Semua orang dapat mengalami dampak kesehatan. Gunakan masker N95 di luar ruangan; tutup jendela mobil dan gunakan sirkulasi ulang AC.',
           ),
           (
             '201 - 300',
-            'Very Unhealthy',
+            'Sangat tidak sehat',
             const Color(0xFF7C3AED),
             const Color(0xFFF3E8FF),
-            'Health alert: serious risk for everyone. Avoid non-essential outdoor commuting.',
+            'Risiko kesehatan serius bagi semua orang. Hindari perjalanan luar ruangan yang tidak mendesak.',
           ),
           (
             '301+',
-            'Hazardous',
+            'Berbahaya',
             const Color(0xFF881337),
             const Color(0xFFFFE4E6),
-            'Emergency conditions: entire population is likely affected. Stay indoors.',
+            'Kondisi darurat: seluruh masyarakat berisiko terdampak. Tetaplah di dalam ruangan.',
           ),
         ];
 
@@ -700,7 +701,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(width: 10),
                       const Expanded(
                         child: Text(
-                          'Understanding Air Quality (AQI)',
+                          'Memahami kualitas udara (AQI)',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -716,7 +717,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    'The Air Quality Index (AQI) converts fine particulate matter (PM2.5) concentrations from environmental sensors into a simple 0 to 500 health scale. PM2.5 particles are small enough to penetrate deep into lungs and enter the bloodstream.',
+                    'Indeks kualitas udara (AQI) merangkum tingkat polusi dan dampaknya terhadap kesehatan. PM2.5 adalah partikel halus yang dapat masuk jauh ke paru-paru. Nilai AQI dan konsentrasi PM2.5 ditampilkan secara terpisah sesuai sumber data.',
                     style: TextStyle(
                       fontSize: 13,
                       height: 1.4,
@@ -725,7 +726,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 16),
                   const Text(
-                    'AQI Severity Bands & Health Advisory',
+                    'Kategori AQI dan anjuran kesehatan',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
@@ -813,31 +814,31 @@ class _HomeScreenState extends State<HomeScreen> {
         final rainLevels = [
           (
             '< 0.5 mm',
-            'Drizzle / Dry',
+            'Gerimis / kering',
             const Color(0xFF64748B),
             const Color(0xFFF1F5F9),
-            'Negligible road accumulation. Safe for standard commuting without wet gear.',
+            'Genangan cenderung sedikit. Tetap perhatikan kondisi jalan dan perlengkapan perjalanan.',
           ),
           (
             '0.5 - 2.5 mm',
-            'Light Rain',
+            'Hujan ringan',
             const Color(0xFF0284C7),
             const Color(0xFFE0F2FE),
-            'Road paint markings, zebra crossings, and metal expansion joints become slippery. Motorcyclists should reduce cornering speed.',
+            'Marka jalan, penyeberangan, dan sambungan logam dapat menjadi licin. Pengendara motor sebaiknya mengurangi kecepatan saat berbelok.',
           ),
           (
             '2.5 - 10 mm',
-            'Moderate Rain',
+            'Hujan sedang',
             const Color(0xFF2563EB),
             const Color(0xFFDBEAFE),
-            'Active water spray from tires, reduced braking distance. Equip waterproof raincoat gear and headlights.',
+            'Cipratan air dapat mengurangi jarak pandang dan memperpanjang jarak pengereman. Siapkan jas hujan dan nyalakan lampu kendaraan.',
           ),
           (
             '> 10 mm',
-            'Heavy Rain / Downpour',
+            'Hujan lebat',
             const Color(0xFF1D4ED8),
             const Color(0xFFBFDBFE),
-            'High risk of hydroplaning, poor visibility, and water ponding / flash floods on Greater Jakarta arterial roads and underpasses.',
+            'Risiko kendaraan kehilangan cengkeraman, jarak pandang rendah, dan genangan meningkat. Waspadai jalan utama dan terowongan di Jabodetabek.',
           ),
         ];
 
@@ -877,7 +878,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       const SizedBox(width: 10),
                       const Expanded(
                         child: Text(
-                          'Understanding Rain & Commute Risk',
+                          'Memahami hujan dan risiko perjalanan',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.bold,
@@ -893,7 +894,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 10),
                   const Text(
-                    'Rain metrics show either active precipitation accumulation rate (in millimeters) or probability percentage (% chance of rain during the forecast hour).',
+                    'Data hujan menunjukkan akumulasi curah hujan dalam milimeter sesuai interval sumber atau peluang hujan selama jam prakiraan.',
                     style: TextStyle(
                       fontSize: 13,
                       height: 1.4,
@@ -902,7 +903,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   const SizedBox(height: 16),
                   const Text(
-                    'Rainfall Rates & Commuter Precautions',
+                    'Curah hujan dan tindakan pencegahan',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
@@ -993,12 +994,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final currentAqi = suppliedAqi;
     final aqiMeta = currentAqi == null
         ? (
-            pm25 == null ? 'No cached data' : 'PM2.5',
+            pm25 == null ? 'Belum ada data tersimpan' : 'PM2.5',
             const Color(0xFFF1F5F9),
             const Color(0xFF475569),
             pm25 == null
-                ? 'No cached reading for this location yet. Pull to refresh.'
-                : 'Nearby station PM2.5, not an AQI or an ML prediction.',
+                ? 'Belum ada data tersimpan untuk lokasi ini. Tarik untuk memperbarui.'
+                : 'PM2.5 dari stasiun terdekat, bukan AQI atau prediksi ML.',
           )
         : _getAqiMeta(currentAqi);
     final rain = weather?.number('precipitation_mm');
@@ -1009,23 +1010,23 @@ class _HomeScreenState extends State<HomeScreen> {
         ? '${mlHour.precipitationMm.toStringAsFixed(1)} mm (${(mlHour.rainProbability * 100).round()}%)'
         : rain != null
         ? '${rain.toStringAsFixed(1)} mm'
-        : weather?.data?['description'] as String? ?? 'Unavailable';
+        : weather?.data?['description'] as String? ?? 'Tidak tersedia';
     final weatherLabel = mlHour != null
-        ? 'Rain · ML'
+        ? 'Hujan · ML'
         : weather?.kind == 'provider_forecast'
-        ? 'Rain forecast${weather!.isStale ? ' · STALE' : ''}'
+        ? 'Prakiraan hujan${weather!.isStale ? ' · DATA LAMA' : ''}'
         : weather?.isStale == true
-        ? 'Rain · STALE'
-        : 'Rain';
+        ? 'Hujan · DATA LAMA'
+        : 'Hujan';
     final speed = traffic?.number('speed_kmh');
     final trafficValue = speed != null
         ? '${speed.toStringAsFixed(0)} km/h'
-        : traffic?.unavailableLabel ?? 'Unavailable';
+        : traffic?.unavailableLabel ?? 'Tidak tersedia';
     final temp = weather?.number('temperature_c');
     final tempValue = mlHour != null
         ? '${mlHour.temperatureC.round()}°C'
         : temp == null
-        ? 'Unavailable'
+        ? 'Tidak tersedia'
         : '${temp.round()}°C';
     final displayedAqi = mlHour?.displayAqi?.round() ?? currentAqi;
     final displayedAir = displayedAqi == null ? air : aqiSignal;
@@ -1062,7 +1063,7 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 12),
 
               // -------------------------------------------------------------
-              // 1B. STALE / ML PREDICTION MODE SWITCHER BAR
+              // 1B. DATA LAMA / ML PREDICTION MODE SWITCHER BAR
               // -------------------------------------------------------------
               Container(
                 padding: const EdgeInsets.symmetric(
@@ -1088,9 +1089,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Text(
                         _showMlPredictions
                             ? (mlHour != null && mlHour.displayAqi == null
-                                  ? 'Mode Indikator: Prediksi ML (Hujan & Suhu)'
-                                  : 'Mode Indikator: Prediksi ML (Hujan, AQI & Suhu)')
-                            : 'Mode Indikator: Data Stale / Terakhir Tersimpan',
+                                  ? 'Mode indikator: Prediksi ML (Hujan & Suhu)'
+                                  : 'Mode indikator: Prediksi ML (Hujan, AQI & Suhu)')
+                            : 'Mode indikator: data terakhir tersedia',
                         style: const TextStyle(
                           fontSize: 11.5,
                           fontWeight: FontWeight.w700,
@@ -1113,13 +1114,13 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(height: 12),
 
               // -------------------------------------------------------------
-              // 2. TODAY'S AIR QUALITY CURVED CARD
+              // 2. KUALITAS UDARA HARI INI CURVED CARD
               // -------------------------------------------------------------
               _buildTodaysAirQualityCard(
                 unit: displayedAqi != null
                     ? (displayedAir?.kind == 'calculated_index'
-                          ? 'US AQI · estimate'
-                          : 'US AQI')
+                          ? 'AQI AS · perkiraan'
+                          : 'AQI AS')
                     : pm25 != null
                     ? 'µg/m³'
                     : '',
@@ -1127,11 +1128,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     displayedAqi?.toString() ?? pm25?.toStringAsFixed(1) ?? '—',
                 category: mlHour?.displayAqi != null
                     ? '${mlHour?.providerAqi != null
-                          ? 'Forecast'
+                          ? 'Prakiraan'
                           : mlHour?.estimatedAqi != null
-                          ? 'ML estimate'
+                          ? 'Perkiraan ML'
                           : 'ML'} · ${effectiveAqiMeta.$1}'
-                    : '${displayedAir?.isStale == true ? "STALE · " : ""}${effectiveAqiMeta.$1}',
+                    : '${displayedAir?.isStale == true ? "DATA LAMA · " : ""}${effectiveAqiMeta.$1}',
                 categoryBg: mlHour?.displayAqi != null
                     ? const Color(0xFFE0F2FE)
                     : displayedAir?.isStale == true
@@ -1144,40 +1145,42 @@ class _HomeScreenState extends State<HomeScreen> {
                     ? (mlHour == null
                           ? (_forecastError ??
                                 (_loadingForecast
-                                    ? 'Loading forecast…'
-                                    : 'Forecast expired. Pull to refresh.'))
+                                    ? 'Memuat prakiraan…'
+                                    : 'Prakiraan kedaluwarsa. Tarik untuk memperbarui.'))
                           : mlHour.aqi == null
                           ? (mlHour.providerAqi != null
-                                ? 'Weather and provider AQI forecasts for ${_wib(mlHour.targetTime)}.'
+                                ? 'Prakiraan cuaca dan AQI penyedia untuk ${_wib(mlHour.targetTime)}.'
                                 : mlHour.estimatedAqi != null
-                                ? 'Experimental AQI and weather forecasts for ${_wib(mlHour.targetTime)}.'
-                                : 'Weather forecast for ${_wib(mlHour.targetTime)}. Hourly AQI is unavailable.')
-                          : 'ML forecast for ${_wib(mlHour.targetTime)}. Experimental regional estimate.')
+                                ? 'Prakiraan percobaan AQI dan cuaca untuk ${_wib(mlHour.targetTime)}.'
+                                : 'Prakiraan cuaca untuk ${_wib(mlHour.targetTime)}. AQI per jam tidak tersedia.')
+                          : 'Prakiraan ML untuk ${_wib(mlHour.targetTime)}. Perkiraan regional percobaan.')
                     : displayedAir?.isStale == true
-                    ? 'Last-known reading — not current. ${effectiveAqiMeta.$4}'
+                    ? 'Data terakhir tersimpan — bukan kondisi terkini. ${effectiveAqiMeta.$4}'
                     : effectiveAqiMeta.$4,
                 sourceLabel: [
                   if (mlHour != null)
-                    '${_mlForecast!.modelId} · PyTorch\n${_mlForecast!.attribution}\nInputs through ${_wib(_mlForecast!.inputThrough)}',
+                    '${_mlForecast!.modelId} · PyTorch\n${_mlForecast!.attribution}\nData masukan hingga ${_wib(_mlForecast!.inputThrough)}',
                   if (snapshot != null) snapshot.sourceDetails,
                   if (snapshot == null && mlHour == null)
-                    'No source readings available.',
+                    'Data sumber belum tersedia.',
                 ].join('\n\n'),
                 weatherLabel: weatherLabel,
                 rainValue: rainValue,
                 trafficValue: trafficValue,
                 tempValue: tempValue,
                 trafficLabel: traffic?.isStale == true
-                    ? 'Traffic · STALE'
-                    : 'Traffic',
+                    ? 'Lalu lintas · DATA LAMA'
+                    : 'Lalu lintas',
                 tempLabel: mlHour != null
-                    ? 'Temp · ML'
+                    ? 'Suhu · ML'
                     : weather?.isStale == true
-                    ? 'Temp · STALE'
+                    ? 'Suhu · DATA LAMA'
                     : weather?.kind == 'provider_forecast'
-                    ? 'Temp forecast'
-                    : 'Temp',
+                    ? 'Prakiraan suhu'
+                    : 'Suhu',
               ),
+
+              if (!_showMlPredictions) _buildDataUpdateTimes(snapshot),
 
               const SizedBox(height: 14),
 
@@ -1204,6 +1207,50 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildDataUpdateTimes(CurrentConditions? snapshot) {
+    String updated(ConditionSignal? signal) {
+      if (signal == null || !signal.hasData) return 'Belum tersedia';
+      final issued = DateTime.tryParse(
+        signal.data?['issued_at'] as String? ?? '',
+      );
+      final time = issued ?? signal.validAt ?? signal.receivedAt;
+      return '${time == null ? 'Waktu tidak tersedia' : formatWib(time)}'
+          '${signal.isStale ? ' · data lama' : ''}';
+    }
+
+    return Padding(
+      key: const ValueKey('home-data-updated'),
+      padding: const EdgeInsets.fromLTRB(4, 10, 4, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Pembaruan data terakhir',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          for (final entry in <(String, ConditionSignal?)>[
+            ('Cuaca', snapshot?.weather),
+            (
+              'Kualitas udara',
+              snapshot?.aqiSignal.hasData == true
+                  ? snapshot?.aqiSignal
+                  : snapshot?.airQuality,
+            ),
+            ('Lalu lintas', snapshot?.traffic),
+          ])
+            Text(
+              '${entry.$1}: ${updated(entry.$2)}',
+              style: const TextStyle(
+                fontSize: 12,
+                color: SupraTheme.textSecondary,
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1256,9 +1303,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               SourceInfoButton(
-                title: 'Analysis sources',
+                title: 'Sumber analisis',
                 details: [
-                  'SUPRA Assistant',
+                  'Asisten SUPRA',
                   ?citations,
                   if (_liveConditions != null) _liveConditions!.sourceDetails,
                 ].join('\n\n'),
@@ -1298,7 +1345,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Text(
             summary.isNotEmpty
                 ? summary
-                : 'Ketuk "Baca Kondisi" untuk melihat analisis data kualitas udara (AQI/PM2.5), curah hujan, suhu, dan lalu lintas terkini/stale di $_selectedLocationName.',
+                : 'Ketuk "Baca Kondisi" untuk melihat analisis data kualitas udara (AQI/PM2.5), curah hujan, suhu, dan lalu lintas terkini atau data lama di $_selectedLocationName.',
             style: const TextStyle(
               fontSize: 12,
               height: 1.4,
@@ -1415,8 +1462,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 SnackBar(
                   content: Text(
                     unreadCount > 0
-                        ? '$unreadCount unread active transit alerts'
-                        : 'No unread alerts at this time.',
+                        ? '$unreadCount peringatan perjalanan aktif belum dibaca'
+                        : 'Belum ada peringatan yang belum dibaca.',
                   ),
                   duration: const Duration(seconds: 2),
                 ),
@@ -1468,10 +1515,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// 2. TODAY'S AIR QUALITY Curved Card:
-  /// - Top: TODAY'S AIR QUALITY + (?) help button explaining AQI and PM2.5
+  /// 2. KUALITAS UDARA HARI INI Curved Card:
+  /// - Top: KUALITAS UDARA HARI INI + (?) help button explaining AQI and PM2.5
   /// - Number on the left
-  /// - Right of number: top is category (e.g. Moderate), bottom is source (US AQI)
+  /// - Right of number: top is category (e.g. Moderate), bottom is source (AQI AS)
   /// - Below number: health description
   /// - Bottom divided into three horizontal metrics:
   ///   Left: Umbrella symbol, Weather, value, and (?) help button explaining Rain
@@ -1567,7 +1614,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header: TODAY'S AIR QUALITY + (?) help icon button (padded on right to avoid cloud overlap)
+                // Header: KUALITAS UDARA HARI INI + (?) help icon button (padded on right to avoid cloud overlap)
                 Padding(
                   padding: const EdgeInsets.only(right: 64),
                   child: Row(
@@ -1575,7 +1622,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Flexible(
                         child: Text(
-                          "TODAY'S AIR QUALITY",
+                          "KUALITAS UDARA HARI INI",
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 11,
@@ -1673,7 +1720,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ),
                                   ),
                                 SourceInfoButton(
-                                  title: 'Conditions sources',
+                                  title: 'Sumber kondisi',
                                   details: sourceLabel,
                                   color: Colors.white,
                                   compact: true,
@@ -1857,7 +1904,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   /// 3. Next 12 Hours (Combined Local Forecast):
-  /// - Left: "Next 12 Hours Forecast" on top, "Combined local weather, air quality & temperature predictions" below
+  /// - Left: "Prakiraan 12 jam ke depan" on top, "Combined local weather, air quality & temperature predictions" below
   /// - Right: Chevron buttons to easily slide left/right across all 12 boxes
   /// - Horizontally scrolling boxes containing Time, Weather Symbol, Temperature, AQI for the full 12 hours
   Widget _buildNextFewHoursSection(List<HourlyForecast> forecastItems) {
@@ -1874,7 +1921,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'Next 12 Hours Forecast',
+                    'Prakiraan 12 jam ke depan',
                     style: TextStyle(
                       fontSize: 17,
                       fontWeight: FontWeight.w800,
@@ -1885,15 +1932,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   Text(
                     _showMlPredictions
                         ? (_loadingForecast
-                              ? 'Loading forecast…'
+                              ? 'Memuat prakiraan…'
                               : _forecastError ??
                                     (_mlForecast
                                                 ?.nextAt(DateTime.now())
                                                 ?.displayAqi ==
                                             null
-                                        ? 'ML · rain & temperature'
-                                        : 'ML · AQI, rain & temperature'))
-                        : 'Enable ML predictions for the next 12 hours.',
+                                        ? 'ML · hujan dan suhu'
+                                        : 'ML · AQI, hujan, dan suhu'))
+                        : 'Aktifkan prediksi ML untuk prakiraan 12 jam ke depan.',
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
@@ -1910,7 +1957,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 _buildHourlyNavArrow(
                   icon: Icons.chevron_left_rounded,
-                  tooltip: 'Scroll left',
+                  tooltip: 'Geser ke kiri',
                   onTap: () {
                     final target = (_hourlyScrollController.offset - 178).clamp(
                       0.0,
@@ -1928,7 +1975,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(width: 6),
                 _buildHourlyNavArrow(
                   icon: Icons.chevron_right_rounded,
-                  tooltip: 'Scroll right',
+                  tooltip: 'Geser ke kanan',
                   onTap: () {
                     final target = (_hourlyScrollController.offset + 178).clamp(
                       0.0,
@@ -1985,9 +2032,9 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             if (_showMlPredictions && _mlForecast != null)
               SourceInfoButton(
-                title: 'Forecast source',
+                title: 'Sumber prakiraan',
                 details:
-                    '${_mlForecast!.modelId} · PyTorch\n${_mlForecast!.attribution}\nInputs through ${_wib(_mlForecast!.inputThrough)}',
+                    '${_mlForecast!.modelId} · PyTorch\n${_mlForecast!.attribution}\nData masukan hingga ${_wib(_mlForecast!.inputThrough)}',
               ),
           ],
         ),
@@ -2077,7 +2124,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           // 3. Temperature
                           Text(
                             item.temperatureC == null
-                                ? 'Temp —'
+                                ? 'Suhu —'
                                 : '${item.temperatureC}°C',
                             style: const TextStyle(
                               fontSize: 17,
@@ -2088,13 +2135,13 @@ class _HomeScreenState extends State<HomeScreen> {
 
                           Text(
                             item.aqi == null
-                                ? (item.status == 'ML forecast'
-                                      ? 'AQI unavailable'
+                                ? (item.status == 'Prakiraan ML'
+                                      ? 'AQI tidak tersedia'
                                       : 'AQI —')
                                 : 'AQI ${item.aqi}${item.providerAqi
-                                      ? ' · forecast'
+                                      ? ' · prakiraan'
                                       : item.estimatedAqi
-                                      ? ' · ML estimate'
+                                      ? ' · perkiraan ML'
                                       : ''}${item.aqiStale ? ' · stale' : ''}',
                             style: const TextStyle(
                               fontSize: 11,
@@ -2177,7 +2224,7 @@ class _HomeScreenState extends State<HomeScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             const Text(
-              'Recent trips',
+              'Perjalanan terakhir',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
@@ -2186,7 +2233,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             if (recentTrips.isNotEmpty)
               Text(
-                '${recentTrips.length} saved',
+                '${recentTrips.length} tersimpan',
                 style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
               ),
           ],
@@ -2220,14 +2267,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'No saved trips yet',
+                        'Belum ada perjalanan tersimpan',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
                         ),
                       ),
                       Text(
-                        'Confirm a trip to add it to your history. Enable ML to view the current hourly forecast.',
+                        'Konfirmasi perjalanan untuk menyimpannya ke riwayat. Aktifkan ML untuk melihat prakiraan per jam.',
                         style: TextStyle(
                           fontSize: 12,
                           color: Color(0xFF64748B),

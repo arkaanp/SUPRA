@@ -30,7 +30,7 @@ class _CurrentLocationButtonState extends State<CurrentLocationButton> {
     setState(() => _pending = true);
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
-        _showError('Turn on location services, then try again.');
+        _showError('Aktifkan layanan lokasi, lalu coba lagi.');
         return;
       }
       var permission = await Geolocator.checkPermission();
@@ -41,13 +41,13 @@ class _CurrentLocationButtonState extends State<CurrentLocationButton> {
       if (!mounted) return;
       if (permission == LocationPermission.deniedForever) {
         _showError(
-          'Allow SUPRA to access your location in your device settings.',
+          'Izinkan SUPRA mengakses lokasi melalui pengaturan perangkat.',
         );
         return;
       }
       if (permission == LocationPermission.denied) {
         _showError(
-          'Location permission was denied. You can still choose on the map.',
+          'Izin lokasi ditolak. Anda tetap dapat memilih lokasi di peta.',
         );
         return;
       }
@@ -64,25 +64,23 @@ class _CurrentLocationButtonState extends State<CurrentLocationButton> {
       );
       if (!point.isInGreaterJakarta) {
         _showError(
-          'Your location is outside SUPRA’s Greater Jakarta service area.',
+          'Lokasi Anda berada di luar wilayah layanan SUPRA di Jabodetabek.',
         );
         return;
       }
       widget.onSelected(point);
     } on TimeoutException {
-      _showError(
-        'Could not get a location in time. Try again or choose on the map.',
-      );
+      _showError('Lokasi belum ditemukan. Coba lagi atau pilih di peta.');
     } on LocationServiceDisabledException {
-      _showError('Turn on location services, then try again.');
+      _showError('Aktifkan layanan lokasi, lalu coba lagi.');
     } on PermissionDeniedException {
-      _showError('Allow location access in settings or choose on the map.');
+      _showError('Izinkan akses lokasi di pengaturan atau pilih di peta.');
     } on PlatformException {
-      _showError('Device location is unavailable. Choose on the map.');
+      _showError('Lokasi perangkat tidak tersedia. Pilih di peta.');
     } on UnsupportedError {
-      _showError('Device location is unavailable. Choose on the map.');
+      _showError('Lokasi perangkat tidak tersedia. Pilih di peta.');
     } on MissingPluginException {
-      _showError('Device location is unavailable. Choose on the map.');
+      _showError('Lokasi perangkat tidak tersedia. Pilih di peta.');
     } finally {
       if (mounted) setState(() => _pending = false);
     }
@@ -97,6 +95,6 @@ class _CurrentLocationButtonState extends State<CurrentLocationButton> {
             child: CircularProgressIndicator(strokeWidth: 2),
           )
         : const Icon(Icons.my_location),
-    label: Text(_pending ? 'Getting location…' : 'Use current location'),
+    label: Text(_pending ? 'Mencari lokasi…' : 'Gunakan lokasi saat ini'),
   );
 }

@@ -58,10 +58,10 @@ def forecast(latitude, longitude, now):
         'model_id': card['model_id'], 'input_through': anchor.isoformat(),
         'expires_at': (anchor+dt.timedelta(hours=2)).isoformat(),
         'station': station, 'validation': card['validation'],
-        'attribution': 'OpenAQ hourly station measurements (https://openaq.org/). '
-                       'SUPRA experimental PyTorch PM2.5 forecasts and projected EPA NowCast indices. '
-                       'Training targets are CAMS model history via Open-Meteo, CC BY 4.0.',
-        'limitations': 'Validation uses held-out CAMS model history. Accuracy on OpenAQ station observations remains unmeasured.',
+        'attribution': 'Pengukuran stasiun per jam OpenAQ (https://openaq.org/). '
+                       'Prakiraan percobaan PM2.5 PyTorch SUPRA dan proyeksi indeks EPA NowCast. '
+                       'Target pelatihan menggunakan riwayat model CAMS melalui Open-Meteo, CC BY 4.0.',
+        'limitations': 'Validasi menggunakan riwayat model CAMS yang dipisahkan dari pelatihan. Akurasi terhadap pengamatan stasiun OpenAQ belum diukur.',
     }
 
 

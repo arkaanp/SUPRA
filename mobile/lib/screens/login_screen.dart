@@ -54,7 +54,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Welcome back')),
+      appBar: AppBar(title: const Text('Selamat datang kembali')),
       body: Center(
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
@@ -63,13 +63,13 @@ class _LoginScreenState extends State<LoginScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                'Sign in',
+                'Login',
                 style: TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 8),
               const Text(
-                'Sign in to save trips and see your commute forecast.',
+                'Login untuk menyimpan perjalanan dan melihat prakiraan perjalanan Anda.',
                 style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
                 textAlign: TextAlign.center,
               ),
@@ -120,12 +120,12 @@ class _LoginScreenState extends State<LoginScreen> {
                           color: Colors.white,
                         ),
                       )
-                    : const Text('Sign in'),
+                    : const Text('Login'),
               ),
               const SizedBox(height: 16),
               TextButton(
                 onPressed: () => Navigator.of(context).pushNamed('/register'),
-                child: const Text('Create an account'),
+                child: const Text('Sign up'),
               ),
             ],
           ),

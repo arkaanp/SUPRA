@@ -30,7 +30,7 @@ EnvironmentalZone sample(int i, {double? aqi, double? rain = 1.2}) =>
         traffic: const ConditionSignal(
           status: 'unavailable',
           source: 'tomtom',
-          message: 'Unavailable',
+          message: 'Tidak tersedia',
         ),
       ),
     );
@@ -41,10 +41,13 @@ void main() {
     () {
       expect(sample(0, aqi: 40).solidAqiColor, const Color(0xFF22C55E));
       expect(sample(0, aqi: 80).solidAqiColor, const Color(0xFFEAB308));
-      expect(sample(0, aqi: 120).colorBandLabel, 'Unhealthy for Sensitive');
+      expect(
+        sample(0, aqi: 120).colorBandLabel,
+        'Tidak sehat bagi kelompok sensitif',
+      );
       expect(sample(0, aqi: 180).solidAqiColor, const Color(0xFFEF4444));
       expect(sample(0).solidAqiColor, Colors.grey);
-      expect(sample(0).colorBandLabel, 'Unavailable');
+      expect(sample(0).colorBandLabel, 'Tidak tersedia');
     },
   );
 
@@ -62,8 +65,8 @@ void main() {
               height: 300,
               child: ListView(
                 children: [
-                  const SizedBox(height: 120, child: Text('Car')),
-                  const SizedBox(height: 120, child: Text('Motorcycle')),
+                  const SizedBox(height: 120, child: Text('Mobil')),
+                  const SizedBox(height: 120, child: Text('Motor')),
                   RouteEnvironmentSamples(
                     samples: [for (var i = 0; i < 5; i++) sample(i, aqi: 120)],
                   ),
@@ -81,8 +84,11 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Destination'), findsOneWidget);
-      expect(find.text('US AQI 120 · Unhealthy for Sensitive'), findsWidgets);
-      expect(find.text('Temperature'), findsWidgets);
+      expect(
+        find.text('AQI AS 120 · Tidak sehat bagi kelompok sensitif'),
+        findsWidgets,
+      );
+      expect(find.text('Suhu'), findsWidgets);
       expect(find.byIcon(Icons.thermostat_rounded), findsWidgets);
       expect(tester.takeException(), isNull);
     },

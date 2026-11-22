@@ -53,7 +53,9 @@ class RoutingService {
     if (mode == TransportMode.car) {
       return calculateRoutes(start: start, destination: destination);
     }
-    if (!useNetwork) throw StateError('Routing unavailable offline.');
+    if (!useNetwork) {
+      throw StateError('Rute tidak tersedia tanpa koneksi internet.');
+    }
     final result = await (planMobility ?? SupraService.instance.planMobility)(
       start,
       destination,
@@ -112,8 +114,8 @@ class RoutingService {
           routingSource:
               '${result['source']} · fetched ${result['fetched_at']}',
           recommendationReason: mode == TransportMode.publicTransit
-              ? 'Transit timetable / frequency estimate; not a live arrival guarantee. Walking links and rail station connections may be schematic.'
-              : 'Mode-specific geometry and provider duration; not a live-traffic ETA.',
+              ? 'Perkiraan berdasarkan jadwal atau frekuensi layanan. Waktu kedatangan dapat berubah. Penghubung pejalan kaki dan stasiun dapat bersifat skematis.'
+              : 'Rute dan durasi sesuai moda dari penyedia, tanpa kondisi lalu lintas terkini.',
           identifiedRisks: const [],
           protectiveMeasures: const [],
         ),
@@ -129,9 +131,11 @@ class RoutingService {
     String? destinationName,
   }) async {
     if (!start.isInGreaterJakarta || !destination.isInGreaterJakarta) {
-      throw StateError('Route endpoints must be in Greater Jakarta.');
+      throw StateError('Lokasi awal dan tujuan harus berada di Jabodetabek.');
     }
-    if (!useNetwork) throw StateError('Routing unavailable offline.');
+    if (!useNetwork) {
+      throw StateError('Rute tidak tersedia tanpa koneksi internet.');
+    }
     final snapshotFuture = conditions.at(start);
     final httpClient = client ?? http.Client();
     try {
@@ -144,12 +148,12 @@ class RoutingService {
           .get(url)
           .timeout(const Duration(seconds: 8));
       if (response.statusCode != 200) {
-        throw StateError('Routing provider unavailable.');
+        throw StateError('Penyedia rute tidak tersedia.');
       }
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final routes = data['routes'] as List?;
       if (data['code'] != 'Ok' || routes == null || routes.isEmpty) {
-        throw StateError('No driving route found.');
+        throw StateError('Rute berkendara tidak ditemukan.');
       }
       final route = routes.first as Map<String, dynamic>;
       final distance = (route['distance'] as num).toDouble();
@@ -199,7 +203,7 @@ class RoutingService {
       return [
         RouteOption(
           mode: TransportMode.car,
-          title: 'Car / Taxi',
+          title: 'Mobil / Taksi',
           estimatedDuration: Duration(seconds: seconds.ceil()),
           distanceKm: distance / 1000,
           waypoints: points,
@@ -207,15 +211,14 @@ class RoutingService {
           conditions: snapshot,
           routingSource: 'OSRM',
           recommendationReason:
-              'Driving estimate — not a live-traffic ETA. '
-              'Environmental data samples the origin, not the whole route. '
-              'Select another mode to compare its routing estimate.',
+              'Perkiraan waktu berkendara tanpa lalu lintas terkini. '
+              'Data lingkungan mewakili titik awal, bukan seluruh rute. '
+              'Pilih moda lain untuk membandingkan perkiraan rute.',
           identifiedRisks: [
             if (pm == null)
-              'Current PM2.5 unavailable; exposure cannot be assessed.',
-            if (rain == null)
-              'Current rainfall unavailable; dry weather cannot be assumed.',
-            if (snapshot.airQuality.isStale || snapshot.weather.isStale) 'Stale environmental data is shown for reference, not a current safety assessment.',
+              'PM2.5 terkini tidak tersedia; paparan belum dapat dinilai.',
+            if (rain == null) 'Curah hujan terkini tidak tersedia; kondisi kering belum dapat dipastikan.',
+            if (snapshot.airQuality.isStale || snapshot.weather.isStale) 'Data lama ditampilkan sebagai referensi, bukan penilaian keselamatan terkini.',
           ],
           protectiveMeasures: const [],
           pm25UgM3: pm,

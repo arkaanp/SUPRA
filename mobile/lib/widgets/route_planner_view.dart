@@ -211,7 +211,7 @@ class RoutePlannerView extends StatelessWidget {
 
         const SizedBox(height: 12),
         SourceInfoButton(
-          title: 'Route sources',
+          title: 'Sumber rute',
           details: selectedOption.provenanceLabel,
         ),
 
@@ -254,7 +254,7 @@ class RoutePlannerView extends StatelessWidget {
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        '${selectedOption.mode.displayName} Health & Safety Advisory',
+                        '${selectedOption.mode.displayName} Anjuran kesehatan dan keselamatan',
                         style: TextStyle(
                           fontWeight: FontWeight.w800,
                           fontSize: 12,
@@ -273,7 +273,7 @@ class RoutePlannerView extends StatelessWidget {
                 // Identified Environmental & Traffic Risks
                 if (selectedOption.identifiedRisks.isNotEmpty) ...[
                   const Text(
-                    'Identified Risks:',
+                    'Risiko yang teridentifikasi:',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
@@ -311,7 +311,7 @@ class RoutePlannerView extends StatelessWidget {
 
                 // Required / Recommended Protective Measures
                 const Text(
-                  'Recommended Protective Measures:',
+                  'Perlengkapan yang disarankan:',
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
@@ -365,7 +365,7 @@ class RoutePlannerView extends StatelessWidget {
                   color: SupraTheme.textSecondary,
                 ),
                 title: Text(
-                  'Road Corridor (${selectedOption.turnSteps.length} thoroughfares)',
+                  'Koridor jalan (${selectedOption.turnSteps.length} ruas)',
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -424,7 +424,7 @@ class RoutePlannerView extends StatelessWidget {
           const SizedBox(height: 12),
           ElevatedButton.icon(
             icon: const Icon(Icons.navigation, size: 18),
-            label: Text('Select ${selectedOption.mode.displayName} Route'),
+            label: Text('Pilih rute ${selectedOption.mode.displayName}'),
             onPressed: onConfirmRoute,
           ),
         ],

@@ -115,10 +115,12 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('home-data-updated')), findsOneWidget);
     await tester.tap(find.byType(Switch).first);
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('home-data-updated')), findsNothing);
     expect(find.text('110'), findsOneWidget);
-    expect(find.text('AQI 110 · ML estimate'), findsNWidgets(12));
+    expect(find.text('AQI 110 · perkiraan ML'), findsNWidgets(12));
     expect(find.textContaining('AQI is unavailable'), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -146,8 +148,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Prediksi ML').first);
     await tester.pumpAndSettle();
-    expect(find.textContaining('AQI 110 ML estimate'), findsOneWidget);
-    expect(find.textContaining('ML forecast unavailable'), findsNothing);
+    expect(find.textContaining('AQI 110 perkiraan ML'), findsOneWidget);
+    expect(find.textContaining('Prakiraan ML tidak tersedia'), findsNothing);
     expect(tester.takeException(), isNull);
   });
   test('Provider forecast parses, expires, and rejects invalid probability and traffic', () {
@@ -230,13 +232,13 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byType(Switch).first);
       await tester.pumpAndSettle();
-      final label = find.textContaining('Partly cloudy').first;
+      final label = find.textContaining('Cerah berawan').first;
       await tester.ensureVisible(label);
       expect(
         tester.renderObject<RenderParagraph>(label).didExceedMaxLines,
         isFalse,
       );
-      expect(find.text('AQI 82 · forecast'), findsWidgets);
+      expect(find.text('AQI 82 · prakiraan'), findsWidgets);
       expect(find.byIcon(Icons.wb_sunny_rounded), findsWidgets);
       expect(find.byIcon(Icons.cloud_rounded), findsWidgets);
       expect(tester.takeException(), isNull);
@@ -267,7 +269,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       find.textContaining(
-        'ML forecast unavailable. Try refreshing. · Rain forecast 0.0 mm · Traffic 25 km/h',
+        'Prakiraan ML tidak tersedia. Coba perbarui. · Prakiraan hujan 0.0 mm · Lalu lintas 25 km/h',
       ),
       findsOneWidget,
     );
@@ -294,15 +296,15 @@ void main() {
       expect(find.text('123'), findsOneWidget);
       expect(find.text('0.8 mm (37%)'), findsOneWidget);
       expect(find.text('25 km/h'), findsOneWidget);
-      for (final text in ['Cerah berawan', 'Rain 37% · 0.8 mm']) {
+      for (final text in ['Cerah berawan', 'Hujan 37% · 0.8 mm']) {
         final label = find.text(text).first;
         await tester.ensureVisible(label);
         final paragraph = tester.renderObject<RenderParagraph>(label);
         expect(paragraph.didExceedMaxLines, isFalse, reason: text);
       }
       expect(find.textContaining('test-trained-model'), findsNothing);
-      await tester.ensureVisible(find.byTooltip('Conditions sources'));
-      await tester.tap(find.byTooltip('Conditions sources'));
+      await tester.ensureVisible(find.byTooltip('Sumber kondisi'));
+      await tester.tap(find.byTooltip('Sumber kondisi'));
       await tester.pumpAndSettle();
       expect(find.textContaining('test-trained-model'), findsOneWidget);
       expect(find.textContaining('65%'), findsNothing);
@@ -329,10 +331,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byType(Switch).first);
       await tester.pumpAndSettle();
-      expect(find.textContaining('ML forecast unavailable'), findsWidgets);
+      expect(find.textContaining('Prakiraan ML tidak tersedia'), findsWidgets);
       expect(find.text('0.0 mm'), findsOneWidget);
       expect(find.text('25 km/h'), findsOneWidget);
-      expect(find.text('Rain forecast'), findsWidgets);
+      expect(find.text('Prakiraan hujan'), findsWidgets);
       expect(find.textContaining('65%'), findsNothing);
       expect(tester.takeException(), isNull);
     },

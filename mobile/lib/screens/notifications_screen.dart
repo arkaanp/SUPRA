@@ -1,3 +1,5 @@
+import '../utils/display_text.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -144,7 +146,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       }
     } catch (error) {
       if (mounted && generation == _generation) {
-        setState(() => _error = '$error');
+        setState(() => _error = displayError(error));
       }
     } finally {
       if (mounted && generation == _generation) {
@@ -178,7 +180,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           _newsMinimum = previous.newsMinSeverity;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not save news filter: $error')),
+          SnackBar(
+            content: Text(
+              'Filter berita gagal disimpan: ${displayError(error)}',
+            ),
+          ),
         );
       }
     } finally {
@@ -209,7 +215,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Could not mark alert ${read ? "read" : "unread"}: $error',
+              'Gagal mengubah status peringatan ${read ? "menjadi sudah dibaca" : "menjadi belum dibaca"}: ${displayError(error)}',
             ),
           ),
         );
@@ -239,7 +245,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not mark all read: $error')),
+          SnackBar(
+            content: Text(
+              'Gagal menandai semua sudah dibaca: ${displayError(error)}',
+            ),
+          ),
         );
       }
     } finally {
@@ -270,7 +280,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Could not mark selected alerts unread: $error'),
+            content: Text(
+              'Gagal menandai pilihan belum dibaca: ${displayError(error)}',
+            ),
           ),
         );
       }
@@ -297,8 +309,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           SnackBar(
             content: Text(
               count == 0
-                  ? 'No read alerts to delete.'
-                  : 'Deleted $count read alert${count == 1 ? "" : "s"}.',
+                  ? 'Tidak ada peringatan yang sudah dibaca untuk dihapus.'
+                  : '$count peringatan yang sudah dibaca dihapus.',
             ),
           ),
         );
@@ -308,7 +320,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
         ScaffoldMessenger.of(context)
           ..hideCurrentSnackBar()
           ..showSnackBar(
-            SnackBar(content: Text('Could not delete read alerts: $error')),
+            SnackBar(
+              content: Text(
+                'Peringatan yang sudah dibaca gagal dihapus: ${displayError(error)}',
+              ),
+            ),
           );
       }
     } finally {
@@ -366,7 +382,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                           ),
                           SizedBox(width: 4),
                           Text(
-                            'PUBLISHER REPORT',
+                            'LAPORAN BERITA',
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w800,
@@ -389,7 +405,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  item.title,
+                  item.displayTitle,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
@@ -421,7 +437,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       SourceInfoButton(
-                        title: 'News source',
+                        title: 'Sumber berita',
                         details: item.sourceUrl!,
                         url: item.sourceUrl,
                       ),
@@ -450,16 +466,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       if (mounted) {
         setState(
           () => _checkStatus =
-              'Due-trip check queued. Pull to refresh for completed alerts. '
-              '${result['scheduler_enabled'] == true ? 'Scheduled checks enabled.' : 'Scheduled checks disabled on server.'} '
-              '${result['news_configured'] == true ? '' : 'News feed not configured.'}',
+              'Pemeriksaan jadwal perjalanan diantrekan. Tarik untuk memperbarui hasil peringatan. '
+              '${result['scheduler_enabled'] == true ? 'Pemeriksaan terjadwal aktif.' : 'Pemeriksaan terjadwal nonaktif di server.'} '
+              '${result['news_configured'] == true ? '' : 'Sumber berita belum dikonfigurasi.'}',
         );
       }
       if (mounted) await _refresh();
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('$e')));
+            .showSnackBar(SnackBar(content: Text(displayError(e))));
       }
     } finally {
       if (mounted) setState(() => _checking = false);
@@ -486,16 +502,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Alerts & News'),
+        title: const Text('Peringatan dan berita'),
         actions: [
           IconButton(
-            tooltip: 'Alert preferences',
+            tooltip: 'Preferensi peringatan',
             icon: const Icon(Icons.tune),
             onPressed: () async {
               await Navigator.of(context).push(
                 MaterialPageRoute<void>(
                   builder: (_) => Scaffold(
-                    appBar: AppBar(title: const Text('Alert preferences')),
+                    appBar: AppBar(title: const Text('Preferensi peringatan')),
                     body: const SettingsScreen(),
                   ),
                 ),
@@ -507,7 +523,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             },
           ),
           IconButton(
-            tooltip: 'Check due trips & news now',
+            tooltip: 'Periksa jadwal perjalanan dan berita',
             onPressed: _checking ? null : _checkNow,
             icon: const Icon(Icons.radar),
           ),
@@ -529,14 +545,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         ? null
                         : () => unawaited(_markRead()),
                     icon: const Icon(Icons.done_all, size: 18),
-                    label: const Text('Mark all read'),
+                    label: const Text('Tandai semua sudah dibaca'),
                   ),
                   OutlinedButton.icon(
                     onPressed: _mutatingAlerts
                         ? null
                         : () => unawaited(_deleteRead()),
                     icon: const Icon(Icons.delete_sweep_outlined, size: 18),
-                    label: const Text('Delete read alerts'),
+                    label: const Text('Hapus yang sudah dibaca'),
                   ),
                   if (_selectedIds.isNotEmpty) ...[
                     FilledButton.tonalIcon(
@@ -551,13 +567,15 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         Icons.mark_email_unread_outlined,
                         size: 18,
                       ),
-                      label: const Text('Mark selected unread'),
+                      label: const Text('Tandai pilihan belum dibaca'),
                     ),
                     TextButton(
                       onPressed: _mutatingAlerts
                           ? null
                           : () => setState(() => _selectedIds.clear()),
-                      child: Text('Clear (${_selectedIds.length} selected)'),
+                      child: Text(
+                        'Batal pilih (${_selectedIds.length} dipilih)',
+                      ),
                     ),
                   ],
                 ],
@@ -596,7 +614,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                       color: Color(0xFF15803D),
                     ),
                     label: Text(
-                      'Publisher News ($verifiedNewsCount)',
+                      'Berita ($verifiedNewsCount)',
                       style: const TextStyle(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w700,
@@ -639,7 +657,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 14),
             child: Text(
-              'Filters news and saves your delivery preference. Weather/AQI alerts keep their own settings.',
+              'Saring berita dan simpan preferensi pengiriman. Peringatan cuaca dan AQI mengikuti pengaturannya masing-masing.',
               style: TextStyle(fontSize: 11),
             ),
           ),
@@ -649,18 +667,19 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               leading: const Icon(Icons.route),
               title: Text(trip.name),
               subtitle: const Text(
-                'Current-trip alert subscription (up to 4 hours)',
+                'Peringatan perjalanan aktif (maksimal 4 jam)',
               ),
               trailing: TextButton(
-                child: const Text('End alerts'),
+                child: const Text('Hentikan peringatan'),
                 onPressed: () async {
                   try {
                     await SupraService.instance.finishTrip(trip.id);
                     if (mounted) setState(() {});
                   } catch (e) {
                     if (context.mounted) {
-                      ScaffoldMessenger.of(context)
-                          .showSnackBar(SnackBar(content: Text('$e')));
+                      ScaffoldMessenger.of(
+                        context,
+                      ).showSnackBar(SnackBar(content: Text(displayError(e))));
                     }
                   }
                 },
@@ -677,7 +696,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                         ListTile(title: Text(_error!)),
                         TextButton(
                           onPressed: _refresh,
-                          child: const Text('Retry'),
+                          child: const Text('Coba lagi'),
                         ),
                       ],
                     )
@@ -698,11 +717,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                 ),
                                 SizedBox(height: 16),
                                 Text(
-                                  'No alerts yet',
+                                  'Belum ada peringatan',
                                   style: TextStyle(fontWeight: FontWeight.w700),
                                 ),
                                 Text(
-                                  'Save a routine or confirm a trip. Check due trips with the radar button.',
+                                  'Simpan rutinitas atau konfirmasi perjalanan. Gunakan tombol radar untuk memeriksa jadwal perjalanan.',
                                   style: TextStyle(color: Color(0xFF64748B)),
                                 ),
                               ],

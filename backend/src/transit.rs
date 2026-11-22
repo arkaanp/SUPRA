@@ -90,14 +90,14 @@ impl Itinerary {
             .map(|l| {
                 if l.mode == "WALK" {
                     format!(
-                        "Walk approximately {:.0} m: {} → {} (walking link, not street navigation)",
+                        "Jalan kaki sekitar {:.0} m: {} → {} (jalur penghubung, bukan navigasi jalan)",
                         l.distance_km * 1000.,
                         l.from,
                         l.to
                     )
                 } else {
                     format!(
-                        "{} {}: board {} at {}; alight {} at {}{}",
+                        "{} {}: naik di {} pukul {}; turun di {} pukul {}{}",
                         l.mode,
                         l.line,
                         l.from,
@@ -105,9 +105,9 @@ impl Itinerary {
                         l.to,
                         wib(l.arrival_at),
                         if l.estimated {
-                            " (frequency estimate)"
+                            " (perkiraan frekuensi)"
                         } else {
-                            " (timetable)"
+                            " (jadwal)"
                         }
                     )
                 }
@@ -437,7 +437,7 @@ impl TransitService {
         ));
         Ok(Itinerary{source:"commute_shiorilabs".into(),departure_at:at,arrival_at:legs.last().unwrap().arrival_at,
             fare_idr:value["totalFare"].as_f64().filter(|v|v.is_finite()&&*v>=0.),legs,
-            attribution:"Commute Data / Shiori Labs — https://data.commute.shiorilabs.id — ODbL-1.0. Station connections and walking links are schematic; schedules are not live arrivals.".into()})
+            attribution:"Commute Data / Shiori Labs — https://data.commute.shiorilabs.id — ODbL-1.0. Penghubung stasiun dan pejalan kaki bersifat skematis; jadwal bukan waktu kedatangan langsung.".into()})
     }
     async fn timetable_pair(
         &self,

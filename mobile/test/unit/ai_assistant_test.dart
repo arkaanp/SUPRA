@@ -115,7 +115,10 @@ void main() {
     AiAssistantService.instance.resetForTesting();
     await tester.pumpWidget(const MaterialApp(home: ChatScreen()));
     expect(find.byIcon(Icons.key_rounded), findsNothing);
-    expect(find.textContaining('No live conditions attached'), findsOneWidget);
+    expect(
+      find.textContaining('Belum ada data kondisi terkini'),
+      findsOneWidget,
+    );
     expect(find.textContaining('AQI 72'), findsNothing);
   });
 }

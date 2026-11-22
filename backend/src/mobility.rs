@@ -171,7 +171,7 @@ impl MobilityService {
             let value=self.post(&self.valhalla,json!({"locations":[
                 {"lat":p.origin.latitude,"lon":p.origin.longitude},
                 {"lat":p.destination.latitude,"lon":p.destination.longitude}],
-                "costing":costing,"units":"kilometers","language":"en-US","shape_format":"polyline6"})).await?;
+                "costing":costing,"units":"kilometers","language":"id-ID","shape_format":"polyline6"})).await?;
             parse_valhalla(&value)?
         };
         if points.len() < 2
@@ -379,16 +379,17 @@ mod tests {
 
         let valhalla_app = axum::Router::new().route(
             "/route",
-            post(move || {
+            post(move |axum::Json(request): axum::Json<Value>| {
                 let shape = shape6.clone();
                 async move {
+                    assert_eq!(request["language"], "id-ID");
                     axum::Json(json!({
                         "trip": {
                             "status": 0,
                             "summary": {"length": 1.5, "time": 300.0},
                             "legs": [{
                                 "shape": shape,
-                                "maneuvers": [{"instruction": "Turn left on Jl. Sudirman"}]
+                                "maneuvers": [{"instruction": "Belok kiri ke Jl. Sudirman"}]
                             }]
                         }
                     }))
@@ -457,7 +458,7 @@ mod tests {
             .unwrap();
         assert_eq!(walk.source, "valhalla");
         assert_eq!(walk.waypoints.len(), 2);
-        assert_eq!(walk.steps, vec!["Turn left on Jl. Sudirman"]);
+        assert_eq!(walk.steps, vec!["Belok kiri ke Jl. Sudirman"]);
 
         // Public transit via OTP
         let transit = service

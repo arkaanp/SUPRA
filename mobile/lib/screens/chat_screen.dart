@@ -37,7 +37,7 @@ class _ChatScreenState extends State<ChatScreen> {
 
   String _buildContextPillText() =>
       AiAssistantService.instance.selectionLabel ??
-      'No live conditions attached';
+      'Belum ada data kondisi terkini';
   @override
   void dispose() {
     AiAssistantService.instance.removeListener(_selectionChanged);
@@ -74,10 +74,10 @@ class _ChatScreenState extends State<ChatScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('SUPRA Assistant'),
+        title: const Text('Asisten SUPRA'),
         content: const Text(
-          'Gemini is configured on the SUPRA server. No client API key is needed. '
-          'Each message reads fresh server conditions for the selected route or location, plus available PyTorch forecasts. Sources, timestamps, stale data and missing signals remain distinct.',
+          'Gemini dikonfigurasi di server SUPRA. Aplikasi tidak memerlukan API key sendiri. '
+          'Setiap pesan membaca data terkini dari server untuk rute atau lokasi terpilih serta prakiraan PyTorch yang tersedia. Sumber, waktu data, data lama, dan data yang belum tersedia ditandai secara terpisah.',
         ),
         actions: [
           TextButton(
@@ -94,7 +94,7 @@ class _ChatScreenState extends State<ChatScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text(
-          'Hapus Riwayat Chat?',
+          'Hapus riwayat percakapan?',
           style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800),
         ),
         content: const Text(
@@ -157,7 +157,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'SUPRA Assistant',
+                    'Asisten SUPRA',
                     style: TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w800,
@@ -176,7 +176,7 @@ class _ChatScreenState extends State<ChatScreen> {
                       ),
                       const SizedBox(width: 5),
                       const Text(
-                        'Agent 1 • Commute & Eco Advisor',
+                        'Asisten perjalanan dan lingkungan',
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
@@ -194,14 +194,14 @@ class _ChatScreenState extends State<ChatScreen> {
           // Key Configuration Button
           IconButton(
             icon: const Icon(Icons.info_outline, size: 20),
-            tooltip: 'Assistant connection',
+            tooltip: 'Koneksi asisten',
             color: SupraTheme.brand,
             onPressed: () => _showConnectionInfo(context),
           ),
           // Clear Chat History Button
           IconButton(
             icon: const Icon(Icons.delete_sweep_outlined, size: 20),
-            tooltip: 'Hapus Chat',
+            tooltip: 'Hapus percakapan',
             color: SupraTheme.textSecondary,
             onPressed: _confirmClearChat,
           ),

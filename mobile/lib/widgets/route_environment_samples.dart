@@ -66,7 +66,7 @@ class RouteEnvironmentSamples extends StatelessWidget {
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       const Text(
-        'Conditions along your route',
+        'Kondisi di sepanjang rute',
         style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
       ),
       const SizedBox(height: 6),
@@ -75,12 +75,12 @@ class RouteEnvironmentSamples extends StatelessWidget {
         runSpacing: 4,
         children: [
           for (final band in [
-            (Colors.green, 'Good'),
-            (Colors.amber, 'Moderate'),
-            (Colors.orange, 'Sensitive'),
-            (Colors.red, 'Unhealthy'),
-            (Colors.purple, 'Very unhealthy'),
-            (const Color(0xFF7F1D1D), 'Hazardous'),
+            (Colors.green, 'Baik'),
+            (Colors.amber, 'Sedang'),
+            (Colors.orange, 'Sensitif'),
+            (Colors.red, 'Tidak sehat'),
+            (Colors.purple, 'Sangat tidak sehat'),
+            (const Color(0xFF7F1D1D), 'Berbahaya'),
           ])
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -95,14 +95,14 @@ class RouteEnvironmentSamples extends StatelessWidget {
       const Padding(
         padding: EdgeInsets.symmetric(vertical: 6),
         child: Text(
-          'Squares mark samples. PM2.5 color bands are not an official AQI. Blue symbols show rain in mm.',
+          'Kotak menandai titik data. Warna PM2.5 bukan kategori AQI resmi. Simbol biru menunjukkan curah hujan dalam mm.',
           style: TextStyle(fontSize: 10, color: Colors.blueGrey),
         ),
       ),
       if (samples.isEmpty)
         const Padding(
           padding: EdgeInsets.all(12),
-          child: Text('Loading route samples…'),
+          child: Text('Memuat kondisi rute…'),
         ),
       for (final sample in samples) _RouteSampleCard(sample: sample),
     ],
@@ -153,7 +153,7 @@ class _RouteSampleCard extends StatelessWidget {
                 ),
               ),
               SourceInfoButton(
-                title: 'Sources for ${sample.name}',
+                title: 'Sumber untuk ${sample.name}',
                 details: conditions?.sourceDetails ?? sample.healthAdvisory,
                 compact: true,
               ),
@@ -161,17 +161,17 @@ class _RouteSampleCard extends StatelessWidget {
           ),
           _SampleReading(
             icon: Icons.air_rounded,
-            label: 'Air quality',
+            label: 'Kualitas udara',
             value: aqi == null
-                ? 'AQI unavailable'
-                : 'US AQI $aqi · ${sample.colorBandLabel}${conditions?.aqiSignal.kind == 'calculated_index' ? ' · NowCast estimate' : ''}',
+                ? 'AQI tidak tersedia'
+                : 'AQI AS $aqi · ${sample.colorBandLabel}${conditions?.aqiSignal.kind == 'calculated_index' ? ' · perkiraan NowCast' : ''}',
             stale: aqi != null && conditions?.aqiSignal.isStale == true,
           ),
           if (sample.pm25 != null) ...[
             const SizedBox(height: 2),
             Text(
               'PM2.5 ${sample.pm25!.toStringAsFixed(1)} µg/m³'
-              '${conditions?.airQuality.isStale == true ? ' · Stale' : ''}',
+              '${conditions?.airQuality.isStale == true ? ' · data lama' : ''}',
               style: const TextStyle(fontSize: 12),
             ),
           ],
@@ -183,22 +183,24 @@ class _RouteSampleCard extends StatelessWidget {
               _SampleReading(
                 icon: icon,
                 label: weather?.kind == 'provider_forecast'
-                    ? 'Weather forecast'
-                    : 'Weather',
+                    ? 'Prakiraan cuaca'
+                    : 'Cuaca',
                 value: weatherLabel,
                 stale: weather?.isStale == true,
               ),
               _SampleReading(
                 icon: Icons.thermostat_rounded,
-                label: 'Temperature',
-                value: temperature == null ? 'Unavailable' : '$temperature°C',
+                label: 'Suhu',
+                value: temperature == null
+                    ? 'Tidak tersedia'
+                    : '$temperature°C',
                 stale: weather?.isStale == true,
               ),
               _SampleReading(
                 icon: Icons.water_drop_outlined,
-                label: 'Rain',
+                label: 'Hujan',
                 value: rainfall == null
-                    ? 'Unavailable'
+                    ? 'Tidak tersedia'
                     : '${rainfall.toStringAsFixed(1)} mm',
                 stale: weather?.isStale == true,
               ),
@@ -235,7 +237,7 @@ class _SampleReading extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              '$label${stale ? ' · Stale' : ''}',
+              '$label${stale ? ' · data lama' : ''}',
               style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
             ),
             Text(

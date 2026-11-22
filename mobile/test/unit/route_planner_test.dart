@@ -67,7 +67,7 @@ void main() {
       final forecast = ConditionSignal(
         status: 'available',
         source: 'bmkg',
-        message: 'Forecast',
+        message: 'Prakiraan',
         kind: 'provider_forecast',
         validAt: now,
         data: const {'precipitation_mm': 0},
@@ -79,7 +79,7 @@ void main() {
     final service = GeocodingService(useNetwork: false);
     expect(await service.searchPlaces('nonexistent-xyz-123'), isEmpty);
     expect(await service.searchPlaces('Sudirman'), isNotEmpty);
-    expect(await service.reverseGeocode(start), 'Point (-6.20000, 106.80000)');
+    expect(await service.reverseGeocode(start), 'Titik (-6.20000, 106.80000)');
     expect(
       () => GeocodedPlace.fromJson({
         'name': 'Broken',
@@ -94,7 +94,7 @@ void main() {
     (tester) async {
       const route = RouteOption(
         mode: TransportMode.car,
-        title: 'Car',
+        title: 'Mobil',
         estimatedDuration: Duration(minutes: 10),
         distanceKm: 3,
         waypoints: [],
@@ -116,9 +116,9 @@ void main() {
           ),
         ),
       );
-      expect(find.text('PM2.5 unavailable'), findsOneWidget);
-      expect(find.text('Rainfall unavailable'), findsOneWidget);
-      expect(find.text('Route traffic unavailable'), findsOneWidget);
+      expect(find.text('PM2.5 tidak tersedia'), findsOneWidget);
+      expect(find.text('Curah hujan tidak tersedia'), findsOneWidget);
+      expect(find.text('Lalu lintas rute tidak tersedia'), findsOneWidget);
       expect(find.text('Weather: Clear'), findsNothing);
     },
   );

@@ -6,14 +6,14 @@ import 'package:flutter/material.dart';
   String? description,
 }) {
   final condition = switch (code ?? -1) {
-    0 => ('Clear', Icons.wb_sunny_rounded),
-    1 || 2 => ('Partly cloudy', Icons.cloud_queue_rounded),
-    3 => ('Cloudy', Icons.cloud_rounded),
-    45 || 48 => ('Fog', Icons.foggy),
-    >= 51 && <= 57 => ('Drizzle', Icons.grain),
-    >= 61 && <= 67 || >= 80 && <= 82 => ('Rain', Icons.umbrella_rounded),
-    >= 71 && <= 77 || 85 || 86 => ('Snow', Icons.ac_unit),
-    >= 95 && <= 99 => ('Thunderstorm', Icons.thunderstorm),
+    0 => ('Cerah', Icons.wb_sunny_rounded),
+    1 || 2 => ('Cerah berawan', Icons.cloud_queue_rounded),
+    3 => ('Berawan', Icons.cloud_rounded),
+    45 || 48 => ('Berkabut', Icons.foggy),
+    >= 51 && <= 57 => ('Gerimis', Icons.grain),
+    >= 61 && <= 67 || >= 80 && <= 82 => ('Hujan', Icons.umbrella_rounded),
+    >= 71 && <= 77 || 85 || 86 => ('Salju', Icons.ac_unit),
+    >= 95 && <= 99 => ('Hujan petir', Icons.thunderstorm),
     _ => null,
   };
   if (condition != null) return condition;
@@ -21,39 +21,39 @@ import 'package:flutter/material.dart';
   final text = (symbol ?? description ?? '').toLowerCase().split('_').first;
   final (label, icon) = switch (text) {
     _ when text.contains('thunder') || text.contains('petir') => (
-      'Thunderstorm',
+      'Hujan petir',
       Icons.thunderstorm,
     ),
     _ when text.contains('snow') || text.contains('sleet') => (
-      'Snow',
+      'Salju',
       Icons.ac_unit,
     ),
     _ when text.contains('rain') || text.contains('hujan') => (
-      'Rain',
+      'Hujan',
       Icons.umbrella_rounded,
     ),
     _
         when text.contains('fog') ||
             text.contains('kabut') ||
             text.contains('asap') =>
-      ('Fog', Icons.foggy),
+      ('Berkabut', Icons.foggy),
     'fair' ||
     'partlycloudy' ||
     'partly cloudy' ||
-    'cerah berawan' => ('Partly cloudy', Icons.cloud_queue_rounded),
+    'cerah berawan' => ('Cerah berawan', Icons.cloud_queue_rounded),
     'cloudy' ||
     'overcast' ||
     'berawan' ||
-    'berawan tebal' => ('Cloudy', Icons.cloud_rounded),
+    'berawan tebal' => ('Berawan', Icons.cloud_rounded),
     'clearsky' || 'clear' || 'sunny' || 'cerah' => (
-      'Clear',
+      'Cerah',
       symbol?.endsWith('_night') == true
           ? Icons.nightlight_round
           : Icons.wb_sunny_rounded,
     ),
-    _ => ('Weather unavailable', Icons.cloud_off_outlined),
+    _ => ('Cuaca tidak tersedia', Icons.cloud_off_outlined),
   };
-  return (symbol == null && description != null ? description : label, icon);
+  return (label, icon);
 }
 
 /// Uses a sun and a cloud together for partly cloudy conditions.

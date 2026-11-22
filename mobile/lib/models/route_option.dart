@@ -13,26 +13,26 @@ extension TransportModeExtension on TransportMode {
   String get displayName {
     switch (this) {
       case TransportMode.car:
-        return 'Car / Taxi';
+        return 'Mobil / Taksi';
       case TransportMode.motorcycle:
-        return 'Motorcycle';
+        return 'Motor';
       case TransportMode.publicTransit:
-        return 'Public Transit';
+        return 'Transportasi umum';
       case TransportMode.walk:
-        return 'Walking';
+        return 'Jalan kaki';
     }
   }
 
   String get shortName {
     switch (this) {
       case TransportMode.car:
-        return 'Car';
+        return 'Mobil';
       case TransportMode.motorcycle:
         return 'Motor';
       case TransportMode.publicTransit:
-        return 'Transit';
+        return 'Transportasi umum';
       case TransportMode.walk:
-        return 'Walk';
+        return 'Jalan kaki';
     }
   }
 
@@ -97,10 +97,10 @@ class RouteOption {
 
   String get formattedDuration {
     final minutes = estimatedDuration.inMinutes;
-    if (minutes < 60) return '$minutes min';
+    if (minutes < 60) return '$minutes menit';
     final hours = minutes ~/ 60;
     final remaining = minutes % 60;
-    return remaining == 0 ? '$hours hr' : '$hours hr $remaining min';
+    return remaining == 0 ? '$hours jam' : '$hours jam $remaining menit';
   }
 
   RouteOption withAdvice({
@@ -130,24 +130,25 @@ class RouteOption {
   );
 
   String get aqiCategory {
-    return pm25UgM3 == null ? 'Unavailable' : 'Station PM2.5, not AQI';
+    return pm25UgM3 == null ? 'Tidak tersedia' : 'PM2.5 stasiun, bukan AQI';
   }
 
   String get pm25Label => pm25UgM3 == null
-      ? 'PM2.5 unavailable'
-      : '${conditions?.airQuality.agedAt(DateTime.now()).isStale == true ? "STALE · " : ""}PM2.5: ${pm25UgM3!.toStringAsFixed(1)} µg/m³ (origin station, not AQI)';
+      ? 'PM2.5 tidak tersedia'
+      : '${conditions?.airQuality.agedAt(DateTime.now()).isStale == true ? "DATA LAMA · " : ""}PM2.5: ${pm25UgM3!.toStringAsFixed(1)} µg/m³ (stasiun lokasi awal, bukan AQI)';
   String get rainLabel => rainfallMm == null
-      ? 'Rainfall unavailable'
-      : '${conditions?.weather.agedAt(DateTime.now()).isStale == true ? "STALE · " : ""}Precipitation: ${rainfallMm!.toStringAsFixed(1)} mm (origin)';
+      ? 'Curah hujan tidak tersedia'
+      : '${conditions?.weather.agedAt(DateTime.now()).isStale == true ? "DATA LAMA · " : ""}Curah hujan: ${rainfallMm!.toStringAsFixed(1)} mm (lokasi awal)';
   String get provenanceLabel => [
     ?routingSource,
-    conditions?.sourceDetails ?? 'Environmental source metadata unavailable',
+    conditions?.sourceDetails ??
+        'Informasi sumber kondisi lingkungan tidak tersedia',
   ].join('\n\n');
 
   String get trafficCategory {
-    if (trafficDensity == null) return 'Route traffic unavailable';
-    if (trafficDensity! < 0.35) return 'Free Flow';
-    if (trafficDensity! < 0.65) return 'Moderate Traffic';
-    return 'Heavy Gridlock';
+    if (trafficDensity == null) return 'Lalu lintas rute tidak tersedia';
+    if (trafficDensity! < 0.35) return 'Lancar';
+    if (trafficDensity! < 0.65) return 'Lalu lintas sedang';
+    return 'Kemacetan parah';
   }
 }

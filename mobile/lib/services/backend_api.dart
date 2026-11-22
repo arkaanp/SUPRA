@@ -3,10 +3,13 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../utils/display_text.dart';
+
 class ApiException implements Exception {
-  const ApiException(this.status, this.message);
+  const ApiException(this.status, this._message);
   final int status;
-  final String message;
+  final String _message;
+  String get message => apiErrorMessage(_message, status);
   @override
   String toString() => message;
 }
@@ -34,19 +37,19 @@ class BackendApi {
         504,
         request.method == 'DELETE' &&
                 request.url.path == '/api/notifications/read'
-            ? 'The server did not confirm deletion. Refresh to check the result before retrying.'
+            ? 'Server belum mengonfirmasi penghapusan. Perbarui untuk memeriksa hasilnya sebelum mencoba lagi.'
             : request.url.path == '/api/auth/username-login'
-            ? 'Sign-in timed out. Please try again.'
+            ? 'Waktu tunggu login habis. Coba lagi.'
             : request.url.path == '/api/agent/chat'
-            ? 'The assistant took too long to respond. Try again.'
+            ? 'Asisten belum merespons. Coba lagi.'
             : request.method == 'GET'
-            ? 'The server took too long to respond. Please try again.'
-            : 'The server did not confirm the save. Refresh to check whether it was saved before trying again.',
+            ? 'Server belum merespons. Coba lagi.'
+            : 'Server belum mengonfirmasi penyimpanan. Perbarui untuk memeriksa apakah data tersimpan sebelum mencoba lagi.',
       );
     } on http.ClientException {
       throw const ApiException(
         503,
-        'Cannot reach the server. Check your connection and try again.',
+        'Server tidak dapat dihubungi. Periksa koneksi dan coba lagi.',
       );
     }
   }
@@ -67,24 +70,21 @@ class BackendApi {
     if (path == '/api/auth/username-login' && response.statusCode == 429) {
       throw const ApiException(
         429,
-        'Too many login attempts. Try again later.',
+        'Terlalu banyak percobaan login. Coba lagi nanti.',
       );
     }
     dynamic body;
     try {
       body = jsonDecode(response.body);
     } on FormatException {
-      throw ApiException(
-        response.statusCode,
-        'The backend returned an invalid response.',
-      );
+      throw ApiException(response.statusCode, 'Respons server tidak valid.');
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(
         response.statusCode,
         body is Map && body['error'] is String
             ? body['error'] as String
-            : 'Backend request failed (HTTP ${response.statusCode}).',
+            : 'Permintaan server gagal (HTTP ${response.statusCode}).',
       );
     }
     return body;
@@ -106,17 +106,14 @@ class BackendApi {
     try {
       body = jsonDecode(response.body);
     } on FormatException {
-      throw ApiException(
-        response.statusCode,
-        'The backend returned an invalid response.',
-      );
+      throw ApiException(response.statusCode, 'Respons server tidak valid.');
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(
         response.statusCode,
         body is Map && body['error'] is String
             ? body['error'] as String
-            : 'Backend request failed (HTTP ${response.statusCode}).',
+            : 'Permintaan server gagal (HTTP ${response.statusCode}).',
       );
     }
     return body;

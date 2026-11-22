@@ -33,17 +33,17 @@ extension AqiLevelExtensions on AqiLevel {
   String label() {
     switch (this) {
       case AqiLevel.good:
-        return 'Good';
+        return 'Baik';
       case AqiLevel.moderate:
-        return 'Moderate';
+        return 'Sedang';
       case AqiLevel.usg:
-        return 'Unhealthy for Sensitive';
+        return 'Tidak sehat bagi kelompok sensitif';
       case AqiLevel.unhealthy:
-        return 'Unhealthy';
+        return 'Tidak sehat';
       case AqiLevel.veryUnhealthy:
-        return 'Very Unhealthy';
+        return 'Sangat tidak sehat';
       case AqiLevel.hazardous:
-        return 'Hazardous';
+        return 'Berbahaya';
     }
   }
 }
@@ -79,15 +79,15 @@ class Prediction {
 
   String get rainLabel {
     final pct = (predictedRainfallProbability * 100).round();
-    if (pct <= 20) return 'Low';
-    if (pct <= 60) return 'Moderate';
-    return 'High';
+    if (pct <= 20) return 'Rendah';
+    if (pct <= 60) return 'Sedang';
+    return 'Tinggi';
   }
 
   String get trafficLabel {
     final pct = (predictedTrafficDensity * 100).round();
-    if (pct <= 40) return 'Free flow';
-    if (pct <= 70) return 'Moderate';
-    return 'Heavy';
+    if (pct <= 40) return 'Lancar';
+    if (pct <= 70) return 'Sedang';
+    return 'Padat';
   }
 }

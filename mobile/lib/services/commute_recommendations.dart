@@ -32,12 +32,17 @@ class CommuteRecommendations {
       final free = traffic.number('free_flow_speed_kmh');
       return conf >= 0.5 &&
           (closed ||
-              (free != null && free >= 10.0 && speed != null && speed < free * 0.5));
+              (free != null &&
+                  free >= 10.0 &&
+                  speed != null &&
+                  speed < free * 0.5));
     }
 
     double score(RouteOption r) =>
         r.estimatedDuration.inSeconds / 60 +
-        (outdoor(r) && ((pm(r) ?? 0) >= 35.5 || (aqi(r) ?? 0) >= 101) ? 25 : 0) +
+        (outdoor(r) && ((pm(r) ?? 0) >= 35.5 || (aqi(r) ?? 0) >= 101)
+            ? 25
+            : 0) +
         (outdoor(r) && (rain(r) ?? 0) > 0.2 ? 40 : 0) +
         (road(r) && congested(r) ? 20 : 0);
 
@@ -48,51 +53,51 @@ class CommuteRecommendations {
       final items = <String>{};
       final risks = <String>{...r.identifiedRisks};
       if (r.mode == TransportMode.motorcycle) {
-        items.add('Wear an approved helmet and protective riding clothing.');
+        items.add('Gunakan helm berstandar dan pakaian pelindung berkendara.');
       }
       if (r.mode == TransportMode.walk) {
-        items.add('Wear comfortable shoes and carry drinking water.');
+        items.add('Gunakan sepatu yang nyaman dan bawa air minum.');
       }
       if (r.mode == TransportMode.publicTransit) {
         items.add(
-          'Bring a suitable fare/payment method; allow time for walking and transfers.',
+          'Siapkan alat pembayaran yang sesuai serta waktu untuk berjalan kaki dan berganti kendaraan.',
         );
       }
       if (precipitation != null && precipitation > 0.2) {
         items.add(
           r.mode == TransportMode.motorcycle
-              ? 'Bring waterproof riding gear.'
-              : 'Bring a compact umbrella or raincoat for outdoor legs.',
+              ? 'Bawa perlengkapan berkendara tahan air.'
+              : 'Bawa payung atau jas hujan untuk bagian perjalanan di luar ruangan.',
         );
         risks.add(
-          'Current origin precipitation may affect outdoor legs; this is not a flood forecast.',
+          'Hujan di lokasi awal dapat memengaruhi perjalanan luar ruangan. Data ini bukan prakiraan banjir.',
         );
       }
       if ((particulate != null && particulate >= 35.5) ||
           (airIndex != null && airIndex >= 101)) {
         items.add(
-          'Consider a well-fitting particulate respirator for outdoor exposure.',
+          'Pertimbangkan masker partikulat yang pas untuk paparan di luar ruangan.',
         );
         risks.add(
-          'Origin station PM2.5 / AQI is elevated; a cabin does not eliminate exposure.',
+          'PM2.5 atau AQI stasiun dekat lokasi awal meningkat. Kabin kendaraan tidak menghilangkan seluruh paparan.',
         );
       }
       if (isCongested) {
         risks.add(
-          'Nearest-road traffic indicates congestion or closure near origin; allow buffer.',
+          'Lalu lintas jalan terdekat menunjukkan kemacetan atau penutupan dekat lokasi awal. Siapkan waktu tambahan.',
         );
       }
       final weather = r.conditions?.weather;
       if (weather?.isCurrentAt(now) == true &&
           (weather?.number('temperature_c') ?? 0) >= 32) {
-        items.add('Bring water and sun protection.');
+        items.add('Bawa air minum dan pelindung dari sinar matahari.');
       }
       final incomplete = particulate == null || precipitation == null;
       final reason =
           '${r.recommendationReason}\n$version: '
-          '${identical(best, r) ? 'Preferred among the available provider routes using duration, outdoor-exposure, and road congestion preferences.' : 'Alternative provider route.'} '
-          '${incomplete ? 'Current environmental coverage is incomplete/stale; no missing value is assumed safe.' : ''} '
-          'Nearest-road traffic is an origin preference, not a whole-route ETA adjustment.';
+          '${identical(best, r) ? 'Disarankan berdasarkan durasi, paparan luar ruangan, dan kemacetan dari pilihan rute yang tersedia.' : 'Pilihan rute alternatif dari penyedia.'} '
+          '${incomplete ? 'Data lingkungan terkini belum lengkap atau sudah lama. Perhatikan keterbatasan data saat memilih rute.' : ''} '
+          'Lalu lintas jalan terdekat digunakan untuk menilai lokasi awal, bukan menyesuaikan waktu tempuh seluruh rute.';
       return r.withAdvice(
         recommended: identical(best, r),
         reason: reason,

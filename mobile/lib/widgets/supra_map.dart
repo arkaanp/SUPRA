@@ -214,13 +214,13 @@ class SupraMap extends StatelessWidget {
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _legendItem(Color(0xFF22C55E), 'Free flow'),
+        _legendItem(Color(0xFF22C55E), 'Lancar'),
         SizedBox(width: 10),
-        _legendItem(Color(0xFFF59E0B), 'Moderate'),
+        _legendItem(Color(0xFFF59E0B), 'Sedang'),
         SizedBox(width: 10),
-        _legendItem(Color(0xFFEF4444), 'Heavy'),
+        _legendItem(Color(0xFFEF4444), 'Padat'),
         SizedBox(width: 10),
-        _legendItem(Color(0xFF3B82F6), 'Rain'),
+        _legendItem(Color(0xFF3B82F6), 'Hujan'),
       ],
     ),
   );

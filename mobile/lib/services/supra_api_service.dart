@@ -68,7 +68,7 @@ class SupraService extends ChangeNotifier {
 
   supabase.GoTrueClient get _auth {
     final client = _supabase;
-    if (client == null) throw StateError('Supabase is not initialized.');
+    if (client == null) throw StateError('Supabase belum diinisialisasi.');
     return client.auth;
   }
 
@@ -102,7 +102,7 @@ class SupraService extends ChangeNotifier {
 
   void _requireSameUser(String id) {
     if (_currentUser?.id != id) {
-      throw StateError('The signed-in user changed. Please try again.');
+      throw StateError('Akun yang login berubah. Coba lagi.');
     }
   }
 
@@ -110,17 +110,17 @@ class SupraService extends ChangeNotifier {
     Future<T> Function(BackendApi api, String id) action,
   ) async {
     final id = _currentUser?.id;
-    if (id == null) throw StateError('Please sign in first.');
+    if (id == null) throw StateError('Login terlebih dahulu.');
     final client = AuthenticatedClient(
       baseUrl: Uri.parse(_apiBaseUrl),
       inner: _httpClientFactory?.call(),
       accessToken: () async {
         var session = _auth.currentSession;
-        if (session == null) throw StateError('Please sign in first.');
+        if (session == null) throw StateError('Login terlebih dahulu.');
         if (session.isExpired) session = (await _auth.refreshSession()).session;
         _requireSameUser(id);
         if (session == null || session.isExpired) {
-          throw StateError('Please sign in again.');
+          throw StateError('Login kembali.');
         }
         return session.accessToken;
       },
@@ -176,7 +176,7 @@ class SupraService extends ChangeNotifier {
             as Map<String, dynamic>,
       );
     } on ApiException catch (error) {
-      if (error.status == 409) throw StateError('Username is already in use.');
+      if (error.status == 409) throw StateError('Username sudah digunakan.');
       rethrow;
     }
     _requireSameUser(id);
@@ -248,7 +248,7 @@ class SupraService extends ChangeNotifier {
     String password,
   ) async {
     if (kReleaseMode && Uri.parse(_apiBaseUrl).scheme != 'https') {
-      throw StateError('Account access requires an HTTPS API URL.');
+      throw StateError('Akses akun memerlukan alamat API HTTPS.');
     }
     final client = _httpClientFactory?.call() ?? http.Client();
     try {
@@ -264,7 +264,7 @@ class SupraService extends ChangeNotifier {
   Future<User> login(String username, String password) async {
     final value = username.trim();
     if (value.isEmpty || value.contains('@') || password.isEmpty) {
-      throw StateError('Enter your username and password.');
+      throw StateError('Masukkan username dan password.');
     }
     final session = await _sendCredentials(
       '/api/auth/username-login',
@@ -273,7 +273,7 @@ class SupraService extends ChangeNotifier {
     );
     final result = await _auth.recoverSession(jsonEncode(session));
     if (result.session == null) {
-      throw StateError('Sign-in did not create a session.');
+      throw StateError('Login gagal membuat sesi.');
     }
     _applySession(result.session);
     return _currentUser!;
@@ -289,7 +289,7 @@ class SupraService extends ChangeNotifier {
         password,
       );
     } on ApiException catch (error) {
-      if (error.status == 409) throw StateError('Username is already in use.');
+      if (error.status == 409) throw StateError('Username sudah digunakan.');
       rethrow;
     }
   }
@@ -297,7 +297,7 @@ class SupraService extends ChangeNotifier {
   void _validatePassword(String password) {
     if (password.runes.length < 8 || utf8.encode(password).length > 72) {
       throw StateError(
-        'Use a password of at least 8 characters and at most 72 bytes.',
+        'Gunakan password minimal 8 karakter dan maksimal 72 byte.',
       );
     }
   }
@@ -308,7 +308,7 @@ class SupraService extends ChangeNotifier {
   ) async {
     _validatePassword(newPassword);
     final user = _currentUser;
-    if (user == null) throw StateError('Please sign in first.');
+    if (user == null) throw StateError('Login terlebih dahulu.');
     final session = await _sendCredentials(
       '/api/auth/username-login',
       user.username,
@@ -316,7 +316,7 @@ class SupraService extends ChangeNotifier {
     ) as Map<String, dynamic>;
     _requireSameUser(user.id);
     if ((session['user'] as Map?)?['id'] != user.id) {
-      throw StateError('Sign in with your current username and try again.');
+      throw StateError('Login dengan username saat ini, lalu coba lagi.');
     }
     await _auth.recoverSession(jsonEncode(session));
     _requireSameUser(user.id);

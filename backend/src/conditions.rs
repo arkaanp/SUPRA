@@ -237,7 +237,7 @@ impl ConditionsService {
             number(&data, "temperature_c", -60., 65.)?;
             number(&data, "precipitation_mm", 0., 1000.)?;
             Ok(Signal { status: "available", source: "met_norway", kind: Some("provider_forecast"),
-                valid_at: Some(valid_at), message: "Hourly forecast from MET Norway (https://api.met.no/), CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Rain covers the next hour.".into(),
+                valid_at: Some(valid_at), message: "Prakiraan per jam dari MET Norway (https://api.met.no/), CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Curah hujan mencakup satu jam ke depan.".into(),
                 data: Some(data) })
         });
         alternate.unwrap_or_else(|reason| Signal::missing("met_norway", reason))
@@ -417,7 +417,7 @@ impl ConditionsService {
         stale.unwrap_or_else(|| {
             Signal::missing(
                 "openaq",
-                "No usable PM2.5 reading from the nearest three stations within 25 km.",
+                "Data PM2.5 yang dapat digunakan tidak ditemukan dari tiga stasiun terdekat dalam 25 km.",
             )
         })
     }
@@ -541,7 +541,7 @@ fn parse_cams(value: &Value) -> Result<Signal, &'static str> {
     let pm = number(c, "pm2_5", 0.0, 2000.0)?;
     let aqi = number(c, "us_aqi", 0.0, 2000.0)?;
     Ok(Signal { status:"available", source:"open_meteo_cams", kind:Some("model_estimate"),
-        valid_at:Some(at), message:"CAMS global via Open-Meteo (https://open-meteo.com/), CC BY 4.0. Approx. 45 km grid model estimate; not a local station or street-level reading. US AQI supplied by provider.".into(),
+        valid_at:Some(at), message:"CAMS global melalui Open-Meteo (https://open-meteo.com/), CC BY 4.0. Perkiraan model dengan resolusi sekitar 45 km, bukan pengamatan stasiun lokal atau ruas jalan. AQI AS berasal dari penyedia.".into(),
         data:Some(serde_json::json!({"pm25_ug_m3":pm,"aqi":aqi,"aqi_standard":"US EPA",
             "model_latitude":value["latitude"],"model_longitude":value["longitude"],"resolution_km":45})) })
 }
@@ -568,7 +568,7 @@ fn parse_weather(value: &Value) -> Result<Signal, &'static str> {
         .filter(|v| *v > 0 && *v <= 3600)
         .ok_or("invalid_provider_response")?;
     Ok(Signal { status: "available", source: "open_meteo", kind: Some("model_estimate"), valid_at: Some(time),
-        message: "Weather data by Open-Meteo.com (https://open-meteo.com/). Model estimate, not a station observation.".into(),
+        message: "Data cuaca dari Open-Meteo.com (https://open-meteo.com/). Perkiraan model, bukan pengamatan stasiun.".into(),
         data: Some(serde_json::json!({ "temperature_c": temperature, "humidity_percent": humidity,
             "precipitation_mm": precipitation, "interval_seconds": interval, "wind_speed_kmh": wind,
             "weather_code": current["weather_code"], "model_latitude": value["latitude"], "model_longitude": value["longitude"] })) })
@@ -582,7 +582,7 @@ fn parse_bmkg(value: &Value, q: &ConditionsQuery) -> Result<Signal, &'static str
     let lat = number(location, "lat", -90.0, 90.0)?;
     let lon = number(location, "lon", -180.0, 180.0)?;
     if distance_km(q.latitude, q.longitude, lat, lon) > 15.0 {
-        return Err("BMKG village is too far from the requested coordinates");
+        return Err("Kelurahan BMKG terlalu jauh dari koordinat yang diminta");
     }
     let mut entries = Vec::new();
     for area in value["data"]
@@ -613,7 +613,7 @@ fn parse_bmkg(value: &Value, q: &ConditionsQuery) -> Result<Signal, &'static str
     entries.sort_by_key(|(time, _)| (*time - Utc::now()).num_seconds().abs());
     let (time, entry) = entries
         .first()
-        .ok_or("No upcoming BMKG forecast within six hours")?;
+        .ok_or("Prakiraan BMKG dalam enam jam ke depan belum tersedia")?;
     let issued = entry["analysis_date"]
         .as_str()
         .and_then(|s| {
@@ -635,7 +635,7 @@ fn parse_bmkg(value: &Value, q: &ConditionsQuery) -> Result<Signal, &'static str
     let temperature = number(entry, "t", -60.0, 65.0)?;
     let humidity = number(entry, "hu", 0.0, 100.0)?;
     Ok(Signal { status: "available", source: "bmkg", kind: Some("provider_forecast"), valid_at: Some(*time),
-        message: "Sumber: BMKG (https://www.bmkg.go.id/). Three-hourly forecast nearest to now, not a station observation. Selected by forecast valid-time distance when BMKG is closer than Open-Meteo.".into(),
+        message: "Sumber: BMKG (https://www.bmkg.go.id/). Prakiraan tiga jam yang waktu berlakunya paling dekat dengan saat ini, bukan pengamatan stasiun. Dipilih saat selisih waktunya lebih kecil daripada Open-Meteo.".into(),
         data: Some(serde_json::json!({ "temperature_c": temperature, "humidity_percent": humidity,
             "precipitation_mm": number(entry, "tp", 0.0, 1000.0).ok(),
             "description": entry["weather_desc"], "wind_speed_kmh": entry["ws"], "issued_at": issued, "village": location["desa"],
@@ -671,7 +671,7 @@ fn parse_air_quality(station: &Value, latest: &Value, distance: f64) -> Option<S
     let (time, value, sensor_id) = readings.into_iter().max_by_key(|(t, _, _)| *t)?;
     let stale = time < Utc::now() - chrono::Duration::hours(MAX_AIR_AGE_HOURS);
     Some(Signal { status: if stale { "stale" } else { "available" }, source: "openaq", kind: Some("station_observation"), valid_at: Some(time),
-        message: "OpenAQ (https://openaq.org/), attributed to the station's provider/owner below. Nearby station PM2.5 is not a computed AQI or a measurement at your exact point.".into(),
+        message: "OpenAQ (https://openaq.org/), dengan atribusi penyedia atau pemilik stasiun di bawah. PM2.5 stasiun terdekat bukan nilai AQI atau pengukuran tepat di titik Anda.".into(),
         data: Some(serde_json::json!({ "pm25_ug_m3": value, "sensor_id": sensor_id, "station_id": station["id"],
             "station_name": station["name"], "distance_km": distance, "coordinates": station["coordinates"],
             "provider": station["provider"], "owner": station["owner"], "licenses": station["licenses"] })) })
@@ -740,7 +740,7 @@ fn nowcast_index(value: &Value, now: DateTime<Utc>) -> Option<Signal> {
     Some(Signal {
         status: "available", source: "openaq", kind: Some("calculated_index"),
         valid_at: DateTime::from_timestamp(anchor - i64::from(*hours.keys().next()?) * 3600, 0),
-        message: "SUPRA PM2.5 NowCast estimate using nearby OpenAQ hourly measurements and US EPA breakpoints. Source terms and station attribution apply. https://docs.openaq.org/ https://document.airnow.gov/technical-assistance-document-for-the-reporting-of-daily-air-quailty.pdf".into(),
+        message: "Perkiraan NowCast PM2.5 SUPRA menggunakan pengukuran per jam OpenAQ terdekat dan ambang US EPA. Ketentuan sumber dan atribusi stasiun berlaku. https://docs.openaq.org/ https://document.airnow.gov/technical-assistance-document-for-the-reporting-of-daily-air-quailty.pdf".into(),
         data: Some(serde_json::json!({"aqi":aqi,"aqi_standard":"US EPA","aqi_method":"PM2.5 NowCast estimate",
             "nowcast_pm25_ug_m3":concentration,"hours_available":hours.len()})),
     })
@@ -765,7 +765,7 @@ fn parse_traffic(value: &Value) -> Result<Signal, &'static str> {
         number(point, "longitude", -180.0, 180.0)?;
     }
     Ok(Signal { status: "available", source: "tomtom", kind: Some("provider_live_estimate"), valid_at: None,
-        message: "Traffic data © TomTom. Nearest returned road fragment, not a matched route or whole-area condition. Provider observation timestamp is unavailable; see retrieved_at.".into(),
+        message: "Data lalu lintas © TomTom. Mewakili ruas jalan terdekat, bukan seluruh rute atau wilayah. Waktu pengamatan penyedia tidak tersedia; gunakan waktu pengambilan data.".into(),
         data: Some(serde_json::json!({ "speed_kmh": speed, "free_flow_speed_kmh": free_flow,
             "travel_time_seconds": travel_time, "free_flow_time_seconds": free_time,
             "confidence": confidence, "road_closed": closure, "coordinates": geometry })) })

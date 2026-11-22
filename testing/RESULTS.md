@@ -1,5 +1,37 @@
 # Current test results
 
+**Automated PASS — 171 tests: 129 unit and 42 integration.**
+
+Executed **2026-11-22 at 18:48 UTC / 2026-11-23 at 01:48 WIB**, branch
+`feat/deployment`, base commit `fa79e7e6c25bd78055f73c85a98bdc94d1d0920c`,
+including the Indonesian interface changes in the working tree.
+Command: `python3 testing/scripts/run_checks.py`.
+
+| Step | Suite | Passed | Result |
+|---|---|---:|---|
+| Unit | Rust | 22 | PASS |
+| Unit | Flutter | 88 | PASS |
+| Unit | Python | 19 | PASS |
+| Integration | Rust | 24 | PASS |
+| Integration | Flutter | 13 | PASS |
+| Integration | Python | 3 | PASS |
+| Integration | Database | 1 | PASS |
+| Integration | GTFS | 1 | PASS |
+
+Rust inventory and Flutter analysis also passed. Coverage includes Indonesian
+labels and built-in dialogs; retained API status/enum values; localized legacy
+alert display; WIB date conversion; per-source update times on Home with ML off;
+weather issue time instead of future validity; and preservation of original
+timestamps after a failed refresh. Forecast mode hides the current-data timestamp
+section. Trip history controls wrap to accommodate longer translated labels.
+
+Evidence: [automated summary](evidence/20261122T184850552215Z/summary.json).
+The first run found outdated English assertions and a Trip history header
+overflow. These were corrected before the complete passing run. This cycle does
+not claim a Render redeployment or new interactive device acceptance testing.
+
+## Historical automated run — 2026-11-22, AQI forecast fallback
+
 **Automated PASS — 167 tests: 125 unit and 42 integration.**
 
 Executed **2026-11-22 at 17:46 UTC / 2026-11-23 at 00:46 WIB**, branch

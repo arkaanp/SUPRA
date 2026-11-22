@@ -23,7 +23,7 @@ void main() {
       await tester.enterText(fields.first, 'test_rider');
       for (var i = 0; i < 3; i++) {
         await tester.enterText(fields.last, 'wrong-$i');
-        await tester.tap(find.widgetWithText(ElevatedButton, 'Sign in'));
+        await tester.tap(find.widgetWithText(ElevatedButton, 'Login'));
         await tester.pumpAndSettle();
         await tester.enterText(fields.last, 'corrected-$i');
         expect(

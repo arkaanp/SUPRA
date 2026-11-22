@@ -254,7 +254,7 @@ class _MapScreenState extends State<MapScreen> {
         title: Text(
           _selectedOption != null
               ? '${_selectedOption!.mode.iconEmoji} ${_selectedOption!.mode.displayName} (${_selectedOption!.formattedDuration})'
-              : 'Route map',
+              : 'Peta rute',
         ),
         actions: [
           if (MapConfig.isMapLibreSupported && !widget.forceCanvas)
@@ -262,8 +262,8 @@ class _MapScreenState extends State<MapScreen> {
               icon: Icon(_useMapLibre ? Icons.public : Icons.map_outlined),
               onPressed: () => setState(() => _useMapLibre = !_useMapLibre),
               tooltip: _useMapLibre
-                  ? 'Switch to schematic map'
-                  : 'Switch to MapLibre',
+                  ? 'Gunakan peta skematis'
+                  : 'Gunakan MapLibre',
             ),
           IconButton(
             icon: Icon(_showTraffic ? Icons.traffic : Icons.traffic_outlined),
@@ -271,12 +271,12 @@ class _MapScreenState extends State<MapScreen> {
               setState(() => _showTraffic = !_showTraffic);
               if (_useMapLibre) _drawMapLibreRoute();
             },
-            tooltip: 'Traffic overlay',
+            tooltip: 'Lapisan lalu lintas',
           ),
           IconButton(
             icon: Icon(_showRain ? Icons.wb_cloudy : Icons.wb_cloudy_outlined),
             onPressed: () => setState(() => _showRain = !_showRain),
-            tooltip: 'Rain overlay',
+            tooltip: 'Lapisan hujan',
           ),
         ],
       ),
@@ -359,7 +359,7 @@ class _MapScreenState extends State<MapScreen> {
                               children: [
                                 Text(
                                   _inspectedAddress ??
-                                      (nearest?.name ?? 'Tapped location'),
+                                      (nearest?.name ?? 'Lokasi terpilih'),
                                   style: const TextStyle(
                                     fontWeight: FontWeight.w700,
                                     fontSize: 12,
@@ -406,7 +406,7 @@ class _MapScreenState extends State<MapScreen> {
                           ),
                           if (_inspectedAir != null)
                             SourceInfoButton(
-                              title: 'Air quality source',
+                              title: 'Sumber kualitas udara',
                               details: _inspectedAir!.sourceDetails,
                               compact: true,
                             ),
@@ -453,7 +453,7 @@ class _MapScreenState extends State<MapScreen> {
                           ),
                           SizedBox(width: 8),
                           Text(
-                            'Snapping to road network…',
+                            'Menyesuaikan ke jaringan jalan…',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
@@ -525,7 +525,7 @@ class _MapScreenState extends State<MapScreen> {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(
-                                  'Selected ${_selectedOption!.mode.displayName} route (${_selectedOption!.formattedDuration}).',
+                                  'Rute ${_selectedOption!.mode.displayName} dipilih (${_selectedOption!.formattedDuration}).',
                                 ),
                               ),
                             );
@@ -539,9 +539,7 @@ class _MapScreenState extends State<MapScreen> {
                           ),
                         )
                       else
-                        const Center(
-                          child: Text('Could not load road routes.'),
-                        ),
+                        const Center(child: Text('Rute jalan gagal dimuat.')),
                     ],
                   ),
                 ),

@@ -28,7 +28,7 @@ void main() {
           source: 'openaq',
           kind: 'station_observation',
           validAt: time,
-          message: 'Station',
+          message: 'Stasiun',
           data: const {'pm25_ug_m3': 25},
         ),
         traffic: const ConditionSignal(

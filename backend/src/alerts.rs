@@ -104,16 +104,16 @@ fn hazards(
         && fresh(&c.air_quality, now)
         && number(&c.air_quality, "pm25_ug_m3").is_some_and(|n| n >= 35.5)
     {
-        out.push(Hazard{key:"air",title:"Elevated PM2.5 near your trip",message:format!(
-            "Nearby station PM2.5: {:.1} µg/m³. This is an instantaneous station sample, not AQI or route-wide exposure. Consider reducing outdoor exposure.",number(&c.air_quality,"pm25_ug_m3").unwrap()),
+        out.push(Hazard{key:"air",title:"PM2.5 meningkat di dekat perjalanan Anda",message:format!(
+            "PM2.5 stasiun terdekat: {:.1} µg/m³. Data ini merupakan pengamatan sesaat di stasiun, bukan AQI atau paparan seluruh rute. Pertimbangkan mengurangi paparan luar ruangan.",number(&c.air_quality,"pm25_ug_m3").unwrap()),
             source:c.air_quality.source,valid_at:c.air_quality.valid_at,kind:c.air_quality.kind});
     }
     if rain
         && fresh(&c.weather, now)
         && number(&c.weather, "precipitation_mm").is_some_and(|n| n >= 1.0)
     {
-        out.push(Hazard{key:"rain",title:"Rain near your trip",message:format!(
-            "Precipitation {:.1} mm in the provider interval. Carry rain protection; wet surfaces may affect outdoor legs. Source is a model estimate, not a verified flood report.",number(&c.weather,"precipitation_mm").unwrap()),
+        out.push(Hazard{key:"rain",title:"Hujan di dekat perjalanan Anda",message:format!(
+            "Curah hujan {:.1} mm sesuai interval penyedia. Bawa pelindung hujan dan waspadai permukaan licin. Sumber merupakan perkiraan model, bukan laporan banjir terverifikasi.",number(&c.weather,"precipitation_mm").unwrap()),
             source:c.weather.source,valid_at:c.weather.valid_at,kind:c.weather.kind});
     }
     let closed = c
@@ -127,8 +127,8 @@ fn hazards(
         && (closed
             || matches!((number(&c.traffic,"speed_kmh"),number(&c.traffic,"free_flow_speed_kmh")),(Some(speed),Some(free)) if free>=10.0 && speed<free*0.5))
     {
-        out.push(Hazard{key:"traffic",title:"Road disruption near your trip",message:if closed {"Provider reports a nearby road fragment closed.".into()} else {
-            "Nearby road speed is below half its free-flow speed. This is not a route-wide delay prediction.".into()},
+        out.push(Hazard{key:"traffic",title:"Gangguan jalan di dekat perjalanan Anda",message:if closed {"Penyedia melaporkan penutupan ruas jalan terdekat.".into()} else {
+            "Kecepatan jalan terdekat kurang dari separuh kecepatan saat lancar. Data ini bukan prediksi keterlambatan seluruh rute.".into()},
             source:c.traffic.source,valid_at:c.traffic.valid_at,kind:c.traffic.kind});
     }
     out
@@ -348,9 +348,15 @@ pub async fn evaluate(
             let event = format!("{key}:{}", h.key);
             let context = json!({"rule":h.key,"source":h.source,"kind":h.kind,"valid_at":h.valid_at,"mode":t.mode,"target":t.id});
             let body = format!(
-                "{} · {}\n{}\nSource: {} ({}) · checked {}",
+                "{} · {}\n{}\nSumber: {} ({}) · diperiksa {}",
                 t.label,
-                t.mode,
+                match t.mode.as_str() {
+                    "car" => "Mobil",
+                    "motorcycle" => "Motor",
+                    "walk" => "Jalan kaki",
+                    "public_transit" => "Transportasi umum",
+                    _ => "Moda terpilih",
+                },
                 h.message,
                 h.source,
                 h.kind.unwrap_or("unknown"),
@@ -367,7 +373,7 @@ pub async fn evaluate(
                     && meets_severity(&i.severity, &t.news_min_severity)
             }) {
                 result.created+=sqlx::query("INSERT INTO notifications(user_id,title,message_body,severity,event_key,source_url,context) VALUES($1,$2,$3,$7,$4,$5,$6) ON CONFLICT(user_id,event_key) WHERE event_key IS NOT NULL DO NOTHING")
-                    .bind(t.user_id).bind(&i.title).bind(format!("{} · Publisher report near {} (area match; check article for current status). Published {}. Expires {}.",t.label,i.location_label,i.published_at,i.expires_at))
+                    .bind(t.user_id).bind(&i.title).bind(format!("{} · Berita di sekitar {} (sesuai wilayah; periksa artikel untuk kondisi terkini). Terbit {}. Berlaku hingga {}.",t.label,i.location_label,i.published_at,i.expires_at))
                     .bind(format!("news:{}",i.id)).bind(&i.source_url).bind(json!({"source_name":i.source_name,"severity_basis":i.severity_basis,"published_at":i.published_at,"expires_at":i.expires_at,"target":t.id,"coverage":if t.route_waypoints.as_array().is_some_and(|a| a.len()>1) {"route_corridor"} else {"endpoints_only"}}))
                     .bind(&i.severity).execute(&s.pool).await?.rows_affected();
             }
@@ -478,7 +484,7 @@ pub(crate) async fn store_news_for_user(
                     is_routine: false,
                 };
                 if relevant(incident, &target) {
-                    matched_label = Some(format!("Relevant to your saved trip ({name})"));
+                    matched_label = Some(format!("Relevan dengan perjalanan tersimpan ({name})"));
                     break;
                 }
             }
@@ -486,13 +492,14 @@ pub(crate) async fn store_news_for_user(
         if !user_trips.is_empty() && matched_label.is_none() {
             continue;
         }
-        let corridor_label = matched_label.unwrap_or_else(|| "Jabodetabek commuter news".into());
+        let corridor_label =
+            matched_label.unwrap_or_else(|| "Berita perjalanan Jabodetabek".into());
         let event_key = format!("news:{}", incident.id);
         let body = format!(
-            "{corridor_label} · Publisher report near {} (area-level relevance). Check the article for current status.\nPublished: {} · Expires: {}\nSource: {}",
+            "{corridor_label} · Berita di sekitar {} (relevansi tingkat wilayah). Periksa artikel untuk kondisi terkini.\nTerbit: {} · Berlaku hingga: {}\nSumber: {}",
             incident.location_label,
-            incident.published_at.format("%Y-%m-%d %H:%M UTC"),
-            incident.expires_at.format("%Y-%m-%d %H:%M UTC"),
+            (incident.published_at + chrono::Duration::hours(7)).format("%Y-%m-%d %H:%M WIB"),
+            (incident.expires_at + chrono::Duration::hours(7)).format("%Y-%m-%d %H:%M WIB"),
             incident.source_url
         );
         let ctx = json!({

@@ -5,7 +5,7 @@ import 'package:http/http.dart' as http;
 class SessionRefreshException implements Exception {
   @override
   String toString() =>
-      'Your session could not be refreshed. Check your connection and sign in again.';
+      'Sesi gagal diperbarui. Periksa koneksi dan login kembali.';
 }
 
 /// Retrieves the current token for each request, including SSE connections.

@@ -131,7 +131,7 @@ class EnvironmentalService {
     final area = findZoneAt(point)?.name;
     final coordinates =
         '${point.latitude.toStringAsFixed(4)}, ${point.longitude.toStringAsFixed(4)}';
-    return area == null ? coordinates : 'Near $area ($coordinates)';
+    return area == null ? coordinates : 'Dekat $area ($coordinates)';
   }
 
   Future<List<EnvironmentalZone>> fetchRouteData(
@@ -164,9 +164,9 @@ class EnvironmentalService {
           EnvironmentalZone(
             id: 'route_$index',
             name: index == 0
-                ? 'Start · $place'
+                ? 'Awal · $place'
                 : index == points.length - 1
-                ? 'Destination · $place'
+                ? 'Tujuan · $place'
                 : place,
             center: z.center,
             pm25: z.pm25,
@@ -196,7 +196,7 @@ class EnvironmentalService {
     return [
       EnvironmentalZone(
         id: 'selected',
-        name: 'Selected location sample',
+        name: 'Titik lokasi terpilih',
         center: point,
         pm25: pm,
         rainfallMm: rain,

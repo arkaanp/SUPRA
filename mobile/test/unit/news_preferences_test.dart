@@ -51,8 +51,8 @@ void main() {
     final rain = AppNotification.fromJson({
       'id': 'rain',
       'user_id': 'test',
-      'title': 'Rain',
-      'message_body': 'Rain',
+      'title': 'Hujan',
+      'message_body': 'Hujan',
       'severity': 'medium',
       'sent_at': DateTime.now().toIso8601String(),
       'is_read': false,
@@ -111,8 +111,8 @@ void main() {
       await tester.pump();
       expect(find.text('low-news'), findsNothing);
       expect(find.text('medium-news'), findsOneWidget);
-      expect(find.text('Medium or higher'), findsOneWidget);
-      expect(find.text('Publisher News (3)'), findsOneWidget);
+      expect(find.text('Sedang atau lebih tinggi'), findsOneWidget);
+      expect(find.text('Berita (3)'), findsOneWidget);
       expect(requested, ['low', 'medium']);
       pending.complete(items);
       await tester.pumpAndSettle();
@@ -158,18 +158,27 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Delete read alerts'));
+      await tester.tap(find.text('Hapus yang sudah dibaca'));
       await tester.pumpAndSettle();
       expect(calls, 1);
       expect(find.textContaining('Unsupported operation'), findsNothing);
-      expect(find.textContaining('Could not delete read alerts'), findsNothing);
+      expect(
+        find.textContaining('Peringatan yang sudah dibaca gagal dihapus'),
+        findsNothing,
+      );
       expect(find.text('read-news'), findsNothing);
       expect(find.text('read-weather'), findsNothing);
       expect(find.text('unread-news'), findsOneWidget);
-      expect(find.text('Deleted 2 read alerts.'), findsOneWidget);
-      await tester.tap(find.text('Delete read alerts'));
+      expect(
+        find.text('2 peringatan yang sudah dibaca dihapus.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Hapus yang sudah dibaca'));
       await tester.pumpAndSettle();
-      expect(find.text('No read alerts to delete.'), findsOneWidget);
+      expect(
+        find.text('Tidak ada peringatan yang sudah dibaca untuk dihapus.'),
+        findsOneWidget,
+      );
       expect(find.text('unread-news'), findsOneWidget);
     },
   );
@@ -210,10 +219,10 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('Mark all read'), findsOneWidget);
-    expect(find.text('Delete read alerts'), findsOneWidget);
+    expect(find.text('Tandai semua sudah dibaca'), findsOneWidget);
+    expect(find.text('Hapus yang sudah dibaca'), findsOneWidget);
     expect(find.byTooltip('Manage alerts'), findsNothing);
-    await tester.tap(find.text('Mark unread'));
+    await tester.tap(find.text('Tandai belum dibaca'));
     await tester.pumpAndSettle();
     expect(toggled, [false]);
     expect(
@@ -223,7 +232,7 @@ void main() {
           .isRead,
       false,
     );
-    await tester.tap(find.text('Mark all read'));
+    await tester.tap(find.text('Tandai semua sudah dibaca'));
     await tester.pumpAndSettle();
     expect(markAll, 1);
     expect(
@@ -269,7 +278,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(boxes.at(1));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Mark selected unread'));
+    await tester.tap(find.text('Tandai pilihan belum dibaca'));
     await tester.pumpAndSettle();
     expect(batches.single, ['one', 'two']);
     final displayed = tester
@@ -277,7 +286,7 @@ void main() {
         .map((t) => t.notification)
         .toList();
     expect(displayed.map((n) => n.isRead), [false, false, true]);
-    expect(find.text('Mark selected unread'), findsNothing);
+    expect(find.text('Tandai pilihan belum dibaca'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -305,7 +314,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byType(Checkbox));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Mark selected unread'));
+      await tester.tap(find.text('Tandai pilihan belum dibaca'));
       await tester.pumpAndSettle();
       expect(
         tester
@@ -316,7 +325,7 @@ void main() {
       );
       expect(tester.widget<Checkbox>(find.byType(Checkbox)).value, true);
       expect(
-        find.textContaining('Could not mark selected alerts unread'),
+        find.textContaining('Gagal menandai pilihan belum dibaca'),
         findsOneWidget,
       );
     },
@@ -336,10 +345,13 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Delete read alerts'));
+    await tester.tap(find.text('Hapus yang sudah dibaca'));
     await tester.pumpAndSettle();
     expect(find.text('read-news'), findsOneWidget);
-    expect(find.textContaining('Could not delete read alerts'), findsOneWidget);
+    expect(
+      find.textContaining('Peringatan yang sudah dibaca gagal dihapus'),
+      findsOneWidget,
+    );
   });
 
   testWidgets(
@@ -364,16 +376,16 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.byType(NotificationTile), findsNWidgets(5));
-      await tester.tap(find.text('All severities'));
+      await tester.tap(find.text('Semua tingkat'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Medium or higher').last);
+      await tester.tap(find.text('Sedang atau lebih tinggi').last);
       await tester.pumpAndSettle();
       expect(saved, ['medium']);
       expect(find.text('low-news'), findsNothing);
       expect(find.text('weather-alert'), findsOneWidget);
-      await tester.tap(find.text('Medium or higher'));
+      await tester.tap(find.text('Sedang atau lebih tinggi'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('High or higher').last);
+      await tester.tap(find.text('Tinggi atau lebih tinggi').last);
       await tester.pumpAndSettle();
       expect(saved, ['medium', 'high']);
       expect(find.text('medium-news'), findsNothing);
@@ -397,11 +409,11 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('All severities'));
+    await tester.tap(find.text('Semua tingkat'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('High or higher').last);
+    await tester.tap(find.text('Tinggi atau lebih tinggi').last);
     await tester.pumpAndSettle();
-    expect(find.text('All severities'), findsOneWidget);
-    expect(find.textContaining('Could not save news filter'), findsOneWidget);
+    expect(find.text('Semua tingkat'), findsOneWidget);
+    expect(find.textContaining('Filter berita gagal disimpan'), findsOneWidget);
   });
 }

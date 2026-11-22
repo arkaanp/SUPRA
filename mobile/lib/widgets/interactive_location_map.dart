@@ -849,7 +849,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                             minHeight: 32,
                           ),
                           padding: EdgeInsets.zero,
-                          tooltip: 'Zoom in',
+                          tooltip: 'Perbesar',
                           onPressed: () {
                             if (_useMapLibre && _mapController != null) {
                               _mapController!.animateCamera(
@@ -878,7 +878,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                             minHeight: 32,
                           ),
                           padding: EdgeInsets.zero,
-                          tooltip: 'Zoom out',
+                          tooltip: 'Perkecil',
                           onPressed: () {
                             if (_useMapLibre && _mapController != null) {
                               _mapController!.animateCamera(
@@ -907,7 +907,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                             minHeight: 32,
                           ),
                           padding: EdgeInsets.zero,
-                          tooltip: 'Center on route or location',
+                          tooltip: 'Pusatkan pada rute atau lokasi',
                           onPressed: () {
                             if (widget.routeWaypoints != null &&
                                 widget.routeWaypoints!.length >= 2) {
@@ -959,7 +959,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               SourceInfoButton(
-                                title: 'Map source',
+                                title: 'Sumber peta',
                                 compact: true,
                                 details: _useMapLibre
                                     ? 'MapLibre GL · CARTO'
@@ -969,7 +969,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                         defaultValue:
                                             '© OpenStreetMap contributors',
                                       )
-                                    : 'Test canvas (no basemap)',
+                                    : 'Tampilan uji (tanpa peta dasar)',
                               ),
                             ],
                           ),
@@ -977,7 +977,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                         if (widget.showEnvironmentalOverlays) ...[
                           const SizedBox(width: 6),
                           PopupMenuButton<EnvironmentalOverlayMode>(
-                            tooltip: 'Environmental Overlay Mode',
+                            tooltip: 'Lapisan kondisi lingkungan',
                             initialValue: _overlayMode,
                             onSelected: (mode) {
                               setState(() => _overlayMode = mode);
@@ -996,7 +996,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                       color: SupraTheme.brand,
                                     ),
                                     SizedBox(width: 8),
-                                    Text('All Overlays (Air + Rain)'),
+                                    Text('Semua lapisan (udara dan hujan)'),
                                   ],
                                 ),
                               ),
@@ -1010,7 +1010,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                       color: Color(0xFFEF4444),
                                     ),
                                     SizedBox(width: 8),
-                                    Text('Air Pollution (PM2.5)'),
+                                    Text('Polusi udara (PM2.5)'),
                                   ],
                                 ),
                               ),
@@ -1024,7 +1024,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                       color: Color(0xFF2563EB),
                                     ),
                                     SizedBox(width: 8),
-                                    Text('Rain (Precipitation)'),
+                                    Text('Hujan (curah hujan)'),
                                   ],
                                 ),
                               ),
@@ -1068,12 +1068,12 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                   Text(
                                     _overlayMode ==
                                             EnvironmentalOverlayMode.rain
-                                        ? 'Rain'
+                                        ? 'Hujan'
                                         : _overlayMode ==
                                               EnvironmentalOverlayMode
                                                   .airQuality
                                         ? 'PM2.5'
-                                        : 'Eco Layers',
+                                        : 'Lapisan lingkungan',
                                     style: const TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w700,
@@ -1092,7 +1092,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   const SnackBar(
                                     content: Text(
-                                      'Location sample lookup completed. Check each source/status; unavailable readings are not substituted.',
+                                      'Pemeriksaan titik selesai. Lihat sumber dan status setiap data. Data yang tidak tersedia ditandai.',
                                     ),
                                     duration: Duration(milliseconds: 1500),
                                   ),
@@ -1124,7 +1124,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                   ),
                                   const SizedBox(width: 3.5),
                                   const Text(
-                                    'Refresh sample',
+                                    'Perbarui data titik',
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w700,
@@ -1162,7 +1162,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                   _buildLegendDot(const Color(0xFF2563EB)),
                                   const SizedBox(width: 4),
                                   const Text(
-                                    'Data guide',
+                                    'Panduan data',
                                     style: TextStyle(
                                       fontSize: 10,
                                       fontWeight: FontWeight.w700,
@@ -1193,7 +1193,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                 color: SupraTheme.onSurface,
                               ),
                             ),
-                            tooltip: 'Map style',
+                            tooltip: 'Gaya peta',
                             onSelected: (style) {
                               setState(() {
                                 if (style == 'canvas') {
@@ -1207,15 +1207,15 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                             itemBuilder: (context) => [
                               const PopupMenuItem(
                                 value: MapConfig.cartoPositron,
-                                child: Text('MapLibre (Positron Light)'),
+                                child: Text('MapLibre (Positron terang)'),
                               ),
                               const PopupMenuItem(
                                 value: MapConfig.cartoVoyager,
-                                child: Text('MapLibre (Voyager Color)'),
+                                child: Text('MapLibre (Voyager berwarna)'),
                               ),
                               const PopupMenuItem(
                                 value: 'canvas',
-                                child: Text('Vector Overview'),
+                                child: Text('Gambaran vektor'),
                               ),
                             ],
                           ),
@@ -1242,7 +1242,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: const Text(
-                          'Tap anywhere to pick coordinates',
+                          'Ketuk peta untuk memilih koordinat',
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
@@ -1298,7 +1298,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                                           )
                                           ? nearest.name
                                           : '${nearest.name}, ${nearest.area}')
-                                    : 'Selected Point'),
+                                    : 'Titik terpilih'),
                             style: const TextStyle(
                               fontWeight: FontWeight.w700,
                               fontSize: 12,
@@ -1482,7 +1482,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                     ),
                     const SizedBox(height: 2),
                     SourceInfoButton(
-                      title: 'Sources for ${zone.name}',
+                      title: 'Sumber untuk ${zone.name}',
                       details:
                           zone.conditions?.sourceDetails ?? zone.healthAdvisory,
                     ),
@@ -1526,7 +1526,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                   ),
                   const SizedBox(width: 8),
                   const Text(
-                    'AQI Colors & Rain Guide',
+                    'Panduan warna AQI dan hujan',
                     style: TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
                   ),
                   const Spacer(),
@@ -1551,7 +1551,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                     SizedBox(width: 6),
                     Expanded(
                       child: Text(
-                        'Transparent squares mark individual samples, not measured area coverage. Provider AQI uses the categories below. PM2.5-only samples use labelled concentration bands; missing values are gray.',
+                        'Kotak transparan menandai titik data, bukan cakupan pengukuran wilayah. AQI dari penyedia mengikuti kategori berikut. Data PM2.5 menggunakan rentang konsentrasi yang ditandai. Data yang tidak tersedia berwarna abu-abu.',
                         style: TextStyle(
                           fontSize: 10.5,
                           color: Color(0xFF334155),
@@ -1566,44 +1566,44 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
               _buildAqiScaleRow(
                 const Color(0xFF22C55E),
                 'AQI 0–50',
-                'Good',
-                'Provider-supplied US AQI category.',
+                'Baik',
+                'Kategori AQI AS dari penyedia.',
               ),
               _buildAqiScaleRow(
                 const Color(0xFFEAB308),
                 'AQI 51–100',
-                'Moderate',
-                'Provider-supplied US AQI category.',
+                'Sedang',
+                'Kategori AQI AS dari penyedia.',
               ),
               _buildAqiScaleRow(
                 const Color(0xFFF97316),
                 'AQI 101–150',
-                'Unhealthy for sensitive groups',
-                'Provider-supplied US AQI category.',
+                'Tidak sehat bagi kelompok sensitif',
+                'Kategori AQI AS dari penyedia.',
               ),
               _buildAqiScaleRow(
                 const Color(0xFFEF4444),
                 'AQI 151–200',
-                'Unhealthy',
-                'Provider-supplied US AQI category.',
+                'Tidak sehat',
+                'Kategori AQI AS dari penyedia.',
               ),
               _buildAqiScaleRow(
                 const Color(0xFF8B5CF6),
                 'AQI 201–300',
-                'Very unhealthy',
-                'Provider-supplied US AQI category.',
+                'Sangat tidak sehat',
+                'Kategori AQI AS dari penyedia.',
               ),
               _buildAqiScaleRow(
                 const Color(0xFF7F1D1D),
                 'AQI 301+',
-                'Hazardous',
-                'Provider-supplied US AQI category.',
+                'Berbahaya',
+                'Kategori AQI AS dari penyedia.',
               ),
               _buildAqiScaleRow(
                 const Color(0xFF2563EB),
-                'Rain (mm)',
-                'Blue droplet',
-                'Precipitation in the provider interval. A cloud with 0.0 mm means zero reported rain; a crossed cloud means unavailable. See cards below transport options for sources and times.',
+                'Hujan (mm)',
+                'Tetes air biru',
+                'Curah hujan sesuai interval penyedia. Awan dengan 0,0 mm berarti tidak ada hujan yang dilaporkan; awan dicoret berarti data tidak tersedia. Sumber dan waktu data ada pada kartu di bawah pilihan transportasi.',
               ),
             ],
           ),
@@ -1744,13 +1744,13 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
 Future<LatLng?> showLocationPickerSheet({
   required BuildContext context,
   LatLng? initialLocation,
-  String title = 'Select location on map',
+  String title = 'Pilih lokasi di peta',
 }) async {
   LatLng selected =
       initialLocation ?? const LatLng(latitude: -6.2088, longitude: 106.8456);
 
   final geocoder = GeocodingService();
-  String resolvedAddress = 'Resolving location…';
+  String resolvedAddress = 'Mencari nama lokasi…';
 
   return showModalBottomSheet<LatLng>(
     context: context,
@@ -1774,7 +1774,7 @@ Future<LatLng?> showLocationPickerSheet({
             });
           }
 
-          if (resolvedAddress == 'Resolving location…') {
+          if (resolvedAddress == 'Mencari nama lokasi…') {
             updateAddress(selected);
           }
 
@@ -1821,7 +1821,7 @@ Future<LatLng?> showLocationPickerSheet({
                       IconButton(
                         icon: const Icon(Icons.close),
                         onPressed: () => Navigator.of(context).pop(),
-                        tooltip: 'Close',
+                        tooltip: 'Tutup',
                       ),
                     ],
                   ),
@@ -1831,7 +1831,7 @@ Future<LatLng?> showLocationPickerSheet({
                   TextField(
                     controller: searchCtrl,
                     decoration: InputDecoration(
-                      hintText: 'Search place, station, or street in Jakarta…',
+                      hintText: 'Cari tempat, stasiun, atau jalan di Jakarta…',
                       prefixIcon: const Icon(Icons.search, size: 20),
                       suffixIcon: searchCtrl.text.isNotEmpty
                           ? IconButton(
@@ -1874,7 +1874,7 @@ Future<LatLng?> showLocationPickerSheet({
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text(
-                                  'No matching locations. Choose on the map.',
+                                  'Lokasi tidak ditemukan. Pilih di peta.',
                                 ),
                               ),
                             );
@@ -2059,7 +2059,7 @@ Future<LatLng?> showLocationPickerSheet({
                   // Confirm button.
                   ElevatedButton.icon(
                     icon: const Icon(Icons.check_circle_outline),
-                    label: const Text('Confirm location'),
+                    label: const Text('Konfirmasi lokasi'),
                     onPressed: () => Navigator.of(context).pop(selected),
                   ),
                 ],

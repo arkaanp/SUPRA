@@ -44,7 +44,7 @@ class AuthHttpClient extends http.BaseClient {
     } on TimeoutException {
       if (!abort.isCompleted) abort.complete();
       throw http.ClientException(
-        'Authentication service timed out. Check your connection.',
+        'Waktu tunggu autentikasi habis. Periksa koneksi Anda.',
         request.url,
       );
     }
