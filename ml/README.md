@@ -34,8 +34,7 @@ updated backend. A separate Python process keeps inference
 and training out of the Rust API event loop.
 
 Model weights live in `ml/artifacts/forecast.pt`; downloaded history lives under
-`ml/data/`. The environment, data and weights are ignored by Git. Generate weights
-with the training command on a fresh checkout/deployment. Source code and
+`ml/data/`. The environment and downloaded history are ignored by Git. The demo checkpoint and the weather-only model weights ship in the deployment image. Source code and
 [model_card.json](artifacts/model_card.json) remain visible for demonstration.
 Retraining replaces the checkpoint atomically; the running service reloads it on
 its next inference request. Use `--reuse-data` to reproduce training on the saved
@@ -72,6 +71,29 @@ bounded values and a checkpoint trained on data no more than 90 days old. It use
 weights, providers or expired outputs produce unavailable states. Requests do not
 train models. Cache entries are bounded, coalesced per location and change at the
 hour boundary. Provider failures do not manufacture replacement forecasts.
+
+### Weather-only forecasts during a provider outage
+
+When Open-Meteo weather or CAMS history is unavailable, the worker uses a second
+PyTorch model for rain amount, wet-hour probability and temperature. It uses the
+current forecast-hour temperature from MET Norway, coordinates, and Jakarta local
+time. The API identifies this model with `scope=weather_only` and returns null
+for forecast PM2.5 and AQI. Both models enforce the 90-day training-data limit.
+
+Rebuild the fallback weights from the saved training history with
+`ml/.venv/bin/python ml/weather_model.py`. The model fits ridge regressions for
+12 horizons using 5,475 historical issue times. The subsequent validation and test
+periods contain 780 and 785 issue times. On the held-out Open-Meteo history,
+temperature MAE was 0.89°C, precipitation MAE was 0.25 mm and the wet-hour Brier
+score was 0.187. Accuracy with MET Norway inputs has yet to be measured against
+observations. The weights, dataset hash, and scores are in
+[weather_model.json](artifacts/weather_model.json).
+
+MET Norway also supplies hourly weather by coordinate when the Rust backend
+cannot obtain either Open-Meteo or BMKG weather. Home and Trip reuse the worker's
+location cache. The worker checks the provider issue time and reads the entry
+valid for the requested hour. It respects cache expiry and a three-hour minimum
+between identical requests in Jakarta. [MET Norway Locationforecast](https://api.met.no/weatherapi/locationforecast/2.0/documentation)
 
 ## Real news alerts
 

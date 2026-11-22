@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import json
 import math
 from pathlib import Path
+from threading import Lock
 import time
 from urllib.parse import urlencode
 from urllib.error import HTTPError, URLError
@@ -17,6 +18,13 @@ SOURCES = {'weather':'Open-Meteo weather models', 'air':'CAMS global via Open-Me
            'attribution':'Open-Meteo.com / Copernicus CAMS, CC BY 4.0',
            'weather_url':'https://open-meteo.com/en/docs',
            'air_url':'https://open-meteo.com/en/docs/air-quality-api'}
+
+class InputUnavailable(ValueError):
+    pass
+
+
+_retry_after = {}
+_retry_lock = Lock()
 
 def utcnow():
     return dt.datetime.now(UTC)
@@ -57,12 +65,19 @@ def history(latitude,longitude,days=3,now=None,cache_dir=None):
     def load(source):
         kind, base, variables = source
         params=dict(latitude=latitude,longitude=longitude,hourly=variables,past_days=days,forecast_days=1,timezone='UTC')
+        with _retry_lock:
+            if time.monotonic() < _retry_after.get(kind, 0):
+                raise InputUnavailable(f'Open-Meteo {kind} returned HTTP 429')
         try:
             raw = fetch(base + '?' + urlencode(params), timeout=4 if days <= 3 else 15)
         except HTTPError as error:
-            raise ValueError(f'Open-Meteo {kind} returned HTTP {error.code}') from error
+            if error.code == 429:
+                wait = error.headers.get('Retry-After', '') if error.headers else ''
+                with _retry_lock:
+                    _retry_after[kind] = time.monotonic() + (int(wait) if wait.isdigit() else 300)
+            raise InputUnavailable(f'Open-Meteo {kind} returned HTTP {error.code}') from error
         except (URLError, TimeoutError) as error:
-            raise ValueError(f'Open-Meteo {kind} connection failed') from error
+            raise InputUnavailable(f'Open-Meteo {kind} connection failed') from error
         if cache_dir:
             (cache_dir/f'{latitude}_{longitude}_{kind}.json').write_bytes(raw)
         value=json.loads(raw)

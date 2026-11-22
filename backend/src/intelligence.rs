@@ -17,7 +17,7 @@ impl IntelligenceService {
     pub fn from_env() -> Self {
         Self {
             client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(12))
+                .timeout(std::time::Duration::from_secs(18))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .expect("ML HTTP configuration"),
@@ -25,25 +25,39 @@ impl IntelligenceService {
         }
     }
     async fn get(&self, path: &str) -> AppResult<Value> {
-        let mut response = self
-            .client
-            .get(format!("{}{path}", self.base))
-            .send()
-            .await
-            .map_err(|error| {
-                tracing::warn!(timed_out = error.is_timeout(), "Forecast worker request failed");
-                AppError::Unavailable
-            })?;
-        if !response.status().is_success() {
-            tracing::warn!(status = %response.status(), "Forecast worker returned an error");
-            return Err(AppError::Unavailable);
-        }
+        let url = format!("{}{path}", self.base);
+        // The Python process imports PyTorch before it starts accepting requests.
+        let started = tokio::time::Instant::now();
+        let mut response = loop {
+            match self.client.get(&url).send().await {
+                Ok(response) => break response,
+                Err(error) if error.is_connect() && started.elapsed().as_secs() < 8 => {
+                    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        timed_out = error.is_timeout(),
+                        "Forecast worker request failed"
+                    );
+                    return Err(AppError::ForecastUnavailable(
+                        "The forecast worker is unreachable. Try refreshing.",
+                    ));
+                }
+            }
+        };
+        let status = response.status();
         let mut bytes = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(|_| AppError::Unavailable)? {
             if bytes.len() + chunk.len() > 1_000_000 {
                 return Err(AppError::Unavailable);
             }
             bytes.extend_from_slice(&chunk);
+        }
+        if !status.is_success() {
+            let error: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
+            let message = forecast_failure(error["error"].as_str().unwrap_or(""));
+            tracing::warn!(%status, reason = message, "Forecast worker returned an error");
+            return Err(AppError::ForecastUnavailable(message));
         }
         serde_json::from_slice(&bytes).map_err(|_| AppError::Unavailable)
     }
@@ -57,9 +71,33 @@ impl IntelligenceService {
         if valid_forecast(&value, q, Utc::now()) {
             Ok(value)
         } else {
-            tracing::warn!("Forecast rejected because its timestamps, coordinates or values were invalid");
+            tracing::warn!(
+                "Forecast rejected because its timestamps, coordinates or values were invalid"
+            );
             Err(AppError::Unavailable)
         }
+    }
+}
+fn forecast_failure(reason: &str) -> &'static str {
+    match reason {
+        "Open-Meteo weather returned HTTP 429" | "Open-Meteo air returned HTTP 429" => {
+            "Open-Meteo has rate-limited forecast inputs. Try again later."
+        }
+        "Stale or discontinuous forecast inputs" | "Insufficient hourly inputs" => {
+            "Recent hourly weather or air-quality data is incomplete."
+        }
+        "Model needs retraining" => "The forecast model needs retraining.",
+        "MET Norway fallback inputs unavailable" => {
+            "Open-Meteo inputs and the MET Norway fallback are unavailable."
+        }
+        "Service busy" => "The forecast worker is busy. Try refreshing.",
+        other if other.starts_with("Open-Meteo weather ") => {
+            "Weather inputs are unavailable from Open-Meteo."
+        }
+        other if other.starts_with("Open-Meteo air ") => {
+            "Air-quality inputs are unavailable from Open-Meteo."
+        }
+        _ => "The forecast worker could not generate a forecast.",
     }
 }
 pub fn base_url() -> String {
@@ -122,6 +160,12 @@ fn valid_forecast(v: &Value, q: &ConditionsQuery, now: DateTime<Utc>) -> bool {
                 ("aqi", 0., 1000.),
                 ("rain_probability", 0., 1.),
             ] {
+                if v["scope"] == "weather_only" && matches!(key, "pm25_ug_m3" | "aqi") {
+                    if !row[key].is_null() {
+                        return Some(false);
+                    }
+                    continue;
+                }
                 let n = row[key].as_f64()?;
                 if !n.is_finite() || n < min || n > max {
                     return Some(false);
@@ -153,6 +197,12 @@ mod tests {
             "hourly":[{"target_time":now+Duration::hours(1),"temperature_c":29.,"precipitation_mm":0.5,
                         "pm25_ug_m3":20.,"aqi":70.,"rain_probability":0.6,"traffic_speed_kmh":null,"traffic_density":null}]});
         assert!(valid_forecast(&good, &q, now));
+        let mut partial = good.clone();
+        partial["scope"] = json!("weather_only");
+        assert!(!valid_forecast(&partial, &q, now));
+        partial["hourly"][0]["aqi"] = Value::Null;
+        partial["hourly"][0]["pm25_ug_m3"] = Value::Null;
+        assert!(valid_forecast(&partial, &q, now));
         for (key, value) in [
             ("latitude", json!(-6.4)),
             ("expires_at", json!(now - Duration::hours(1))),

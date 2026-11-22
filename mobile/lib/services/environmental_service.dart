@@ -188,9 +188,7 @@ class EnvironmentalService {
     final snapshot = await conditions.at(point);
     final now = DateTime.now();
     final pm = snapshot.airQuality.number('pm25_ug_m3');
-    final rain = snapshot.weather.kind == 'provider_forecast'
-        ? null
-        : snapshot.weather.number('precipitation_mm');
+    final rain = snapshot.weather.number('precipitation_mm');
     lastFetchedAt = snapshot.retrievedAt;
     lastDataSource =
         '${snapshot.airQuality.source}: ${snapshot.airQuality.status}; '

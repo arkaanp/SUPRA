@@ -11,6 +11,7 @@ pub enum AppError {
     NotFound,
     MethodNotAllowed,
     Unavailable,
+    ForecastUnavailable(&'static str),
     Conflict,
     InvalidCredentials,
     TooManyAttempts,
@@ -54,6 +55,11 @@ impl IntoResponse for AppError {
                 StatusCode::METHOD_NOT_ALLOWED,
                 "method_not_allowed",
                 "Method not allowed".into(),
+            ),
+            Self::ForecastUnavailable(reason) => (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "forecast_unavailable",
+                reason.into(),
             ),
             Self::Unavailable => (
                 StatusCode::SERVICE_UNAVAILABLE,

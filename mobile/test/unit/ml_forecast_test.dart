@@ -4,6 +4,8 @@ import 'package:supra_mobile_ui/models/current_conditions.dart';
 import 'package:supra_mobile_ui/models/location.dart';
 import 'package:supra_mobile_ui/models/ml_forecast.dart';
 import 'package:supra_mobile_ui/screens/home_screen.dart';
+import 'package:supra_mobile_ui/screens/trip_screen.dart';
+import 'package:supra_mobile_ui/services/routing_service.dart';
 import 'package:supra_mobile_ui/services/conditions_repository.dart';
 import 'package:supra_mobile_ui/services/forecast_repository.dart';
 
@@ -37,6 +39,29 @@ Map<String, dynamic> forecastPayload(
       },
   ],
 };
+ConditionsRepository availableConditions() => ConditionsRepository(
+  load: (p) async => CurrentConditions(
+    latitude: p.latitude,
+    longitude: p.longitude,
+    retrievedAt: DateTime.now(),
+    weather: const ConditionSignal(
+      status: 'available',
+      source: 'bmkg',
+      kind: 'provider_forecast',
+      message: '',
+      data: {'precipitation_mm': 0.0, 'temperature_c': 29},
+    ),
+    traffic: const ConditionSignal(
+      status: 'available',
+      source: 'tomtom',
+      kind: 'provider_live_estimate',
+      message: '',
+      data: {'speed_kmh': 25, 'free_flow_speed_kmh': 45},
+    ),
+    airQuality: ConditionsRepository.unavailable,
+  ),
+);
+
 void main() {
   test('Provider forecast parses, expires, and rejects invalid probability and traffic', () {
     final now = DateTime.now();
@@ -80,6 +105,46 @@ void main() {
       await expectLater(stale.at(p), throwsFormatException);
     },
   );
+  test('Weather-only forecasts preserve unknown air values', () {
+    final data = forecastPayload(DateTime.now());
+    for (final row in data['hourly'] as List) {
+      row['aqi'] = null;
+      row['pm25_ug_m3'] = null;
+    }
+    data['scope'] = 'weather_only';
+    final forecast = MlForecast.fromJson(data);
+    expect(forecast.hourly.first.aqi, isNull);
+    expect(forecast.hourly.first.precipitationMm, 0.75);
+  });
+  testWidgets('Trip keeps provider rain and traffic when the forecast fails', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(500, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TripScreen(
+            routingService: RoutingService(conditions: availableConditions()),
+            forecasts: ForecastRepository(
+              load: (_) async => throw StateError('offline'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Prediksi ML').first);
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining(
+        'ML forecast unavailable. Try refreshing. · Rain · BMKG forecast 0.0 mm · Traffic 25 km/h',
+      ),
+      findsOneWidget,
+    );
+  });
   testWidgets(
     'Home toggle renders actual returned values and model provenance',
     (tester) async {
@@ -90,16 +155,7 @@ void main() {
       final repository = ForecastRepository(
         load: (_) async => forecastPayload(DateTime.now()),
       );
-      final conditions = ConditionsRepository(
-        load: (p) async => CurrentConditions(
-          latitude: p.latitude,
-          longitude: p.longitude,
-          retrievedAt: DateTime.now(),
-          weather: ConditionsRepository.unavailable,
-          airQuality: ConditionsRepository.unavailable,
-          traffic: ConditionsRepository.unavailable,
-        ),
-      );
+      final conditions = availableConditions();
       await tester.pumpWidget(
         MaterialApp(
           home: HomeScreen(conditions: conditions, forecasts: repository),
@@ -110,14 +166,14 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('123'), findsOneWidget);
       expect(find.text('0.8 mm (37%)'), findsOneWidget);
-      expect(find.text('Traffic ML unavailable'), findsOneWidget);
+      expect(find.text('25 km/h'), findsOneWidget);
       expect(find.textContaining('test-trained-model'), findsOneWidget);
       expect(find.textContaining('65%'), findsNothing);
       expect(tester.takeException(), isNull);
     },
   );
   testWidgets(
-    'Unavailable ML service leaves values empty and reports failure',
+    'Unavailable ML preserves provider rain and traffic and reports failure',
     (tester) async {
       tester.view.physicalSize = const Size(500, 1000);
       tester.view.devicePixelRatio = 1;
@@ -126,6 +182,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: HomeScreen(
+            conditions: availableConditions(),
             forecasts: ForecastRepository(
               load: (_) async => throw StateError('offline'),
             ),
@@ -136,6 +193,9 @@ void main() {
       await tester.tap(find.byType(Switch).first);
       await tester.pumpAndSettle();
       expect(find.textContaining('ML forecast unavailable'), findsWidgets);
+      expect(find.text('0.0 mm'), findsOneWidget);
+      expect(find.text('25 km/h'), findsOneWidget);
+      expect(find.text('BMKG forecast'), findsWidgets);
       expect(find.textContaining('65%'), findsNothing);
       expect(tester.takeException(), isNull);
     },

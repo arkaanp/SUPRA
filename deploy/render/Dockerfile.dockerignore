@@ -15,6 +15,7 @@
 !ml/artifacts/
 !ml/artifacts/forecast.pt
 !ml/artifacts/model_card.json
+!ml/artifacts/weather_model.json
 !deploy/
 !deploy/render/
 !deploy/render/nginx.conf

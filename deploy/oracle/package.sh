@@ -7,6 +7,6 @@ cd "$(dirname "$0")/../.."
 test -s ml/artifacts/forecast.pt || { echo "Missing trained ml/artifacts/forecast.pt" >&2; exit 1; }
 # Explicit inputs exclude .env, local SDKs, uploads, caches and test evidence.
 tar -czf "$output" backend/{Cargo.toml,Cargo.lock,build.rs,src,migrations,.env.example} \
-    file_gtfs/*.txt ml/{data,inference,model,news,serve}.py ml/requirements.txt \
-    ml/artifacts/{model_card.json,forecast.pt} deploy/oracle/{README.md,build.sh,nginx.conf,supra-*.service}
+    file_gtfs/*.txt ml/{data,inference,met_weather,model,news,serve,weather_model}.py ml/requirements.txt \
+    ml/artifacts/{model_card.json,forecast.pt,weather_model.json} deploy/oracle/{README.md,build.sh,nginx.conf,supra-*.service}
 sha256sum "$output"

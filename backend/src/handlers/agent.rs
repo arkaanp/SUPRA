@@ -458,7 +458,8 @@ fn evidence_summary(e: &Value) -> String {
         }
     }
     if let Some(h) = e["forecast"]["hourly"].as_array().and_then(|a| a.first()) {
-        lines.push(format!("Experimental PyTorch forecast {}: AQI {}, temperature {}°C, rain {} mm (probability {}).",h["target_time"],h["aqi"],h["temperature_c"],h["precipitation_mm"],h["rain_probability"]));
+        let air = h["aqi"].as_f64().map(|v| format!("AQI {v:.0}, ")).unwrap_or_default();
+        lines.push(format!("Experimental PyTorch forecast {}: {air}temperature {}°C, rain {} mm (probability {}).",h["target_time"],h["temperature_c"],h["precipitation_mm"],h["rain_probability"]));
     }
     lines.push("Missing or stale values cannot establish current safety; route samples do not establish continuous coverage.".into());
     lines.join("\n")

@@ -328,11 +328,14 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
               if (weather?['wind_speed_kmh'] != null)
                 'Wind: ${weather!['wind_speed_kmh']} km/h',
               if (weather?['precipitation_mm'] != null)
-                'Precipitation: ${weather!['precipitation_mm']} mm (provider interval: ${weather['interval_seconds']} seconds)',
+                'Precipitation: ${weather!['precipitation_mm']} mm'
+                    '${weather['interval_seconds'] == null ? '' : ' (provider interval: ${weather['interval_seconds']} seconds)'}',
             ],
-            result.weather.source == 'bmkg'
-                ? 'https://www.bmkg.go.id/'
-                : 'https://open-meteo.com/',
+            switch (result.weather.source) {
+              'bmkg' => 'https://www.bmkg.go.id/',
+              'met_norway' => 'https://api.met.no/',
+              _ => 'https://open-meteo.com/',
+            },
           ),
           _signal(
             'Air quality',

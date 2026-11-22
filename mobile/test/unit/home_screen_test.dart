@@ -57,7 +57,7 @@ void main() {
       expect(find.text('35%'), findsNothing);
       expect(find.text('No cached data'), findsOneWidget);
       expect(find.text('Next 12 Hours Forecast'), findsOneWidget);
-      expect(find.textContaining('ML predictions will appear'), findsOneWidget);
+      expect(find.textContaining('Enable ML predictions'), findsOneWidget);
       expect(find.text('ML pending'), findsWidgets);
       await tester.tap(find.byIcon(Icons.notifications_none_rounded));
       expect(alerts, true);

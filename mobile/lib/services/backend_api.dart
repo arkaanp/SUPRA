@@ -59,10 +59,11 @@ class BackendApi {
     final request = http.Request(method, Uri.parse('$baseUrl$path'));
     request.headers['Content-Type'] = 'application/json';
     if (data != null) request.body = jsonEncode(data);
-    final response = await _send(
-      request,
-      path == '/api/agent/chat' ? const Duration(seconds: 35) : requestTimeout,
-    );
+    final response = await _send(request, switch (request.url.path) {
+      '/api/agent/chat' => const Duration(seconds: 35),
+      '/api/forecast/hourly' => const Duration(seconds: 85),
+      _ => requestTimeout,
+    });
     if (path == '/api/auth/username-login' && response.statusCode == 429) {
       throw const ApiException(
         429,

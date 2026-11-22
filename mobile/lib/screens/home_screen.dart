@@ -101,10 +101,10 @@ class _HomeScreenState extends State<HomeScreen> {
       if (mounted && generation == _forecastGeneration) {
         setState(() => _mlForecast = result);
       }
-    } catch (_) {
+    } catch (error) {
       if (mounted && generation == _forecastGeneration) {
         setState(
-          () => _forecastError = 'ML forecast unavailable. Try refreshing.',
+          () => _forecastError = ForecastRepository.failureMessage(error),
         );
       }
     } finally {
@@ -310,16 +310,14 @@ class _HomeScreenState extends State<HomeScreen> {
         >= 95 && <= 99 => ('Thunderstorm', Icons.thunderstorm),
         _ => (description ?? 'Weather —', Icons.help_outline),
       };
-      final temp = current && weather?.kind != 'provider_forecast'
-          ? weather?.number('temperature_c')?.round()
-          : null;
+      final temp = current ? weather?.number('temperature_c')?.round() : null;
 
       if (_showMlPredictions && !current) {
         final hours =
             ml?.hourly.where((h) => h.targetTime.isAfter(now)).toList() ??
             <MlForecastHour>[];
         final h = i - 1 < hours.length ? hours[i - 1] : null;
-        final meta = h == null ? null : _getAqiMeta(h.aqi.round());
+        final meta = h?.aqi == null ? null : _getAqiMeta(h!.aqi!.round());
         final wib = h?.targetTime.toUtc().add(const Duration(hours: 7));
         forecasts.add(
           HourlyForecast(
@@ -336,7 +334,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ? 'Weather —'
                 : 'Rain ${(h.rainProbability * 100).round()}% · ${h.precipitationMm.toStringAsFixed(1)} mm',
             temperatureC: h?.temperatureC.round(),
-            aqi: h?.aqi.round(),
+            aqi: h?.aqi?.round(),
             aqiCategory: meta?.$1 ?? 'No prediction',
             aqiBgColor: meta?.$2 ?? const Color(0xFFF1F5F9),
             aqiTextColor: meta?.$3 ?? const Color(0xFF64748B),
@@ -357,14 +355,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
       forecasts.add(
         HourlyForecast(
-          time: timeStr,
-          weatherIcon: current && weather?.kind != 'provider_forecast'
-              ? weatherIcon
-              : Icons.hourglass_empty_rounded,
+          time:
+              current &&
+                  weather?.kind == 'provider_forecast' &&
+                  weather?.validAt != null
+              ? '${weather!.validAt!.toUtc().add(const Duration(hours: 7)).hour.toString().padLeft(2, '0')}:00 WIB'
+              : timeStr,
+          weatherIcon: current ? weatherIcon : Icons.hourglass_empty_rounded,
           weatherColor: const Color(0xFF64748B),
-          weatherCondition: current && weather?.kind != 'provider_forecast'
-              ? weatherText
-              : 'Weather —',
+          weatherCondition: current ? weatherText : 'Weather —',
           temperatureC: temp,
           aqi: current ? effectiveNowAqi : null,
           aqiCategory: nowMeta?.$1 ?? 'No prediction',
@@ -375,6 +374,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     ? 'No data'
                     : weather?.isStale == true
                     ? 'Stale'
+                    : weather?.kind == 'provider_forecast'
+                    ? '${weather!.providerLabel} forecast'
                     : 'Latest')
               : 'ML pending',
         ),
@@ -991,34 +992,32 @@ class _HomeScreenState extends State<HomeScreen> {
           )
         : _getAqiMeta(currentAqi);
     final rain = weather?.number('precipitation_mm');
-    final mlHour = _mlForecast?.nextAt(DateTime.now());
-    final rainValue = _showMlPredictions
-        ? (mlHour == null
-              ? '—'
-              : '${mlHour.precipitationMm.toStringAsFixed(1)} mm (${(mlHour.rainProbability * 100).round()}%)')
-        : rain == null
-        ? '—'
-        : '${rain.toStringAsFixed(1)} mm';
-    final weatherLabel = _showMlPredictions
+    final mlHour = _showMlPredictions
+        ? _mlForecast?.nextAt(DateTime.now())
+        : null;
+    final rainValue = mlHour != null
+        ? '${mlHour.precipitationMm.toStringAsFixed(1)} mm (${(mlHour.rainProbability * 100).round()}%)'
+        : rain != null
+        ? '${rain.toStringAsFixed(1)} mm'
+        : weather?.data?['description'] as String? ?? 'Unavailable';
+    final weatherLabel = mlHour != null
         ? 'Rain · ML'
+        : weather?.kind == 'provider_forecast'
+        ? '${weather!.providerLabel}${weather.isStale ? ' · STALE' : ' forecast'}'
         : weather?.isStale == true
         ? 'Rain · STALE'
-        : weather?.kind == 'provider_forecast'
-        ? 'Rain forecast'
         : 'Rain';
     final speed = traffic?.number('speed_kmh');
-    final trafficValue = _showMlPredictions
-        ? '—'
-        : speed == null
-        ? '—'
-        : '${speed.toStringAsFixed(0)} km/h';
+    final trafficValue = speed != null
+        ? '${speed.toStringAsFixed(0)} km/h'
+        : traffic?.unavailableLabel ?? 'Unavailable';
     final temp = weather?.number('temperature_c');
-    final tempValue = _showMlPredictions
-        ? (mlHour == null ? '—' : '${mlHour.temperatureC.round()}°C')
+    final tempValue = mlHour != null
+        ? '${mlHour.temperatureC.round()}°C'
         : temp == null
-        ? '—'
+        ? 'Unavailable'
         : '${temp.round()}°C';
-    final displayedAqi = _showMlPredictions ? mlHour?.aqi.round() : currentAqi;
+    final displayedAqi = mlHour?.aqi?.round() ?? currentAqi;
     final effectiveAqiMeta = displayedAqi != null
         ? _getAqiMeta(displayedAqi)
         : aqiMeta;
@@ -1077,7 +1076,9 @@ class _HomeScreenState extends State<HomeScreen> {
                     Expanded(
                       child: Text(
                         _showMlPredictions
-                            ? 'Mode Indikator: Prediksi PyTorch (Hujan, AQI & Suhu)'
+                            ? (mlHour != null && mlHour.aqi == null
+                                  ? 'Mode Indikator: Prediksi PyTorch (Hujan & Suhu)'
+                                  : 'Mode Indikator: Prediksi PyTorch (Hujan, AQI & Suhu)')
                             : 'Mode Indikator: Data Stale / Terakhir Tersimpan',
                         style: const TextStyle(
                           fontSize: 11.5,
@@ -1106,40 +1107,41 @@ class _HomeScreenState extends State<HomeScreen> {
               _buildTodaysAirQualityCard(
                 value:
                     displayedAqi?.toString() ?? pm25?.toStringAsFixed(1) ?? '—',
-                category: _showMlPredictions
+                category: mlHour?.aqi != null
                     ? 'ML · ${effectiveAqiMeta.$1}'
                     : '${air?.isStale == true ? "STALE · " : ""}${effectiveAqiMeta.$1}',
-                categoryBg: _showMlPredictions
+                categoryBg: mlHour?.aqi != null
                     ? const Color(0xFFE0F2FE)
                     : air?.isStale == true
                     ? const Color(0xFFFEF3C7)
                     : effectiveAqiMeta.$2,
-                categoryText: _showMlPredictions
+                categoryText: mlHour?.aqi != null
                     ? const Color(0xFF0369A1)
                     : effectiveAqiMeta.$3,
                 advisory: _showMlPredictions
                     ? (mlHour == null
-                          ? (_forecastError ?? 'Loading PyTorch forecast…')
+                          ? (_forecastError ??
+                                (_loadingForecast
+                                    ? 'Loading PyTorch forecast…'
+                                    : 'Forecast expired. Pull to refresh.'))
+                          : mlHour.aqi == null
+                          ? 'Weather-only forecast for ${_wib(mlHour.targetTime)}. Air quality uses available provider readings.'
                           : 'PyTorch forecast for ${_wib(mlHour.targetTime)}. Experimental regional estimate.')
                     : air?.isStale == true
                     ? 'Last-known reading — not current. ${effectiveAqiMeta.$4}'
                     : effectiveAqiMeta.$4,
-                sourceLabel: _showMlPredictions
-                    ? (_mlForecast == null
-                          ? 'PyTorch model unavailable'
-                          : '${_mlForecast!.modelId}\n${_mlForecast!.attribution}\nInputs through ${_wib(_mlForecast!.inputThrough)}')
+                sourceLabel: mlHour != null
+                    ? '${mlHour.aqi == null && air?.hasData == true ? 'Air: ${air!.source}\n' : ''}${_mlForecast!.modelId}\n${_mlForecast!.attribution}\nInputs through ${_wib(_mlForecast!.inputThrough)}'
                     : '${displayedAqi == null ? "PM2.5 µg/m³" : "US AQI"} · ${air?.source ?? "No source yet"}'
                           '${air?.validAt == null ? "" : "\nObserved ${_wib(air!.validAt!)}"}',
                 weatherLabel: weatherLabel,
                 rainValue: rainValue,
                 trafficValue: trafficValue,
                 tempValue: tempValue,
-                trafficLabel: _showMlPredictions
-                    ? 'Traffic ML unavailable'
-                    : traffic?.isStale == true
+                trafficLabel: traffic?.isStale == true
                     ? 'Traffic · STALE'
-                    : 'Traffic',
-                tempLabel: _showMlPredictions
+                    : 'Traffic · TomTom',
+                tempLabel: mlHour != null
                     ? 'Temp · ML'
                     : weather?.isStale == true
                     ? 'Temp · STALE'
@@ -1834,8 +1836,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         ? (_loadingForecast
                               ? 'Loading PyTorch forecast…'
                               : _forecastError ??
-                                    'PyTorch · AQI, rain & temperature')
-                        : 'ML predictions will appear here when available',
+                                    (_mlForecast?.nextAt(DateTime.now())?.aqi ==
+                                            null
+                                        ? 'PyTorch · rain & temperature'
+                                        : 'PyTorch · AQI, rain & temperature'))
+                        : 'Enable ML predictions for the next 12 hours.',
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,

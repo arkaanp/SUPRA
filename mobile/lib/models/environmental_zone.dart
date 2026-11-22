@@ -54,8 +54,12 @@ class EnvironmentalZone {
         : 'Weather unavailable';
     final description = weather?.data?['description'];
     final rain = weather?.number('precipitation_mm');
-    final detail =
-        description ?? (rain != null ? '${rain.toStringAsFixed(1)} mm' : '');
+    final detail = [
+      if (description is String && description.isNotEmpty) description,
+      if (rain != null) '${rain.toStringAsFixed(1)} mm',
+      if (weather?.kind == 'provider_forecast')
+        '${weather!.providerLabel} forecast',
+    ].join(' · ');
     final label = air?.kind == 'model_estimate' ? 'model' : 'station';
     return '$name · $airText ($label)${air?.isStale == true ? " STALE" : ""}\n$weatherText $detail${weather?.isStale == true ? " STALE" : ""}';
   }

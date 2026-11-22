@@ -31,6 +31,10 @@ class ConditionsRepository {
     String? adm4,
     bool refresh = false,
   }) async {
+    adm4 ??= greaterJakartaLandmarks
+        .where((place) => place.point == point)
+        .firstOrNull
+        ?.adm4;
     final user = _userId();
     final scope = user ?? 'signed-out';
     if (user != null) {

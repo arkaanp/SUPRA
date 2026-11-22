@@ -10,6 +10,9 @@ from urllib.parse import parse_qs,urlparse
 import torch
 from inference import Forecaster
 from news import latest_news
+from data import InputUnavailable
+from met_weather import weather_at
+import weather_model
 
 class App:
     def __init__(self):
@@ -34,11 +37,19 @@ class App:
         if path=='/v1/news':return self.cached('news',300,latest_news)
         if path=='/v1/model':
             with self.model.lock:self.model.load();return self.model.state['card']
-        if path=='/v1/forecast':
+        if path in ('/v1/forecast', '/v1/weather'):
             if set(query)!={'latitude','longitude'}:raise ValueError('Use latitude and longitude')
             lat=float(query['latitude'][0]);lon=float(query['longitude'][0])
             if not math.isfinite(lat) or not math.isfinite(lon) or not (-6.9<=lat<=-5.8 and 106.3<=lon<=107.3):raise ValueError('Location outside Greater Jakarta')
-            return self.cached(('forecast',lat,lon,int(time.time()//3600)),600,lambda:self.model.forecast(lat,lon))
+            if path == '/v1/weather':
+                return weather_at(lat, lon)
+            def predict():
+                try:
+                    return self.model.forecast(lat, lon)
+                except InputUnavailable as error:
+                    print(f'Using weather-only forecast: {error}', flush=True)
+                    return weather_model.forecast(lat, lon)
+            return self.cached(('forecast',lat,lon,int(time.time()//3600)),600,predict)
         raise KeyError('Unknown endpoint')
 
 app=App()

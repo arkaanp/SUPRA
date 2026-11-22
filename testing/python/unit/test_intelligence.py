@@ -59,6 +59,26 @@ class ForecastTests(unittest.TestCase):
         with patch('data.fetch', side_effect=fetch_fixture):
             rows = history(-6.2, 106.8, now=NOW)
         self.assertEqual([row['values'] for row in rows], [[29, 0.2, 20, 70]])
+    def test_met_cache_reselects_the_valid_hour_without_refetching(self):
+        from io import BytesIO
+        import met_weather
+        anchor = NOW.replace(minute=0)
+        def step(hour):
+            return {'time': (anchor + dt.timedelta(hours=hour)).isoformat(),
+                    'data': {'instant': {'details': {'air_temperature': 28, 'wind_speed': 2}},
+                             'next_1_hours': {'details': {'precipitation_amount': hour},
+                                              'summary': {'symbol_code': 'rain'}}}}
+        response = BytesIO(json.dumps({'properties': {'meta': {'updated_at': anchor.isoformat()},
+                           'timeseries': [step(0), step(1)]}}).encode())
+        response.headers = {}
+        with patch.dict(met_weather._cache, clear=True), patch('met_weather.urlopen', return_value=response) as load:
+            for hour in [0, 1]:
+                result = met_weather.weather_at(-6.2297, 106.8295, NOW + dt.timedelta(hours=hour))
+                self.assertEqual(result['precipitation_mm'], hour)
+            self.assertEqual(load.call_count, 1)
+            with self.assertRaisesRegex(ValueError, 'No MET Norway forecast'):
+                met_weather.weather_at(-6.2297, 106.8295, NOW + dt.timedelta(hours=2))
+
     def test_chronological_splits_never_cross_target_boundaries(self):
         start=NOW-dt.timedelta(days=5)
         rows=[{'time':(start+dt.timedelta(hours=i)).isoformat(),'values':[i,0.2,20,70]} for i in range(120)]

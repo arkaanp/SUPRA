@@ -160,9 +160,9 @@ class TripScreenState extends State<TripScreen> {
       if (mounted && generation == _mlGeneration) {
         setState(() => _mlForecast = result);
       }
-    } catch (_) {
+    } catch (error) {
       if (mounted && generation == _mlGeneration) {
-        setState(() => _mlError = 'ML forecast unavailable');
+        setState(() => _mlError = ForecastRepository.failureMessage(error));
       }
     } finally {
       if (mounted && generation == _mlGeneration) {
@@ -182,7 +182,7 @@ class TripScreenState extends State<TripScreen> {
     _geocoder = widget.geocodingService ?? GeocodingService();
     _routingService = widget.routingService ?? RoutingService();
     _start.text = 'Monas (Central Jakarta)';
-    if (!MapConfig.isTestEnvironment) {
+    if (widget.routingService != null || !MapConfig.isTestEnvironment) {
       _originConditions = ConditionsRepository.staleFallbackSnapshot(
         _defaultCurrentLocation,
         DateTime.now(),
@@ -196,7 +196,7 @@ class TripScreenState extends State<TripScreen> {
   Future<void> _refreshOriginConditions(LatLng point) async {
     if (_showMlPredictions) unawaited(_refreshMlForecast(point));
     try {
-      final cond = await ConditionsRepository.instance.at(point);
+      final cond = await _routingService.conditions.at(point);
       if (mounted && _startCoord == point) {
         setState(() => _originConditions = cond);
       }
@@ -1347,7 +1347,7 @@ class TripScreenState extends State<TripScreen> {
                                     Flexible(
                                       child: Text(
                                         _buildMapConditionsBadgeText(),
-                                        maxLines: 1,
+                                        maxLines: 3,
                                         overflow: TextOverflow.ellipsis,
                                         style: const TextStyle(
                                           fontSize: 10.5,
@@ -1454,29 +1454,37 @@ class TripScreenState extends State<TripScreen> {
   }
 
   String _buildMapConditionsBadgeText() {
-    if (_showMlPredictions) {
-      final h = _mlForecast?.nextAt(DateTime.now());
-      if (h == null) {
-        return _loadingMl
-            ? 'Loading PyTorch forecast…'
-            : _mlError ?? 'ML forecast unavailable';
-      }
+    final now = DateTime.now();
+    final cond = (_selectedRoute?.conditions ?? _originConditions)?.agedAt(now);
+    final speed = cond?.traffic.number('speed_kmh');
+    final traffic = speed == null
+        ? 'Traffic: ${cond?.traffic.unavailableLabel.toLowerCase() ?? "unavailable"}'
+        : 'Traffic${cond!.traffic.isStale ? " · STALE" : ""} ${speed.round()} km/h';
+    final h = _showMlPredictions ? _mlForecast?.nextAt(now) : null;
+    if (h != null) {
       final time = h.targetTime.toUtc().add(const Duration(hours: 7));
-      return 'PyTorch · origin ${time.hour.toString().padLeft(2, '0')}:00 WIB · AQI ${h.aqi.round()} · Rain ${h.precipitationMm.toStringAsFixed(1)} mm (${(h.rainProbability * 100).round()}%) · ${h.temperatureC.round()}°C';
+      return 'PyTorch · origin ${time.hour.toString().padLeft(2, '0')}:00 WIB${h.aqi == null ? "" : " · AQI ${h.aqi!.round()}"} · Rain ${h.precipitationMm.toStringAsFixed(1)} mm (${(h.rainProbability * 100).round()}%) · ${h.temperatureC.round()}°C · $traffic';
     }
-    final cond = _selectedRoute?.conditions ?? _originConditions;
     final pm25 =
         _selectedRoute?.pm25UgM3 ?? cond?.airQuality.number('pm25_ug_m3');
     final aqi = cond?.airQuality.number('aqi')?.round();
     final rain =
         _selectedRoute?.rainfallMm ?? cond?.weather.number('precipitation_mm');
-    final speed = cond?.traffic.number('speed_kmh');
-    final stale =
-        cond == null ||
-        cond.airQuality.isStale ||
-        cond.weather.isStale ||
-        cond.traffic.isStale;
-    return '${stale ? "STALE" : "Latest"}: ${aqi == null ? "AQI —" : "AQI $aqi"} · PM2.5 ${pm25?.toStringAsFixed(1) ?? "—"} · Rain ${rain?.toStringAsFixed(1) ?? "—"} mm · Traffic ${speed?.toStringAsFixed(0) ?? "—"} km/h';
+    final weather = cond?.weather;
+    final rainValue = rain == null
+        ? (weather?.data?['description'] ?? 'unavailable')
+        : '${rain.toStringAsFixed(1)} mm';
+    return [
+      if (_showMlPredictions)
+        _loadingMl
+            ? 'Loading PyTorch forecast…'
+            : _mlError ?? 'ML forecast expired',
+      if (aqi != null) 'AQI $aqi',
+      if (pm25 != null)
+        'PM2.5 ${pm25.toStringAsFixed(1)}${cond?.airQuality.isStale == true ? " · STALE" : ""}',
+      'Rain${weather?.kind == "provider_forecast" ? " · ${weather!.providerLabel} forecast" : ""} $rainValue${weather?.isStale == true ? " · STALE" : ""}',
+      traffic,
+    ].join(' · ');
   }
 
   Widget _buildMlPredictionToggleChip() {
@@ -2445,17 +2453,16 @@ class TripScreenState extends State<TripScreen> {
         break;
     }
 
-    final fallbackCond = opt.conditions ?? _originConditions;
+    final now = DateTime.now();
+    final fallbackCond = (opt.conditions ?? _originConditions)?.agedAt(now);
+    final mlHour = _showMlPredictions ? _mlForecast?.nextAt(now) : null;
+    final effectiveSpeed = fallbackCond?.traffic.number('speed_kmh');
+    final freeSpeed = fallbackCond?.traffic.number('free_flow_speed_kmh');
     final effectiveDensity =
         opt.trafficDensity ??
-        (fallbackCond?.traffic.number('speed_kmh') != null
-            ? (1.0 -
-                      (fallbackCond!.traffic.number('speed_kmh')! /
-                          (fallbackCond.traffic.number('free_flow_speed_kmh') ??
-                              48.0)))
-                  .clamp(0.05, 0.95)
+        (effectiveSpeed != null && freeSpeed != null && freeSpeed > 0
+            ? (1.0 - effectiveSpeed / freeSpeed).clamp(0.0, 1.0)
             : null);
-    final effectiveSpeed = fallbackCond?.traffic.number('speed_kmh');
     final effectiveRain =
         opt.rainfallMm ?? fallbackCond?.weather.number('precipitation_mm');
     final effectivePm25 =
@@ -2465,50 +2472,46 @@ class TripScreenState extends State<TripScreen> {
         (effectivePm25 != null
             ? ConditionsRepository.pm25ToUsEpaAqi(effectivePm25)
             : null);
-    final isStaleSignal =
-        fallbackCond != null &&
-        (fallbackCond.airQuality.isStale ||
-            fallbackCond.weather.isStale ||
-            fallbackCond.traffic.isStale);
-
+    final trafficStale = fallbackCond?.traffic.isStale == true;
     String trafficDesc;
-    if (_showMlPredictions) {
-      trafficDesc = 'Traffic ML unavailable';
-    } else if (effectiveDensity == null) {
-      trafficDesc = 'Route traffic unavailable';
+    if (effectiveDensity == null) {
+      trafficDesc = effectiveSpeed == null
+          ? 'Traffic: ${fallbackCond?.traffic.unavailableLabel.toLowerCase() ?? "unavailable"}'
+          : 'Traffic ${effectiveSpeed.round()} km/h';
     } else if (effectiveDensity < 0.35) {
       trafficDesc =
-          '${isStaleSignal ? "STALE · " : ""}Smooth flow${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
+          '${trafficStale ? "STALE · " : ""}Smooth flow${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
     } else if (effectiveDensity < 0.65) {
       trafficDesc =
-          '${isStaleSignal ? "STALE · " : ""}Moderate congestion${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
+          '${trafficStale ? "STALE · " : ""}Moderate congestion${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
     } else {
       trafficDesc =
-          '${isStaleSignal ? "STALE · " : ""}Heavy traffic delay${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
+          '${trafficStale ? "STALE · " : ""}Heavy traffic delay${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
     }
 
     final String rainChipLabel;
-    if (_showMlPredictions) {
-      final h = _mlForecast?.nextAt(DateTime.now());
-      rainChipLabel = h == null
-          ? 'ML rain unavailable'
-          : 'ML origin · ${h.precipitationMm.toStringAsFixed(1)} mm (${(h.rainProbability * 100).round()}%)';
-    } else if (effectiveRain != null) {
+    if (mlHour != null) {
       rainChipLabel =
-          '${isStaleSignal ? "STALE · " : ""}Precipitation: ${effectiveRain.toStringAsFixed(1)} mm';
+          'ML origin · ${mlHour.precipitationMm.toStringAsFixed(1)} mm (${(mlHour.rainProbability * 100).round()}%)';
+    } else if (effectiveRain != null) {
+      final label = fallbackCond?.weather.kind == 'provider_forecast'
+          ? '${fallbackCond!.weather.providerLabel} forecast'
+          : 'Precipitation';
+      rainChipLabel =
+          '${fallbackCond?.weather.isStale == true ? "STALE · " : ""}$label: ${effectiveRain.toStringAsFixed(1)} mm';
     } else {
-      rainChipLabel = opt.rainLabel;
+      rainChipLabel =
+          fallbackCond?.weather.data?['description'] as String? ??
+          opt.rainLabel;
     }
 
     final String airChipLabel;
-    if (_showMlPredictions) {
-      final h = _mlForecast?.nextAt(DateTime.now());
-      airChipLabel = h == null
-          ? 'ML AQI unavailable'
-          : 'ML origin · US AQI ${h.aqi.round()} · PM2.5 ${h.pm25.toStringAsFixed(1)} µg/m³';
+    if (mlHour?.aqi != null && mlHour?.pm25 != null) {
+      airChipLabel =
+          'ML origin · US AQI ${mlHour!.aqi!.round()} · PM2.5 ${mlHour.pm25!.toStringAsFixed(1)} µg/m³';
     } else if (effectivePm25 != null) {
       airChipLabel =
-          '${isStaleSignal ? "STALE · " : ""}${effectiveAqi != null ? "AQI $effectiveAqi • " : ""}PM2.5: ${effectivePm25.toStringAsFixed(1)} µg/m³';
+          '${fallbackCond?.airQuality.isStale == true ? "STALE · " : ""}${effectiveAqi != null ? "AQI $effectiveAqi • " : ""}PM2.5: ${effectivePm25.toStringAsFixed(1)} µg/m³';
     } else {
       airChipLabel = opt.pm25Label;
     }
@@ -2671,7 +2674,7 @@ class TripScreenState extends State<TripScreen> {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: ((effectiveRain ?? -1) > 0 || _showMlPredictions)
+                    color: ((mlHour?.precipitationMm ?? effectiveRain ?? 0) > 0)
                         ? const Color(0xFFEFF6FF)
                         : const Color(0xFFF1F5F9),
                     borderRadius: BorderRadius.circular(4),
@@ -2682,7 +2685,9 @@ class TripScreenState extends State<TripScreen> {
                       Icon(
                         Icons.water_drop_outlined,
                         size: 11,
-                        color: ((effectiveRain ?? -1) > 0 || _showMlPredictions)
+                        color:
+                            ((mlHour?.precipitationMm ?? effectiveRain ?? 0) >
+                                0)
                             ? const Color(0xFF2563EB)
                             : SupraTheme.textSecondary,
                       ),
@@ -2693,7 +2698,8 @@ class TripScreenState extends State<TripScreen> {
                           fontSize: 9,
                           fontWeight: FontWeight.w600,
                           color:
-                              ((effectiveRain ?? -1) > 0 || _showMlPredictions)
+                              ((mlHour?.precipitationMm ?? effectiveRain ?? 0) >
+                                  0)
                               ? const Color(0xFF1D4ED8)
                               : SupraTheme.textSecondary,
                         ),
@@ -2707,9 +2713,9 @@ class TripScreenState extends State<TripScreen> {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: (effectivePm25 == null && !_showMlPredictions)
+                    color: (mlHour == null && effectivePm25 == null)
                         ? const Color(0xFFF1F5F9)
-                        : (effectivePm25 ?? 36) >= 35
+                        : (mlHour?.pm25 ?? effectivePm25 ?? 0) >= 35
                         ? const Color(0xFFFEF3C7)
                         : const Color(0xFFF0FDF4),
                     borderRadius: BorderRadius.circular(4),
@@ -2720,9 +2726,9 @@ class TripScreenState extends State<TripScreen> {
                       Icon(
                         Icons.air,
                         size: 11,
-                        color: (effectivePm25 == null && !_showMlPredictions)
+                        color: (mlHour == null && effectivePm25 == null)
                             ? Colors.grey
-                            : (effectivePm25 ?? 36) >= 35
+                            : (mlHour?.pm25 ?? effectivePm25 ?? 0) >= 35
                             ? const Color(0xFFD97706)
                             : const Color(0xFF16A34A),
                       ),
@@ -2732,9 +2738,9 @@ class TripScreenState extends State<TripScreen> {
                         style: TextStyle(
                           fontSize: 9,
                           fontWeight: FontWeight.w700,
-                          color: (effectivePm25 == null && !_showMlPredictions)
+                          color: (mlHour == null && effectivePm25 == null)
                               ? Colors.grey
-                              : (effectivePm25 ?? 36) >= 35
+                              : (mlHour?.pm25 ?? effectivePm25 ?? 0) >= 35
                               ? const Color(0xFF92400E)
                               : const Color(0xFF15803D),
                         ),

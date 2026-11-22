@@ -4,7 +4,7 @@ import math
 import threading
 import numpy as np
 import torch
-from data import FIELDS, ROOT, history, parse_time, utcnow
+from data import InputUnavailable, FIELDS, ROOT, history, parse_time, utcnow
 from model import ForecastNet, LOOKBACK, HORIZON, features
 
 class Forecaster:
@@ -24,10 +24,10 @@ class Forecaster:
             raise ValueError('Forecast location outside Greater Jakarta')
         rows=self.history(latitude,longitude,days=3,now=now)
         window=[r for r in rows if parse_time(r['time'])<=now][-LOOKBACK:]
-        if len(window)!=LOOKBACK:raise ValueError('Insufficient hourly inputs')
+        if len(window)!=LOOKBACK:raise InputUnavailable('Insufficient hourly inputs')
         times=[parse_time(r['time']) for r in window];anchor=times[-1]
         if now-anchor>dt.timedelta(hours=2) or any(b-a!=dt.timedelta(hours=1) for a,b in zip(times,times[1:])):
-            raise ValueError('Stale or discontinuous forecast inputs')
+            raise InputUnavailable('Stale or discontinuous forecast inputs')
         if any(len(r['values'])!=4 or not all(isinstance(v,(float,int)) and math.isfinite(v) for v in r['values']) for r in window):
             raise ValueError('Invalid forecast inputs')
         targets=[anchor+dt.timedelta(hours=h) for h in range(1,HORIZON+1)]

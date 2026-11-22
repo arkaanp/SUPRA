@@ -4,6 +4,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 import torch
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -17,6 +18,20 @@ class ForecastArtifactTests(unittest.TestCase):
     def rows(self,count=24):
         end=NOW.replace(minute=0)
         return [{'time':(end-dt.timedelta(hours=count-1-i)).isoformat(),'values':[29.,0.2,20.,70.]} for i in range(count)]
+
+    def test_weather_only_artifact_when_primary_provider_is_rate_limited(self):
+        from data import InputUnavailable
+        from serve import App
+        app = App()
+        weather = {'temperature_c': 28.8, 'valid_at': NOW.replace(minute=0).isoformat(),
+                   'issued_at': NOW.replace(minute=0).isoformat()}
+        with patch.object(app.model, 'forecast', side_effect=InputUnavailable('Open-Meteo weather returned HTTP 429')), \
+             patch('weather_model.utcnow', return_value=NOW), patch('weather_model.weather_at', return_value=weather):
+            payload = app.get('/v1/forecast', {'latitude':['-6.2'], 'longitude':['106.8']})
+        self.assertEqual(payload['scope'], 'weather_only')
+        self.assertEqual(len(payload['hourly']), 12)
+        self.assertIsNone(payload['hourly'][0]['aqi'])
+        self.assertTrue(all(0 <= row['rain_probability'] <= 1 for row in payload['hourly']))
 
     def checkpoint(self,path):
         torch.manual_seed(42);net=ForecastNet()

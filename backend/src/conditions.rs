@@ -1,6 +1,12 @@
 //! Read-only provider adapters. Never store live responses as training labels or
 //! predictions. Provider failures are isolated and returned as signal states.
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicI64, Ordering},
+    },
+    time::Duration,
+};
 
 use axum::{Json, extract::Extension};
 use chrono::{DateTime, Utc};
@@ -58,12 +64,15 @@ pub struct ConditionsService {
     client: reqwest::Client,
     open_meteo: String,
     bmkg: String,
+    met_worker: String,
     openaq: String,
     cams: String,
     tomtom: String,
     openaq_key: Option<String>,
     tomtom_key: Option<String>,
     permits: Arc<Semaphore>,
+    meteo_retry_at: Arc<AtomicI64>,
+    cams_retry_at: Arc<AtomicI64>,
 }
 
 impl ConditionsService {
@@ -76,12 +85,14 @@ impl ConditionsService {
         }
         Self {
             client: reqwest::Client::builder()
+                .user_agent("SUPRA-Commute/1.0")
                 .connect_timeout(Duration::from_secs(2))
                 .timeout(Duration::from_secs(4))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .expect("HTTP client configuration"),
             open_meteo: "https://api.open-meteo.com/v1/forecast".into(),
+            met_worker: format!("{}/v1/weather", crate::intelligence::base_url()),
             bmkg: "https://api.bmkg.go.id/publik/prakiraan-cuaca".into(),
             openaq: "https://api.openaq.org/v3".into(),
             cams: "https://air-quality-api.open-meteo.com/v1/air-quality".into(),
@@ -90,16 +101,48 @@ impl ConditionsService {
             openaq_key: key("OPENAQ_API_KEY"),
             tomtom_key: key("TOMTOM_API_KEY"),
             permits: Arc::new(Semaphore::new(8)),
+            meteo_retry_at: Default::default(),
+            cams_retry_at: Default::default(),
         }
     }
 
     async fn get(&self, request: reqwest::RequestBuilder) -> Result<Value, &'static str> {
+        self.get_with_backoff(request, None).await
+    }
+
+    async fn get_with_backoff(
+        &self,
+        request: reqwest::RequestBuilder,
+        retry_at: Option<&AtomicI64>,
+    ) -> Result<Value, &'static str> {
+        if retry_at.is_some_and(|time| time.load(Ordering::Relaxed) > Utc::now().timestamp()) {
+            return Err("provider_rate_limited");
+        }
         // Do not log reqwest errors or URLs: TomTom credentials are in query strings.
         let response = request.send().await.map_err(|_| "provider_unreachable")?;
         match response.status().as_u16() {
             200 => {}
             401 | 403 => return Err("provider_access_denied"),
-            429 => return Err("provider_rate_limited"),
+            429 => {
+                if let Some(time) = retry_at {
+                    let now = Utc::now().timestamp();
+                    let until = response
+                        .headers()
+                        .get("Retry-After")
+                        .and_then(|value| value.to_str().ok())
+                        .and_then(|s| {
+                            s.parse::<u32>()
+                                .ok()
+                                .map(|n| now + i64::from(n))
+                                .or_else(|| {
+                                    DateTime::parse_from_rfc2822(s).ok().map(|t| t.timestamp())
+                                })
+                        })
+                        .unwrap_or(now + 300);
+                    time.fetch_max(until, Ordering::Relaxed);
+                }
+                return Err("provider_rate_limited");
+            }
             _ => return Err("provider_error"),
         }
         // Bound payload memory even if an upstream sends an oversized response.
@@ -114,22 +157,32 @@ impl ConditionsService {
         serde_json::from_slice(&body).map_err(|_| "invalid_provider_response")
     }
 
-    async fn weather(&self, q: &ConditionsQuery) -> Signal {
+    async fn preferred_weather(&self, q: &ConditionsQuery) -> Signal {
         let primary = async {
-            let request = || self.client.get(&self.open_meteo).query(&[
+            let request = || {
+                self.client.get(&self.open_meteo).query(&[
             ("latitude", q.latitude.to_string()), ("longitude", q.longitude.to_string()),
             ("current", "temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m".into()),
             ("timeformat", "unixtime".into()), ("timezone", "GMT".into()),
             ("temperature_unit", "celsius".into()), ("wind_speed_unit", "kmh".into()),
             ("precipitation_unit", "mm".into()),
-            ]);
-            let first = self.get(request()).await;
+            ])
+            };
+            let first = self
+                .get_with_backoff(request(), Some(&self.meteo_retry_at))
+                .await;
             let response = if first == Err("provider_unreachable") {
-                self.get(request()).await
+                self.get_with_backoff(request(), Some(&self.meteo_retry_at))
+                    .await
             } else {
                 first
             };
             response.and_then(|value| parse_weather(&value))
+        };
+        let primary = async {
+            tokio::time::timeout(Duration::from_secs(5), primary)
+                .await
+                .unwrap_or(Err("provider_timeout"))
         };
         let Some(code) = &q.adm4 else {
             return primary.await.unwrap_or_else(|reason| {
@@ -154,6 +207,30 @@ impl ConditionsService {
         }
     }
 
+    async fn weather(&self, q: &ConditionsQuery) -> Signal {
+        let preferred = self.preferred_weather(q).await;
+        if preferred.status == "available" {
+            return preferred;
+        }
+        let alternate = self.get(self.client.get(&self.met_worker).query(&[
+            ("latitude", q.latitude), ("longitude", q.longitude)
+        ])).await.and_then(|data| {
+            let valid_at = data["valid_at"].as_str()
+                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+                .map(|t| t.to_utc()).ok_or("invalid_provider_response")?;
+            let age = Utc::now() - valid_at;
+            if age < chrono::Duration::zero() || age >= chrono::Duration::hours(1) {
+                return Err("stale_provider_data");
+            }
+            number(&data, "temperature_c", -60., 65.)?;
+            number(&data, "precipitation_mm", 0., 1000.)?;
+            Ok(Signal { status: "available", source: "met_norway", kind: Some("provider_forecast"),
+                valid_at: Some(valid_at), message: "Hourly forecast from MET Norway (https://api.met.no/), CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Rain covers the next hour.".into(),
+                data: Some(data) })
+        });
+        alternate.unwrap_or_else(|reason| Signal::missing("met_norway", reason))
+    }
+
     async fn air_quality(&self, q: &ConditionsQuery) -> Signal {
         // Reserve time for the alternate provider even when station discovery is slow.
         let station = tokio::time::timeout(Duration::from_secs(3), self.station_air(q))
@@ -163,14 +240,17 @@ impl ConditionsService {
             return station;
         }
         let alternative = self
-            .get(self.client.get(&self.cams).query(&[
-                ("latitude", q.latitude.to_string()),
-                ("longitude", q.longitude.to_string()),
-                ("current", "pm2_5,us_aqi".into()),
-                ("domains", "cams_global".into()),
-                ("timezone", "GMT".into()),
-                ("timeformat", "unixtime".into()),
-            ]))
+            .get_with_backoff(
+                self.client.get(&self.cams).query(&[
+                    ("latitude", q.latitude.to_string()),
+                    ("longitude", q.longitude.to_string()),
+                    ("current", "pm2_5,us_aqi".into()),
+                    ("domains", "cams_global".into()),
+                    ("timezone", "GMT".into()),
+                    ("timeformat", "unixtime".into()),
+                ]),
+                Some(&self.cams_retry_at),
+            )
             .await
             .and_then(|v| parse_cams(&v));
         match alternative {
@@ -303,7 +383,7 @@ impl ConditionsService {
                 .unwrap_or_else(|_| Signal::missing(source, "provider_timeout"))
         }
         let (weather, air_quality, traffic) = tokio::join!(
-            bounded("open_meteo", self.weather(q)),
+            self.weather(q),
             bounded("openaq", self.air_quality(q)),
             bounded("tomtom", self.traffic(q)),
         );
@@ -317,8 +397,6 @@ impl ConditionsService {
         }
     }
 }
-
-
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Signal {
@@ -489,6 +567,7 @@ fn parse_bmkg(value: &Value, q: &ConditionsQuery) -> Result<Signal, &'static str
     Ok(Signal { status: "available", source: "bmkg", kind: Some("provider_forecast"), valid_at: Some(*time),
         message: "Sumber: BMKG (https://www.bmkg.go.id/). Three-hourly forecast nearest to now, not a station observation. Selected by forecast valid-time distance when BMKG is closer than Open-Meteo.".into(),
         data: Some(serde_json::json!({ "temperature_c": temperature, "humidity_percent": humidity,
+            "precipitation_mm": number(entry, "tp", 0.0, 1000.0).ok(),
             "description": entry["weather_desc"], "wind_speed_kmh": entry["ws"], "issued_at": issued, "village": location["desa"],
             "model_latitude": lat, "model_longitude": lon })) })
 }
@@ -584,7 +663,7 @@ mod tests {
         json!({ "lokasi": { "adm4": "31.71.03.1001", "lat": -6.2, "lon": 106.8, "desa": "Test village" },
             "data": [{ "cuaca": [[{
                 "utc_datetime": (Utc::now() + chrono::Duration::hours(1)).format("%Y-%m-%d %H:%M:%S").to_string(),
-                "analysis_date": Utc::now().to_rfc3339(), "t": 29, "hu": 80, "weather_desc": "Berawan" }]] }] })
+                "analysis_date": Utc::now().to_rfc3339(), "t": 29, "hu": 80, "weather_desc": "Berawan", "tp": 0 }]] }] })
     }
 
     fn station() -> Value {
@@ -616,6 +695,9 @@ mod tests {
 
     async fn mock(weather_fails: bool) -> Mock {
         let router = Router::new()
+            .route("/met", get(|| async {
+                Json(json!({"valid_at":Utc::now().to_rfc3339(),"temperature_c":28.8,"precipitation_mm":0.9}))
+            }))
             .route("/denied", get(|| async { StatusCode::FORBIDDEN }))
             .route("/limited", get(|| async { StatusCode::TOO_MANY_REQUESTS }))
             .route(
@@ -693,6 +775,7 @@ mod tests {
         let mut service = ConditionsService::from_env();
         service.open_meteo = format!("{base}/weather");
         service.cams = format!("{base}/cams");
+        service.met_worker = format!("{base}/denied");
         service.bmkg = format!("{base}/bmkg");
         service.openaq = format!("{base}/aq");
         service.tomtom = format!("{base}/traffic");
@@ -756,16 +839,32 @@ mod tests {
 
     #[tokio::test]
     async fn weather_outage_falls_back_without_discarding_other_signals() {
-        let mock = mock(true).await;
+        let mut mock = mock(true).await;
         let mut q = query();
         let response = mock.service.lookup(&q).await;
         assert_eq!(response.weather.status, "unavailable");
         assert_eq!(response.air_quality.status, "available");
+        mock.service.met_worker = mock.service.met_worker.replace("/denied", "/met");
+        mock.service.open_meteo = mock.service.open_meteo.replace("/weather", "/limited");
+        let met = mock.service.lookup(&q).await.weather;
+        assert_eq!(met.source, "met_norway");
+        assert_eq!(met.data.unwrap()["precipitation_mm"], 0.9);
+        assert!(mock.service.meteo_retry_at.load(Ordering::Relaxed) > Utc::now().timestamp());
         q.adm4 = Some("31.71.03.1001".into());
         let response = mock.service.lookup(&q).await;
         assert_eq!(response.weather.source, "bmkg");
         assert_eq!(response.weather.kind, Some("provider_forecast"));
         assert!(response.weather.valid_at.unwrap() > Utc::now());
+        assert_eq!(response.weather.data.unwrap()["precipitation_mm"], 0.0);
+        for amount in [json!(2.5), Value::Null, json!(-1)] {
+            let mut payload = bmkg();
+            payload["data"][0]["cuaca"][0][0]["tp"] = amount.clone();
+            let rain = parse_bmkg(&payload, &q).unwrap().data.unwrap();
+            assert_eq!(
+                rain["precipitation_mm"].as_f64(),
+                amount.as_f64().filter(|v| *v >= 0.0)
+            );
+        }
     }
 
     #[tokio::test]

@@ -18,6 +18,21 @@ class ConditionSignal {
   /// When these particular values were fetched, not the latest refresh attempt.
   final DateTime? receivedAt;
 
+  String get providerLabel => switch (source) {
+    'bmkg' => 'BMKG',
+    'met_norway' => 'MET Norway',
+    'open_meteo' => 'Open-Meteo',
+    _ => source,
+  };
+
+  String get unavailableLabel => switch (message) {
+    'not_configured' => 'Not configured',
+    'provider_access_denied' => 'Access denied',
+    'provider_rate_limited' => 'Rate limited',
+    'provider_timeout' => 'Timed out',
+    _ => 'Unavailable',
+  };
+
   bool get hasData => data != null && data!.isNotEmpty;
   bool get isStale => status == 'stale';
   ConditionSignal withReceipt(DateTime time) => ConditionSignal(

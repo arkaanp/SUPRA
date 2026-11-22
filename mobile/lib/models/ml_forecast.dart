@@ -9,8 +9,12 @@ class MlForecastHour {
     required this.rainProbability,
   });
   final DateTime targetTime;
-  final double temperatureC, precipitationMm, pm25, aqi, rainProbability;
-  factory MlForecastHour.fromJson(Map<String, dynamic> j) {
+  final double temperatureC, precipitationMm, rainProbability;
+  final double? pm25, aqi;
+  factory MlForecastHour.fromJson(
+    Map<String, dynamic> j, {
+    bool weatherOnly = false,
+  }) {
     double number(String key, double min, double max) {
       final value = (j[key] as num).toDouble();
       if (!value.isFinite || value < min || value > max) {
@@ -19,6 +23,11 @@ class MlForecastHour {
       return value;
     }
 
+    if (weatherOnly && (j['pm25_ug_m3'] != null || j['aqi'] != null)) {
+      throw const FormatException(
+        'Unexpected air forecast in weather-only model',
+      );
+    }
     if (j['traffic_speed_kmh'] != null || j['traffic_density'] != null) {
       throw const FormatException('Unsupported traffic forecast');
     }
@@ -26,8 +35,8 @@ class MlForecastHour {
       targetTime: DateTime.parse(j['target_time'] as String),
       temperatureC: number('temperature_c', -50, 60),
       precipitationMm: number('precipitation_mm', 0, 500),
-      pm25: number('pm25_ug_m3', 0, 2000),
-      aqi: number('aqi', 0, 1000),
+      pm25: weatherOnly ? null : number('pm25_ug_m3', 0, 2000),
+      aqi: weatherOnly ? null : number('aqi', 0, 1000),
       rainProbability: number('rain_probability', 0, 1),
     );
   }
@@ -68,7 +77,12 @@ class MlForecast {
       throw const FormatException('Unidentified model');
     }
     final hours = (j['hourly'] as List)
-        .map((v) => MlForecastHour.fromJson(v as Map<String, dynamic>))
+        .map(
+          (v) => MlForecastHour.fromJson(
+            v as Map<String, dynamic>,
+            weatherOnly: j['scope'] == 'weather_only',
+          ),
+        )
         .toList();
     if (hours.isEmpty || hours.length > 12) {
       throw const FormatException('Invalid forecast horizon');
