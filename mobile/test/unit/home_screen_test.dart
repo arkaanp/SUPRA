@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supra_mobile_ui/models/current_conditions.dart';
 import 'package:supra_mobile_ui/models/saved_trip.dart';
@@ -8,6 +9,38 @@ import 'package:supra_mobile_ui/widgets/current_conditions_panel.dart';
 
 void main() {
   setUp(() => TripHistoryStore.instance.resetForTesting());
+  testWidgets('Home accepts device coordinates after requesting permission', (
+    tester,
+  ) async {
+    const channel = MethodChannel('flutter.baseflow.com/geolocator');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    final calls = <String>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      calls.add(call.method);
+      return switch (call.method) {
+        'isLocationServiceEnabled' => true,
+        'checkPermission' => 0,
+        'requestPermission' => 2,
+        'getCurrentPosition' => {'latitude': -6.18, 'longitude': 106.83},
+        _ => throw MissingPluginException(),
+      };
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+    await tester.pumpWidget(const MaterialApp(home: HomeScreen()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Kuningan, Jakarta'));
+    await tester.pumpAndSettle();
+    expect(calls, isEmpty);
+    await tester.tap(find.text('Use current location'));
+    await tester.pumpAndSettle();
+    expect(calls, [
+      'isLocationServiceEnabled',
+      'checkPermission',
+      'requestPermission',
+      'getCurrentPosition',
+    ]);
+    expect(find.text('Current location'), findsOneWidget);
+  });
   testWidgets(
     'Original Home cards, location picker and forecast strip are retained',
     (tester) async {

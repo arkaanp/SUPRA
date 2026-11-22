@@ -1,12 +1,13 @@
 """Isolated news, forecast-input and cache unit tests; no provider calls."""
 import datetime as dt
+import json
 from pathlib import Path
 import sys
 import unittest
 from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[3]
 sys.path.insert(0,str(ROOT/'ml'))
-from data import merge_history
+from data import history, merge_history
 from inference import Forecaster
 from model import INPUT_SIZE
 from news import parse_rss,classify_severity
@@ -48,6 +49,16 @@ class ForecastTests(unittest.TestCase):
         rows=merge_history({past:[29,0],future:[30,1]},{past:[20,70],future:[30,80]},NOW)
         self.assertEqual(len(rows),1)
         self.assertEqual(merge_history({past:[29,None]},{past:[20,70]},NOW),[])
+    def test_history_combines_live_input_adapters_without_a_cache_directory(self):
+        def fetch_fixture(url, **kwargs):
+            data = {'pm2_5': [20], 'us_aqi': [70]} if 'air-quality' in url else {
+                'temperature_2m': [29], 'precipitation': [0.2],
+            }
+            return json.dumps({'hourly': {'time': ['2026-11-16T03:00'], **data}})
+
+        with patch('data.fetch', side_effect=fetch_fixture):
+            rows = history(-6.2, 106.8, now=NOW)
+        self.assertEqual([row['values'] for row in rows], [[29, 0.2, 20, 70]])
     def test_chronological_splits_never_cross_target_boundaries(self):
         start=NOW-dt.timedelta(days=5)
         rows=[{'time':(start+dt.timedelta(hours=i)).isoformat(),'values':[i,0.2,20,70]} for i in range(120)]

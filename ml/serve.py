@@ -49,7 +49,9 @@ class Handler(BaseHTTPRequestHandler):
             parsed=urlparse(self.path)
             try:value=app.get(parsed.path,parse_qs(parsed.query));self.reply(200,value)
             except KeyError:self.reply(404,{'error':'Not found'})
-            except ValueError as error:self.reply(422,{'error':str(error)})
+            except ValueError as error:
+                print(f'{parsed.path} rejected: {error}',flush=True)
+                self.reply(422,{'error':str(error)})
             except Exception as error:
                 print(f'Request unavailable: {type(error).__name__}',flush=True)
                 self.reply(503,{'error':'Provider or trained model unavailable'})
@@ -62,7 +64,7 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--port',type=int,default=8001)
-    args=parser.parse_args();torch.set_num_threads(2)
+    args=parser.parse_args();torch.set_num_threads(1)
     server=ThreadingHTTPServer(('127.0.0.1',args.port),Handler);server.daemon_threads=True
     print(f'Intelligence service on http://127.0.0.1:{args.port}',flush=True)
     server.serve_forever()

@@ -12,7 +12,7 @@ BEGIN READ ONLY;
 SELECT version, success FROM _sqlx_migrations ORDER BY version;
 SELECT table_name, column_name FROM information_schema.columns
 WHERE table_schema='public' AND (
- (table_name='users' AND column_name IN ('avatar_url','password_hash')) OR
+ (table_name='users' AND column_name IN ('avatar_url','full_name','username','password_hash')) OR
  (table_name='trips' AND column_name IN ('confirmed_at','transport_mode','active_until','route_waypoints')) OR
  (table_name='notification_preferences' AND column_name='alert_relevant_news') OR
  (table_name='notifications' AND column_name IN ('event_key','source_url','context')))

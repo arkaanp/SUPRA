@@ -56,6 +56,13 @@ async fn main() {
             tracing::info!("Database connection pool established");
             state
         }
+        Err(error) if command.is_none() && std::env::var("RENDER").as_deref() == Ok("true") => {
+            tracing::error!(
+                %error,
+                "Render could not connect to PostgreSQL. For Supabase, set DATABASE_URL to the Session pooler URI (IPv4, port 5432) from the Connect dialog."
+            );
+            std::process::exit(1);
+        }
         Err(primary_err) => {
             tracing::warn!(
                 error = %primary_err,

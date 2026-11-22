@@ -30,8 +30,12 @@ impl IntelligenceService {
             .get(format!("{}{path}", self.base))
             .send()
             .await
-            .map_err(|_| AppError::Unavailable)?;
+            .map_err(|error| {
+                tracing::warn!(timed_out = error.is_timeout(), "Forecast worker request failed");
+                AppError::Unavailable
+            })?;
         if !response.status().is_success() {
+            tracing::warn!(status = %response.status(), "Forecast worker returned an error");
             return Err(AppError::Unavailable);
         }
         let mut bytes = Vec::new();
@@ -53,6 +57,7 @@ impl IntelligenceService {
         if valid_forecast(&value, q, Utc::now()) {
             Ok(value)
         } else {
+            tracing::warn!("Forecast rejected because its timestamps, coordinates or values were invalid");
             Err(AppError::Unavailable)
         }
     }

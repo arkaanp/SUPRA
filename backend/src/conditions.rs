@@ -116,18 +116,26 @@ impl ConditionsService {
 
     async fn weather(&self, q: &ConditionsQuery) -> Signal {
         let primary = async {
-            self.get(self.client.get(&self.open_meteo).query(&[
+            let request = || self.client.get(&self.open_meteo).query(&[
             ("latitude", q.latitude.to_string()), ("longitude", q.longitude.to_string()),
             ("current", "temperature_2m,relative_humidity_2m,precipitation,weather_code,wind_speed_10m".into()),
             ("timeformat", "unixtime".into()), ("timezone", "GMT".into()),
             ("temperature_unit", "celsius".into()), ("wind_speed_unit", "kmh".into()),
             ("precipitation_unit", "mm".into()),
-        ])).await.and_then(|value| parse_weather(&value))
+            ]);
+            let first = self.get(request()).await;
+            let response = if first == Err("provider_unreachable") {
+                self.get(request()).await
+            } else {
+                first
+            };
+            response.and_then(|value| parse_weather(&value))
         };
         let Some(code) = &q.adm4 else {
-            return primary
-                .await
-                .unwrap_or_else(|reason| Signal::missing("open_meteo", reason));
+            return primary.await.unwrap_or_else(|reason| {
+                tracing::warn!(open_meteo = reason, "Weather source unavailable");
+                Signal::missing("open_meteo", reason)
+            });
         };
         let secondary = async {
             self.get(self.client.get(&self.bmkg).query(&[("adm4", code)]))
@@ -139,7 +147,10 @@ impl ConditionsService {
             (Ok(a), Ok(b)) => closest_weather(a, b, Utc::now()),
             (Ok(a), Err(_)) => a,
             (Err(_), Ok(b)) => b,
-            (Err(_), Err(reason)) => Signal::missing("bmkg", reason),
+            (Err(open_meteo), Err(bmkg)) => {
+                tracing::warn!(open_meteo, bmkg, "Both weather sources unavailable");
+                Signal::missing("bmkg", bmkg)
+            }
         }
     }
 

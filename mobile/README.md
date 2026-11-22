@@ -31,6 +31,54 @@ localhost. A physical device needs a reachable LAN address or forwarding.
 production; Android cleartext HTTP is enabled only for debug. Rebuild after
 changing defines.
 
+## Install the demo on a phone
+
+From `mobile/`, prepare `config/device.json` with `SUPRA_API_URL` set to
+`https://supra-demo-api.onrender.com` and the matching Supabase project URL and
+publishable key. The build config contains only public settings. For email-link
+recovery, set `RECOVERY_REDIRECT_URL` to `io.supabase.supra://login-callback`
+and add that URI to the Supabase Auth redirect allowlist.
+
+### Android
+
+Install Android Studio and the Android SDK, accept the SDK licenses, and verify
+the Android toolchain. [Flutter Android setup](https://docs.flutter.dev/platform-integration/android/setup)
+
+```bash
+fvm flutter doctor --android-licenses
+fvm flutter doctor -v
+fvm flutter pub get
+fvm flutter build apk --release --dart-define-from-file=config/device.json
+```
+
+Transfer `build/app/outputs/flutter-apk/app-release.apk` to the phone and open
+the file to install it. For a USB install, enable USB debugging, authorize the
+computer on your phone, and run `adb install -r build/app/outputs/flutter-apk/app-release.apk`.
+The repository currently signs release builds with the debug key for demos.
+Configure release signing and a unique Android application ID before publishing
+an app bundle to Google Play. [Flutter Android release guide](https://docs.flutter.dev/deployment/android)
+
+### iPhone
+
+Use macOS with Xcode. Open `ios/Runner.xcworkspace`, choose a unique bundle ID,
+and select your Apple development team under **Runner → Signing & Capabilities**.
+Connect the iPhone, enable Developer Mode, and select it as the run destination.
+For direct testing, use the first command below with the ID shown by
+`fvm flutter devices`. For TestFlight with an enrolled Apple Developer team,
+use the second command to create the signed archive and IPA and upload the
+archive to App Store Connect. [Flutter iOS setup](https://docs.flutter.dev/platform-integration/ios/setup) · [Flutter iOS release guide](https://docs.flutter.dev/deployment/ios)
+
+```bash
+BYPASS_PERMISSION_LOCATION_ALWAYS=1 fvm flutter run --release -d DEVICE_ID --dart-define-from-file=config/device.json
+BYPASS_PERMISSION_LOCATION_ALWAYS=1 fvm flutter build ipa --release --dart-define-from-file=config/device.json
+```
+
+On the phone, sign in and open **Home → Change Location → Use current location**.
+In **Trip**, open either endpoint picker, use the same button, and confirm the
+pin. Allow location access while using the app. You can still select a landmark,
+search, or place a map pin if location access is denied or the device is
+outside Greater Jakarta.
+
 ## Supported behavior
 
 - Registration takes a username, email and password. Confirm the email if the

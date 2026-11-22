@@ -1,10 +1,12 @@
 """Public hourly model history. Forecast hours after the issue time are never features."""
 import datetime as dt
+from concurrent.futures import ThreadPoolExecutor
 import json
 import math
 from pathlib import Path
 import time
 from urllib.parse import urlencode
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 UTC = dt.timezone.utc
@@ -34,26 +36,45 @@ def fetch(url, limit=4_000_000, timeout=15, attempts=2):
                 if len(body)>limit:
                     raise ValueError('Provider response too large')
                 return body
+        except HTTPError as error:
+            if error.code < 500 or attempt + 1 == attempts:
+                raise
+            time.sleep(0.5)
         except OSError:
             if attempt+1==attempts: raise
             time.sleep(0.5)
 
 def history(latitude,longitude,days=3,now=None,cache_dir=None):
     now=now or utcnow()
-    payloads=[]
-    for kind,base,variables in [
+    if cache_dir:
+        cache_dir = Path(cache_dir)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+    sources = [
         ('weather','https://api.open-meteo.com/v1/forecast','temperature_2m,precipitation'),
-        ('air','https://air-quality-api.open-meteo.com/v1/air-quality','pm2_5,us_aqi')]:
+        ('air','https://air-quality-api.open-meteo.com/v1/air-quality','pm2_5,us_aqi'),
+    ]
+
+    def load(source):
+        kind, base, variables = source
         params=dict(latitude=latitude,longitude=longitude,hourly=variables,past_days=days,forecast_days=1,timezone='UTC')
-        raw=fetch(base+'?'+urlencode(params), timeout=5 if days<=3 else 15, attempts=1 if days<=3 else 2)
+        try:
+            raw = fetch(base + '?' + urlencode(params), timeout=4 if days <= 3 else 15)
+        except HTTPError as error:
+            raise ValueError(f'Open-Meteo {kind} returned HTTP {error.code}') from error
+        except (URLError, TimeoutError) as error:
+            raise ValueError(f'Open-Meteo {kind} connection failed') from error
         if cache_dir:
-            cache_dir=Path(cache_dir);cache_dir.mkdir(parents=True,exist_ok=True)
             (cache_dir/f'{latitude}_{longitude}_{kind}.json').write_bytes(raw)
         value=json.loads(raw)
         hourly=value['hourly']
-        payloads.append({parse_time(t): [hourly[k][i] for k in variables.split(',')]
-                         for i,t in enumerate(hourly['time'])})
-    return merge_history(payloads[0],payloads[1],now)
+        return {parse_time(t): [hourly[k][i] for k in variables.split(',')]
+                for i,t in enumerate(hourly['time'])}
+
+    # Both inputs are independent. Keep their combined latency within the API
+    # deadline even when one source needs a second attempt.
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        weather, air = pool.map(load, sources)
+    return merge_history(weather, air, now)
 
 def merge_history(weather,air,now):
     rows=[]

@@ -15,6 +15,7 @@ import '../services/conditions_repository.dart';
 import '../services/supra_api_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/interactive_location_map.dart';
+import '../widgets/current_location_button.dart';
 
 /// Hourly forecast data point for the 12-hour combined local forecast.
 class HourlyForecast {
@@ -75,7 +76,7 @@ class _HomeScreenState extends State<HomeScreen> {
     latitude: -6.2297,
     longitude: 106.8295,
   );
-  String? _selectedAdm4 = '31.74.02.1001';
+  String? _selectedAdm4 = '31.74.02.1008';
 
   bool _loading = false;
   bool _showMlPredictions = false;
@@ -383,6 +384,20 @@ class _HomeScreenState extends State<HomeScreen> {
     return forecasts;
   }
 
+  void _chooseLocation(LatLng point, String name, {String? adm4}) {
+    setState(() {
+      _selectedLocation = point;
+      _selectedLocationName = name;
+      _selectedAdm4 = adm4;
+      _liveConditions =
+          (!MapConfig.isTestEnvironment && widget.conditions == null)
+          ? ConditionsRepository.staleFallbackSnapshot(point, DateTime.now())
+          : null;
+      _geminiConditionsInsight = null;
+    });
+    unawaited(_refreshAll());
+  }
+
   void _showLocationPicker() {
     showModalBottomSheet(
       context: context,
@@ -432,13 +447,20 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Select a key Greater Jakarta destination or pick custom coordinates on the interactive map.',
+                  'Choose your current location, a Greater Jakarta landmark, or a point on the map.',
                   style: TextStyle(
                     color: SupraTheme.textSecondary,
                     fontSize: 13,
                   ),
                 ),
                 const SizedBox(height: 16),
+                CurrentLocationButton(
+                  onSelected: (point) {
+                    Navigator.pop(ctx);
+                    _chooseLocation(point, 'Current location');
+                  },
+                ),
+                const SizedBox(height: 8),
                 OutlinedButton.icon(
                   onPressed: () async {
                     Navigator.pop(ctx);
@@ -449,22 +471,11 @@ class _HomeScreenState extends State<HomeScreen> {
                     );
                     if (picked != null && mounted) {
                       final nearest = findNearestLandmark(picked);
-                      setState(() {
-                        _selectedLocation = picked;
-                        _selectedLocationName =
-                            nearest?.name ??
-                            'Lat: ${picked.latitude.toStringAsFixed(3)}, Lon: ${picked.longitude.toStringAsFixed(3)}';
-                        _selectedAdm4 = null;
-                        _liveConditions =
-                            (!MapConfig.isTestEnvironment &&
-                                widget.conditions == null)
-                            ? ConditionsRepository.staleFallbackSnapshot(
-                                picked,
-                                DateTime.now(),
-                              )
-                            : null;
-                      });
-                      _refreshAll();
+                      _chooseLocation(
+                        picked,
+                        nearest?.name ??
+                            'Lat: ${picked.latitude.toStringAsFixed(3)}, Lon: ${picked.longitude.toStringAsFixed(3)}',
+                      );
                     }
                   },
                   icon: const Icon(Icons.map_outlined),
@@ -502,7 +513,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           name: 'Kuningan, Jakarta',
                           area: 'South Jakarta',
                           point: LatLng(latitude: -6.2297, longitude: 106.8295),
-                          adm4: '31.74.02.1001',
+                          adm4: '31.74.02.1008',
                         ),
                         const NamedLocation(
                           name: 'Monas (Central Jakarta)',
@@ -514,13 +525,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           name: 'Bundaran HI',
                           area: 'Central Jakarta',
                           point: LatLng(latitude: -6.1950, longitude: 106.8230),
-                          adm4: '31.71.03.1001',
                         ),
                         const NamedLocation(
                           name: 'Sudirman CBD (SCBD)',
                           area: 'South Jakarta',
                           point: LatLng(latitude: -6.2250, longitude: 106.8080),
-                          adm4: '31.74.02.1002',
                         ),
                         const NamedLocation(
                           name: 'Gelora Bung Karno (GBK)',
@@ -531,7 +540,6 @@ class _HomeScreenState extends State<HomeScreen> {
                           name: 'Kota Bogor',
                           area: 'Bogor',
                           point: LatLng(latitude: -6.5950, longitude: 106.7950),
-                          adm4: '32.71.01.1001',
                         ),
                         const NamedLocation(
                           name: 'Universitas Indonesia (Depok)',
@@ -571,20 +579,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         subtitle: Text(item.area),
                         onTap: () {
                           Navigator.pop(ctx);
-                          setState(() {
-                            _selectedLocationName = item.name;
-                            _selectedLocation = item.point;
-                            _selectedAdm4 = item.adm4;
-                            _liveConditions =
-                                (!MapConfig.isTestEnvironment &&
-                                    widget.conditions == null)
-                                ? ConditionsRepository.staleFallbackSnapshot(
-                                    item.point,
-                                    DateTime.now(),
-                                  )
-                                : null;
-                          });
-                          _refreshAll();
+                          _chooseLocation(
+                            item.point,
+                            item.name,
+                            adm4: item.adm4,
+                          );
                         },
                       );
                     },

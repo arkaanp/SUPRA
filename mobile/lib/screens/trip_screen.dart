@@ -22,6 +22,7 @@ import '../services/commute_recommendations.dart';
 import 'commutes_screen.dart';
 import '../theme/app_theme.dart';
 import '../widgets/interactive_location_map.dart';
+import '../widgets/current_location_button.dart';
 import '../widgets/transit_journey_details.dart';
 
 class NearbySnapOption {
@@ -196,11 +197,11 @@ class TripScreenState extends State<TripScreen> {
     if (_showMlPredictions) unawaited(_refreshMlForecast(point));
     try {
       final cond = await ConditionsRepository.instance.at(point);
-      if (mounted) {
+      if (mounted && _startCoord == point) {
         setState(() => _originConditions = cond);
       }
     } catch (_) {
-      if (mounted && !MapConfig.isTestEnvironment) {
+      if (mounted && _startCoord == point && !MapConfig.isTestEnvironment) {
         setState(
           () => _originConditions = ConditionsRepository.staleFallbackSnapshot(
             point,
@@ -445,20 +446,26 @@ class TripScreenState extends State<TripScreen> {
   }
 
   void _confirmPickedLocation() {
-    if (_tempTappedPoint == null) return;
+    final point = _tempTappedPoint;
+    if (point == null) return;
+    final originChanged = _isPickingStart && _startCoord != point;
     final resolved = _tempTappedName.split(' (~').first;
     setState(() {
       if (_isPickingStart) {
-        _startCoord = _tempTappedPoint!;
+        _startCoord = point;
         _start.text = resolved;
+        if (originChanged) _originConditions = null;
       } else {
-        _destCoord = _tempTappedPoint!;
+        _destCoord = point;
         _destination.text = resolved;
       }
       _isPickingOnMap = false;
       _mapSearchResults = [];
       // Do not auto-calculate route here so user can freely adjust both locations
     });
+    if (originChanged && !MapConfig.isTestEnvironment) {
+      unawaited(_refreshOriginConditions(point));
+    }
   }
 
   void _selectDestination(String name, LatLng point) {
@@ -1220,6 +1227,23 @@ class TripScreenState extends State<TripScreen> {
                                           ),
                                         ),
                                     ],
+                                  ),
+                                ),
+
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Material(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(20),
+                                    child: CurrentLocationButton(
+                                      onSelected: (point) {
+                                        _mapSearchFocusNode.unfocus();
+                                        _teleportToPoint(
+                                          point,
+                                          'Current location',
+                                        );
+                                      },
+                                    ),
                                   ),
                                 ),
 

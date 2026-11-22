@@ -82,7 +82,6 @@ const List<NamedLocation> greaterJakartaLandmarks = [
     name: 'Bundaran HI',
     area: 'Central Jakarta',
     point: LatLng(latitude: -6.1950, longitude: 106.8230),
-    adm4: '31.71.03.1001',
   ),
   NamedLocation(
     name: 'Grand Indonesia Mall',
@@ -118,13 +117,12 @@ const List<NamedLocation> greaterJakartaLandmarks = [
     name: 'Sudirman CBD (SCBD)',
     area: 'South Jakarta',
     point: LatLng(latitude: -6.2250, longitude: 106.8080),
-    adm4: '31.74.02.1002',
   ),
   NamedLocation(
     name: 'Kuningan',
     area: 'South Jakarta',
     point: LatLng(latitude: -6.2297, longitude: 106.8295),
-    adm4: '31.74.02.1001',
+    adm4: '31.74.02.1008',
   ),
   NamedLocation(
     name: 'Gelora Bung Karno (GBK)',
@@ -246,7 +244,6 @@ const List<NamedLocation> greaterJakartaLandmarks = [
     name: 'Bogor Botanical Gardens',
     area: 'Bogor',
     point: LatLng(latitude: -6.5980, longitude: 106.7970),
-    adm4: '32.71.01.1001',
   ),
   NamedLocation(
     name: 'Taman Kencana Bogor',

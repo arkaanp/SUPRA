@@ -24,6 +24,8 @@ Use the same Supabase project for the API and Flutter client. For a separate dem
 
 In Supabase select **Connect → Session pooler**. Copy the PostgreSQL URI with port 5432, replace the password placeholder with the URL-encoded database password, and use `sslmode=require`. Use the project database role with migration privileges, including permission to create a signup trigger on auth.users. [Supabase connection guide](https://supabase.com/docs/guides/database/connecting-to-postgres)
 
+The URI has the form `postgresql://postgres.PROJECT_REF:ENCODED_PASSWORD@POOLER_HOST:5432/postgres?sslmode=require`. Copy the actual pooler host from Supabase. A host beginning with `db.` and ending in `.supabase.co` is the direct endpoint, which requires IPv6 unless the project has the IPv4 add-on. The shared pooler's transaction-mode URI uses port 6543. Use the session-mode URI for SUPRA.
+
 Run the migration once from your machine in Bash. Paste the intended URI at the hidden prompt. The subshell confines DATABASE_URL to this command.
 
 ```bash
@@ -80,7 +82,9 @@ Sign in by email, check the username under Profile, then sign out and sign in by
 - **Avatars disappear.** Uploaded images are temporary on Render Free and can be lost after spin-down, restart or redeploy. Supabase-backed profile fields and trips persist. Durable avatars would require moving uploads to object storage.
 - **Scheduled alerts.** The Blueprint sets ALERTS_ENABLED=false. The app still requests alert evaluation while in use. Continuous background evaluation requires an always-on service.
 - **Build cannot find forecast.pt.** Confirm `git ls-tree HEAD ml/artifacts/forecast.pt` prints an entry on the branch Render builds. A local file alone is insufficient.
+- **Deploy times out with “Network is unreachable”.** In the Render service, open **Environment**, edit **DATABASE_URL**, replace it with the full Supabase **Session pooler** URI and choose **Save and deploy**. Check for `Database connection pool established` in the new deploy logs, then open `/health/ready`. Keep database credentials in Render's environment settings.
 - **Readiness or sign-in fails after wake-up.** Check the service logs, the session pooler URI and whether Supabase is active. Readiness tests the database connection. If email login works but username login fails, check the username migration, project URL and publishable key. A 429 on username login means the demo-wide login rate limit or Supabase's limit was reached. Wait before retrying.
+- **Weather or ML forecast is unavailable.** After Render is ready, refresh conditions or enable ML in the signed-in app. Search Render logs for `Weather source unavailable`, `Both weather sources unavailable`, or `/v1/forecast rejected`. Current weather can use BMKG where a verified village code is available. The trained model requires fresh Open-Meteo weather and CAMS inputs. Readiness checks PostgreSQL, so also exercise both features after deployment.
 - **Render reports an out-of-memory restart.** Look at the service's Events and Metrics during a route or forecast request. Local startup measurements do not establish capacity for concurrent demo users.
 
 Render currently grants 750 free instance hours per workspace each month, shared across free web services. [Render Free limits and storage behavior](https://render.com/docs/free)
