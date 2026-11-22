@@ -1,0 +1,14 @@
+.git
+.env
+.env.*
+backend/target
+backend/uploads
+backend/.env
+mobile
+docs
+testing
+ml/.venv
+ml/data
+ml/runtime
+ml/artifacts/*.pt*
+**/__pycache__

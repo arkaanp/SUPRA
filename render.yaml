@@ -1,0 +1,39 @@
+# Render Blueprint for SUPRA backend + loopback ML/RSS intelligence service.
+services:
+  - type: web
+    name: supra-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /health/live
+    envVars:
+      - key: PORT
+        value: "3000"
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: OPENAQ_API_KEY
+        sync: false
+      - key: TOMTOM_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: ALERTS_ENABLED
+        value: "true"
+      - key: INTELLIGENCE_URL
+        value: http://127.0.0.1:8001
+      - key: TRANSJAKARTA_GTFS_DIR
+        value: /app/file_gtfs
+      - key: AVATAR_STORAGE_DIR
+        value: /app/uploads/avatars
+      - key: VALHALLA_ROUTE_URL
+        value: https://valhalla1.openstreetmap.de/route
+      - key: COMMUTE_API_URL
+        value: https://api.commute.shiorilabs.id
+      - key: RUST_LOG
+        value: supra_backend=info,tower_http=info
