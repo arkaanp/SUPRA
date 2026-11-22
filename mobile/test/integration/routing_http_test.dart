@@ -103,7 +103,7 @@ void main() {
       expect(route.rainfallMm, isNull);
       expect(route.trafficDensity, isNull);
       expect(route.trafficCategory, contains('unavailable'));
-      expect(route.provenanceLabel, contains('openaq'));
+      expect(route.provenanceLabel, contains('OpenAQ'));
       expect(route.recommendationReason, contains('not a live-traffic ETA'));
     });
     test(

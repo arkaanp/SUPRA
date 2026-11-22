@@ -96,6 +96,17 @@ class AppNotification {
     expiresAt: expiresAt,
   );
 
+  String get displayBody {
+    final url = sourceUrl?.trim();
+    if (url == null || url.isEmpty) return messageBody;
+    // Older saved publisher alerts include the same structured URL as a footer.
+    final footer = '\nSource: $url';
+    final body = messageBody.trimRight();
+    return body.endsWith(footer)
+        ? body.substring(0, body.length - footer.length)
+        : messageBody;
+  }
+
   bool get isNews => sourceUrl?.trim().isNotEmpty == true;
   bool meetsNewsMinimum(String minimum) {
     if (!isNews) return true;

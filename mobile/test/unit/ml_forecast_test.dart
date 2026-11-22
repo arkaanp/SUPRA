@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supra_mobile_ui/models/current_conditions.dart';
 import 'package:supra_mobile_ui/models/location.dart';
@@ -49,7 +50,11 @@ ConditionsRepository availableConditions() => ConditionsRepository(
       source: 'bmkg',
       kind: 'provider_forecast',
       message: '',
-      data: {'precipitation_mm': 0.0, 'temperature_c': 29},
+      data: {
+        'precipitation_mm': 0.0,
+        'temperature_c': 29,
+        'description': 'Cerah berawan',
+      },
     ),
     traffic: const ConditionSignal(
       status: 'available',
@@ -140,7 +145,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       find.textContaining(
-        'ML forecast unavailable. Try refreshing. · Rain · BMKG forecast 0.0 mm · Traffic 25 km/h',
+        'ML forecast unavailable. Try refreshing. · Rain forecast 0.0 mm · Traffic 25 km/h',
       ),
       findsOneWidget,
     );
@@ -167,6 +172,16 @@ void main() {
       expect(find.text('123'), findsOneWidget);
       expect(find.text('0.8 mm (37%)'), findsOneWidget);
       expect(find.text('25 km/h'), findsOneWidget);
+      for (final text in ['Cerah berawan', 'Rain 37% · 0.8 mm']) {
+        final label = find.text(text).first;
+        await tester.ensureVisible(label);
+        final paragraph = tester.renderObject<RenderParagraph>(label);
+        expect(paragraph.didExceedMaxLines, isFalse, reason: text);
+      }
+      expect(find.textContaining('test-trained-model'), findsNothing);
+      await tester.ensureVisible(find.byTooltip('Conditions sources'));
+      await tester.tap(find.byTooltip('Conditions sources'));
+      await tester.pumpAndSettle();
       expect(find.textContaining('test-trained-model'), findsOneWidget);
       expect(find.textContaining('65%'), findsNothing);
       expect(tester.takeException(), isNull);
@@ -195,7 +210,7 @@ void main() {
       expect(find.textContaining('ML forecast unavailable'), findsWidgets);
       expect(find.text('0.0 mm'), findsOneWidget);
       expect(find.text('25 km/h'), findsOneWidget);
-      expect(find.text('BMKG forecast'), findsWidgets);
+      expect(find.text('Rain forecast'), findsWidgets);
       expect(find.textContaining('65%'), findsNothing);
       expect(tester.takeException(), isNull);
     },

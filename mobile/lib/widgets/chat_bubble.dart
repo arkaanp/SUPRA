@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+
+import 'source_info_button.dart';
+
 import 'package:flutter/services.dart';
 
 import '../models/chat_message.dart';
@@ -15,11 +18,15 @@ class ChatBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final isUser = message.sender == MessageSender.user;
 
+    final (reply, sources) = isUser
+        ? (message.text, null)
+        : replyWithSources(message.text);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       child: Row(
-        mainAxisAlignment:
-            isUser ? MainAxisAlignment.end : MainAxisAlignment.start,
+        mainAxisAlignment: isUser
+            ? MainAxisAlignment.end
+            : MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
           // Assistant Avatar
@@ -49,8 +56,9 @@ class ChatBubble extends StatelessWidget {
           // Bubble Container
           Flexible(
             child: Column(
-              crossAxisAlignment:
-                  isUser ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              crossAxisAlignment: isUser
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
               children: [
                 GestureDetector(
                   onLongPress: () {
@@ -77,10 +85,12 @@ class ChatBubble extends StatelessWidget {
                       borderRadius: BorderRadius.only(
                         topLeft: const Radius.circular(16),
                         topRight: const Radius.circular(16),
-                        bottomLeft:
-                            isUser ? const Radius.circular(16) : Radius.zero,
-                        bottomRight:
-                            isUser ? Radius.zero : const Radius.circular(16),
+                        bottomLeft: isUser
+                            ? const Radius.circular(16)
+                            : Radius.zero,
+                        bottomRight: isUser
+                            ? Radius.zero
+                            : const Radius.circular(16),
                       ),
                       boxShadow: isUser
                           ? null
@@ -131,7 +141,7 @@ class ChatBubble extends StatelessWidget {
                             const SizedBox(height: 8),
                         ],
                         if (message.text.isNotEmpty || !message.isStreaming)
-                          _buildFormattedText(context, message.text, isUser),
+                          _buildFormattedText(context, reply, isUser),
                       ],
                     ),
                   ),
@@ -140,17 +150,16 @@ class ChatBubble extends StatelessWidget {
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (!isUser && message.model != null && !message.isStreaming) ...[
-                      Text(
-                        message.model!,
-                        style: const TextStyle(
-                          fontSize: 8.5,
-                          color: Color(0xFF94A3B8),
-                          fontWeight: FontWeight.w600,
-                        ),
+                    if (!isUser &&
+                        !message.isStreaming &&
+                        (sources != null || message.model != null))
+                      SourceInfoButton(
+                        title: 'Assistant sources',
+                        details: [
+                          if (message.model != null) message.model!,
+                          ?sources,
+                        ].join('\n\n'),
                       ),
-                      const SizedBox(width: 6),
-                    ],
                     Text(
                       message.isStreaming ? '' : _time(message.timestamp),
                       style: const TextStyle(
@@ -168,11 +177,7 @@ class ChatBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildFormattedText(
-    BuildContext context,
-    String text,
-    bool isUser,
-  ) {
+  Widget _buildFormattedText(BuildContext context, String text, bool isUser) {
     final baseColor = isUser ? Colors.white : const Color(0xFF0F172A);
     final lines = text.split('\n');
     final children = <Widget>[];
@@ -223,7 +228,8 @@ class ChatBubble extends StatelessWidget {
       }
 
       // Bullet points
-      final isBullet = line.startsWith('- ') ||
+      final isBullet =
+          line.startsWith('- ') ||
           line.startsWith('• ') ||
           line.startsWith('* ');
       final content = isBullet ? line.substring(2) : line;
@@ -265,11 +271,7 @@ class ChatBubble extends StatelessWidget {
           Text.rich(
             TextSpan(
               children: spans,
-              style: TextStyle(
-                fontSize: 13.5,
-                height: 1.35,
-                color: baseColor,
-              ),
+              style: TextStyle(fontSize: 13.5, height: 1.35, color: baseColor),
             ),
           ),
         );

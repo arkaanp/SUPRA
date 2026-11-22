@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'source_info_button.dart';
+
 import '../models/route_option.dart';
 import '../theme/app_theme.dart';
 
@@ -208,9 +210,9 @@ class RoutePlannerView extends StatelessWidget {
         ),
 
         const SizedBox(height: 12),
-        Text(
-          selectedOption.provenanceLabel,
-          style: const TextStyle(fontSize: 11, color: SupraTheme.textSecondary),
+        SourceInfoButton(
+          title: 'Route sources',
+          details: selectedOption.provenanceLabel,
         ),
 
         // 4. Contextual Health Advisory & Protective Measures Card

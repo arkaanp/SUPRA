@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart' hide Route;
 import 'package:maplibre_gl/maplibre_gl.dart' as ml;
 
+import '../widgets/source_info_button.dart';
+import '../models/current_conditions.dart';
 import '../config/map_config.dart';
 import '../models/location.dart';
 import '../models/prediction.dart';
@@ -54,7 +56,11 @@ class _MapScreenState extends State<MapScreen> {
   bool _showRain = true;
   LatLng? _inspectedLocation;
   String? _inspectedAddress;
-  double? _inspectedPm25;
+  ConditionSignal? _inspectedAir;
+  double? get _inspectedPm25 =>
+      _inspectedAir?.isCurrentAt(DateTime.now()) == true
+      ? _inspectedAir?.number('pm25_ug_m3')
+      : null;
   late bool _useMapLibre;
   ml.MapLibreMapController? _mapController;
 
@@ -114,14 +120,14 @@ class _MapScreenState extends State<MapScreen> {
     setState(() {
       _inspectedLocation = tapped;
       _inspectedAddress = null;
-      _inspectedPm25 = null;
+      _inspectedAir = null;
     });
     final addr = await _geocodingService.reverseGeocode(tapped);
-    final pm = await _routingService.fetchLivePm25(tapped);
+    final snapshot = await _routingService.conditions.at(tapped);
     if (mounted && _inspectedLocation == tapped) {
       setState(() {
         _inspectedAddress = addr;
-        _inspectedPm25 = pm;
+        _inspectedAir = snapshot.airQuality;
       });
     }
   }
@@ -398,6 +404,12 @@ class _MapScreenState extends State<MapScreen> {
                               ],
                             ),
                           ),
+                          if (_inspectedAir != null)
+                            SourceInfoButton(
+                              title: 'Air quality source',
+                              details: _inspectedAir!.sourceDetails,
+                              compact: true,
+                            ),
                           IconButton(
                             icon: const Icon(Icons.close, size: 16),
                             onPressed: () =>
@@ -456,73 +468,82 @@ class _MapScreenState extends State<MapScreen> {
           ),
 
           // 2. Google-Maps-Style Multi-Modal Route & Health Advisory Drawer
-          Material(
-            elevation: 8,
-            color: Colors.white,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-            child: Container(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Origin -> Destination readout
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.directions,
-                          size: 18,
-                          color: Color(0xFF64748B),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            '$sName → $dName',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w800,
-                              fontSize: 13,
-                            ),
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * 0.5,
+            ),
+            child: Material(
+              elevation: 8,
+              color: Colors.white,
+              borderRadius: const BorderRadius.vertical(
+                top: Radius.circular(20),
+              ),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+                child: SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Origin -> Destination readout
+                      Row(
+                        children: [
+                          const Icon(
+                            Icons.directions,
+                            size: 18,
+                            color: Color(0xFF64748B),
                           ),
-                        ),
-                        Text(
-                          '${distance.toStringAsFixed(1)} km',
-                          style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            color: SupraTheme.textSecondary,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-
-                    // Route Planner with Mode Options & Health Advisories
-                    if (_routeOptions.isNotEmpty && _selectedOption != null)
-                      RoutePlannerView(
-                        options: _routeOptions,
-                        selectedOption: _selectedOption!,
-                        onOptionSelected: _onSelectOption,
-                        onConfirmRoute: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'Selected ${_selectedOption!.mode.displayName} route (${_selectedOption!.formattedDuration}).',
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '$sName → $dName',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 13,
                               ),
                             ),
-                          );
-                        },
-                      )
-                    else if (_loadingRoutes)
-                      const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(24.0),
-                          child: CircularProgressIndicator(),
+                          ),
+                          Text(
+                            '${distance.toStringAsFixed(1)} km',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: SupraTheme.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+
+                      // Route Planner with Mode Options & Health Advisories
+                      if (_routeOptions.isNotEmpty && _selectedOption != null)
+                        RoutePlannerView(
+                          options: _routeOptions,
+                          selectedOption: _selectedOption!,
+                          onOptionSelected: _onSelectOption,
+                          onConfirmRoute: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Selected ${_selectedOption!.mode.displayName} route (${_selectedOption!.formattedDuration}).',
+                                ),
+                              ),
+                            );
+                          },
+                        )
+                      else if (_loadingRoutes)
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(24.0),
+                            child: CircularProgressIndicator(),
+                          ),
+                        )
+                      else
+                        const Center(
+                          child: Text('Could not load road routes.'),
                         ),
-                      )
-                    else
-                      const Center(child: Text('Could not load road routes.')),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

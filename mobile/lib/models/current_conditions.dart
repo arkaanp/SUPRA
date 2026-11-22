@@ -22,16 +22,40 @@ class ConditionSignal {
     'bmkg' => 'BMKG',
     'met_norway' => 'MET Norway',
     'open_meteo' => 'Open-Meteo',
+    'open_meteo_cams' => 'Open-Meteo / CAMS',
+    'openaq' => 'OpenAQ',
+    'tomtom' => 'TomTom',
     _ => source,
   };
 
   String get unavailableLabel => switch (message) {
     'not_configured' => 'Not configured',
+    'provider_invalid_credentials' => 'Invalid provider key',
     'provider_access_denied' => 'Access denied',
     'provider_rate_limited' => 'Rate limited',
     'provider_timeout' => 'Timed out',
     _ => 'Unavailable',
   };
+
+  String get sourceDetails => [
+    '$providerLabel · $status${kind == null ? '' : ' · ${kind!.replaceAll('_', ' ')}'}',
+    if (validAt != null) 'Valid: ${validAt!.toUtc().toIso8601String()}',
+    if (receivedAt != null) 'Fetched: ${receivedAt!.toUtc().toIso8601String()}',
+    if (data?['station_name'] != null) 'Station: ${data!['station_name']}',
+    if (data?['distance_km'] is num)
+      'Distance: ${(data!['distance_km'] as num).toStringAsFixed(1)} km',
+    if (data?['provider']?['name'] != null)
+      'Provider: ${data!['provider']['name']}',
+    if (data?['owner']?['name'] != null) 'Owner: ${data!['owner']['name']}',
+    for (final l in data?['licenses'] as List? ?? [])
+      'License: ${l['name'] ?? 'See source terms'}${l['attribution']?['name'] == null ? '' : ' · ${l['attribution']['name']}'}',
+    if (source == 'tomtom' && message == 'provider_invalid_credentials')
+      'TomTom rejected the server API key (HTTP 401). Update TOMTOM_API_KEY on the backend.'
+    else if (source == 'tomtom' && message == 'provider_access_denied')
+      'Check Flow Segment Data access and server-side key restrictions in TomTom.'
+    else if (message.isNotEmpty)
+      message,
+  ].join('\n');
 
   bool get hasData => data != null && data!.isNotEmpty;
   bool get isStale => status == 'stale';
@@ -120,6 +144,13 @@ class CurrentConditions {
   final ConditionSignal weather;
   final ConditionSignal airQuality;
   final ConditionSignal traffic;
+
+  String get sourceDetails => [
+    airQuality.sourceDetails,
+    weather.sourceDetails,
+    traffic.sourceDetails,
+    'Retrieved ${retrievedAt.toUtc().toIso8601String()}',
+  ].join('\n\n');
 
   CurrentConditions agedAt(DateTime now) => CurrentConditions(
     latitude: latitude,

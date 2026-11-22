@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+
+import 'source_info_button.dart';
 
 import '../models/current_conditions.dart';
 import '../models/location.dart';
@@ -110,19 +111,6 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
     }
   }
 
-  Future<void> _open(String url) async {
-    try {
-      if (!await launchUrl(Uri.parse(url))) {
-        throw StateError('Could not open source link.');
-      }
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Source: $url')));
-      }
-    }
-  }
-
   String _wib(DateTime time) =>
       '${time.toUtc().add(const Duration(hours: 7)).toIso8601String().substring(0, 16).replaceAll('T', ' ')} WIB';
 
@@ -137,9 +125,23 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: Theme.of(context).textTheme.titleMedium),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              ),
+              SourceInfoButton(
+                title: '$title source',
+                details: [signal.sourceDetails, attributionUrl].join('\n'),
+                url: attributionUrl,
+              ),
+            ],
+          ),
           Text(
-            '${signal.source} · ${signal.status}${signal.kind == null ? '' : ' · ${signal.kind!.replaceAll('_', ' ')}'}',
+            '${signal.status}${signal.kind == null ? '' : ' · ${signal.kind!.replaceAll('_', ' ')}'}',
           ),
           if (signal.status == 'stale')
             const Text(
@@ -151,15 +153,7 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
           if (signal.receivedAt != null)
             Text('Fetched: ${_wib(signal.receivedAt!)}'),
           for (final detail in details) Text(detail),
-          Text(
-            signal.message == 'not_configured'
-                ? 'Provider key is not configured on the backend.'
-                : signal.message,
-          ),
-          TextButton(
-            onPressed: () => _open(attributionUrl),
-            child: const Text('Source / attribution'),
-          ),
+          if (signal.status == 'unavailable') Text('$title unavailable'),
         ],
       ),
     ),
@@ -346,18 +340,6 @@ class _CurrentConditionsPanelState extends State<CurrentConditionsPanel> {
                 'Model grid: approximately ${air!['resolution_km']} km',
               if (air?['pm25_ug_m3'] != null)
                 'PM2.5: ${air!['pm25_ug_m3']} µg/m³',
-              if (air?['station_name'] != null)
-                'Station: ${air!['station_name']}',
-              if (air?['distance_km'] is num)
-                'Station distance: ${(air!['distance_km'] as num).toStringAsFixed(1)} km',
-              if (air?['provider']?['name'] != null)
-                'Provider: ${air!['provider']['name']}',
-              if (air?['owner']?['name'] != null)
-                'Owner: ${air!['owner']['name']}',
-              if (air?['licenses'] is List) ...[
-                for (final license in air!['licenses'] as List)
-                  'License: ${license['name'] ?? 'See source terms'}${license['attribution']?['name'] == null ? '' : ' · ${license['attribution']['name']}'}',
-              ],
             ],
             result.airQuality.source == 'open_meteo_cams'
                 ? 'https://open-meteo.com/en/docs/air-quality-api'

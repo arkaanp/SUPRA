@@ -1,8 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import '../widgets/source_info_button.dart';
+
 import 'package:flutter/foundation.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'package:supra_mobile_ui/models/notification.dart';
 
@@ -11,7 +13,6 @@ import '../widgets/news_severity_selector.dart';
 import 'settings_screen.dart';
 
 import 'package:supra_mobile_ui/services/supra_api_service.dart';
-import 'package:supra_mobile_ui/theme/app_theme.dart';
 import 'package:supra_mobile_ui/widgets/notification_tile.dart';
 
 /// Notifications inbox: Agent 2 proactive alerts with severity and read state.
@@ -406,7 +407,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     border: Border.all(color: const Color(0xFFE2E8F0)),
                   ),
                   child: Text(
-                    item.messageBody,
+                    item.displayBody,
                     style: const TextStyle(
                       fontSize: 13,
                       color: Color(0xFF334155),
@@ -417,52 +418,16 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 if (item.sourceUrl != null) ...[
                   const SizedBox(height: 10),
                   Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
-                      const Icon(
-                        Icons.link_rounded,
-                        size: 15,
-                        color: SupraTheme.brand,
+                      SourceInfoButton(
+                        title: 'News source',
+                        details: item.sourceUrl!,
+                        url: item.sourceUrl,
                       ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          'Sumber: ${item.sourceUrl}',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 11.5,
-                            color: Color(0xFF475569),
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('Tutup'),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: SupraTheme.brand,
-                            foregroundColor: Colors.white,
-                          ),
-                          icon: const Icon(Icons.open_in_new, size: 15),
-                          label: const Text('Buka Sumber'),
-                          onPressed: () async {
-                            final uri = Uri.tryParse(item.sourceUrl!);
-                            if (uri != null) {
-                              await launchUrl(uri);
-                            }
-                          },
-                        ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: const Text('Tutup'),
                       ),
                     ],
                   ),

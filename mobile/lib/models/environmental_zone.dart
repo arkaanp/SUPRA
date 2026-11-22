@@ -57,8 +57,7 @@ class EnvironmentalZone {
     final detail = [
       if (description is String && description.isNotEmpty) description,
       if (rain != null) '${rain.toStringAsFixed(1)} mm',
-      if (weather?.kind == 'provider_forecast')
-        '${weather!.providerLabel} forecast',
+      if (weather?.kind == 'provider_forecast') 'Forecast',
     ].join(' · ');
     final label = air?.kind == 'model_estimate' ? 'model' : 'station';
     return '$name · $airText ($label)${air?.isStale == true ? " STALE" : ""}\n$weatherText $detail${weather?.isStale == true ? " STALE" : ""}';
@@ -111,7 +110,7 @@ class EnvironmentalZone {
   String get descriptiveLabel =>
       '$name · $weatherSummary · '
       '${pm25 == null ? "PM2.5 unavailable" : "${conditions?.airQuality.kind == "model_estimate" ? "Model" : "Station"} PM2.5 ${pm25!.toStringAsFixed(1)} µg/m³ (not AQI)"}'
-      '${conditions == null ? "" : " · ${conditions!.airQuality.source}: ${conditions!.airQuality.status}"}';
+      '${conditions == null ? "" : " · ${conditions!.airQuality.status}"}';
   String get healthAdvisory =>
       'Location sample only, not area-wide exposure. '
       '${conditions == null ? "Current conditions unavailable." : "${conditions!.airQuality.message} ${conditions!.weather.message} "

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'source_info_button.dart';
+
 import '../models/transit_journey.dart';
 
 class TransitJourneyDetails extends StatelessWidget {
@@ -74,10 +76,7 @@ class TransitJourneyDetails extends StatelessWidget {
               ],
             ),
           ),
-      Text(
-        journey.attribution,
-        style: const TextStyle(fontSize: 10, color: Colors.blueGrey),
-      ),
+      SourceInfoButton(title: 'Transit sources', details: journey.attribution),
     ],
   );
 }

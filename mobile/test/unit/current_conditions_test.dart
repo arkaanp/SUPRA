@@ -85,11 +85,15 @@ void main() {
       expect(calls, 1);
       expect(find.text('Weather unavailable'), findsOneWidget);
       expect(find.textContaining('STALE —'), findsWidgets);
-      expect(find.text('Station: Test station'), findsOneWidget);
-      expect(find.text('Provider: Test provider'), findsOneWidget);
+      expect(find.textContaining('Test provider'), findsNothing);
       expect(find.textContaining('Speed: 20'), findsOneWidget);
       expect(find.textContaining('WIB'), findsWidgets);
-      expect(find.text('Source / attribution'), findsNWidgets(3));
+      await tester.ensureVisible(find.byTooltip('Air quality source'));
+      await tester.tap(find.byTooltip('Air quality source'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Provider: Test provider'), findsOneWidget);
+      expect(find.textContaining('Station: Test station'), findsOneWidget);
+      expect(find.text('Open source'), findsOneWidget);
     },
   );
 

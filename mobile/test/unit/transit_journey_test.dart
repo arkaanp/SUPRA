@@ -185,6 +185,10 @@ void main() {
         find.text('Walking connection; not street navigation'),
         findsOneWidget,
       );
+      expect(find.textContaining('ODbL-1.0'), findsNothing);
+      await tester.ensureVisible(find.byTooltip('Transit sources'));
+      await tester.tap(find.byTooltip('Transit sources'));
+      await tester.pumpAndSettle();
       expect(find.textContaining('ODbL-1.0'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },

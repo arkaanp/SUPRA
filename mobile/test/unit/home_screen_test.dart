@@ -138,7 +138,7 @@ void main() {
       expect(find.text('Rain · STALE'), findsOneWidget);
       expect(find.text('Traffic · STALE'), findsOneWidget);
       expect(find.text('Temp · STALE'), findsOneWidget);
-      expect(find.textContaining('Observed'), findsOneWidget);
+      expect(find.textContaining('Valid:'), findsNothing);
       expect(find.textContaining('Last-known reading'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },

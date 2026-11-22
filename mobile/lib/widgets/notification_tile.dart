@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+
+import 'source_info_button.dart';
 
 import '../models/notification.dart';
 import '../theme/app_theme.dart';
@@ -116,7 +117,7 @@ class NotificationTile extends StatelessWidget {
           children: [
             const SizedBox(height: 4),
             Text(
-              notification.messageBody,
+              notification.displayBody,
               style: TextStyle(
                 fontSize: 12.5,
                 color: notification.isRead
@@ -168,35 +169,10 @@ class NotificationTile extends StatelessWidget {
                       ),
                       onPressed: onReadNews,
                     ),
-                  TextButton.icon(
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                    ),
-                    icon: const Icon(Icons.open_in_new, size: 13),
-                    label: const Text(
-                      'Read source report',
-                      style: TextStyle(fontSize: 11.5),
-                    ),
-                    onPressed: () async {
-                      final uri = Uri.tryParse(notification.sourceUrl!);
-                      if (uri == null ||
-                          uri.scheme != 'https' ||
-                          uri.host.isEmpty) {
-                        return;
-                      }
-                      try {
-                        if (!await launchUrl(uri)) {
-                          throw StateError('Source could not open');
-                        }
-                      } catch (_) {
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(notification.sourceUrl!)),
-                          );
-                        }
-                      }
-                    },
+                  SourceInfoButton(
+                    title: 'News source',
+                    details: notification.sourceUrl!,
+                    url: notification.sourceUrl,
                   ),
                 ],
               ),

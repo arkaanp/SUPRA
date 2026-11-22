@@ -122,7 +122,8 @@ impl ConditionsService {
         let response = request.send().await.map_err(|_| "provider_unreachable")?;
         match response.status().as_u16() {
             200 => {}
-            401 | 403 => return Err("provider_access_denied"),
+            401 => return Err("provider_invalid_credentials"),
+            403 => return Err("provider_access_denied"),
             429 => {
                 if let Some(time) = retry_at {
                     let now = Utc::now().timestamp();
@@ -698,6 +699,7 @@ mod tests {
             .route("/met", get(|| async {
                 Json(json!({"valid_at":Utc::now().to_rfc3339(),"temperature_c":28.8,"precipitation_mm":0.9}))
             }))
+            .route("/unauthorized", get(|| async { StatusCode::UNAUTHORIZED }))
             .route("/denied", get(|| async { StatusCode::FORBIDDEN }))
             .route("/limited", get(|| async { StatusCode::TOO_MANY_REQUESTS }))
             .route(
@@ -912,6 +914,7 @@ mod tests {
             .trim_end_matches("/weather")
             .to_owned();
         for (path, expected) in [
+            ("unauthorized", "provider_invalid_credentials"),
             ("denied", "provider_access_denied"),
             ("limited", "provider_rate_limited"),
             ("malformed", "invalid_provider_response"),

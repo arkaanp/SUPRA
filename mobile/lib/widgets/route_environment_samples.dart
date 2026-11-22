@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'source_info_button.dart';
+
 import '../models/environmental_zone.dart';
 
 /// Compact sample footprint; the detailed reading lives in the route sheet.
@@ -10,7 +12,7 @@ class EnvironmentalSampleMarker extends StatelessWidget {
   Widget build(BuildContext context) {
     final rain = sample.rainfallMm;
     return Tooltip(
-      message: '${sample.mapLabel}\n${sample.healthAdvisory}',
+      message: sample.mapLabel,
       child: Container(
         decoration: BoxDecoration(
           color: sample.solidAqiColor.withValues(alpha: 0.20),
@@ -148,29 +150,11 @@ class RouteEnvironmentSamples extends StatelessWidget {
                       sample.mapLabel.split('\n').last,
                       style: const TextStyle(fontSize: 11),
                     ),
-                    Text(
-                      '${sample.conditions?.airQuality.source ?? 'Unavailable'} · ${sample.conditions?.weather.source ?? 'Unavailable'}',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: Colors.blueGrey,
-                      ),
-                    ),
-                    Material(
-                      type: MaterialType.transparency,
-                      child: ExpansionTile(
-                        title: const Text(
-                          'Source & timestamps',
-                          style: TextStyle(fontSize: 10),
-                        ),
-                        tilePadding: EdgeInsets.zero,
-                        dense: true,
-                        children: [
-                          Text(
-                            sample.healthAdvisory,
-                            style: const TextStyle(fontSize: 10),
-                          ),
-                        ],
-                      ),
+                    SourceInfoButton(
+                      title: 'Sources for ${sample.name}',
+                      details:
+                          sample.conditions?.sourceDetails ??
+                          sample.healthAdvisory,
                     ),
                   ],
                 ),

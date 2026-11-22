@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../widgets/source_info_button.dart';
+
 import '../config/map_config.dart';
 import '../models/current_conditions.dart';
 import '../models/ml_forecast.dart';
@@ -1356,6 +1358,19 @@ class TripScreenState extends State<TripScreen> {
                                         ),
                                       ),
                                     ),
+                                    SourceInfoButton(
+                                      title: 'Trip conditions sources',
+                                      compact: true,
+                                      details: [
+                                        if (_showMlPredictions &&
+                                            _mlForecast != null)
+                                          '${_mlForecast!.modelId} · PyTorch\n${_mlForecast!.attribution}',
+                                        (_selectedRoute?.conditions ??
+                                                    _originConditions)
+                                                ?.sourceDetails ??
+                                            'No source readings available.',
+                                      ].join('\n\n'),
+                                    ),
                                   ],
                                 ),
                               ),
@@ -1463,7 +1478,7 @@ class TripScreenState extends State<TripScreen> {
     final h = _showMlPredictions ? _mlForecast?.nextAt(now) : null;
     if (h != null) {
       final time = h.targetTime.toUtc().add(const Duration(hours: 7));
-      return 'PyTorch · origin ${time.hour.toString().padLeft(2, '0')}:00 WIB${h.aqi == null ? "" : " · AQI ${h.aqi!.round()}"} · Rain ${h.precipitationMm.toStringAsFixed(1)} mm (${(h.rainProbability * 100).round()}%) · ${h.temperatureC.round()}°C · $traffic';
+      return 'ML · origin ${time.hour.toString().padLeft(2, '0')}:00 WIB${h.aqi == null ? "" : " · AQI ${h.aqi!.round()}"} · Rain ${h.precipitationMm.toStringAsFixed(1)} mm (${(h.rainProbability * 100).round()}%) · ${h.temperatureC.round()}°C · $traffic';
     }
     final pm25 =
         _selectedRoute?.pm25UgM3 ?? cond?.airQuality.number('pm25_ug_m3');
@@ -1476,13 +1491,11 @@ class TripScreenState extends State<TripScreen> {
         : '${rain.toStringAsFixed(1)} mm';
     return [
       if (_showMlPredictions)
-        _loadingMl
-            ? 'Loading PyTorch forecast…'
-            : _mlError ?? 'ML forecast expired',
+        _loadingMl ? 'Loading forecast…' : _mlError ?? 'ML forecast expired',
       if (aqi != null) 'AQI $aqi',
       if (pm25 != null)
         'PM2.5 ${pm25.toStringAsFixed(1)}${cond?.airQuality.isStale == true ? " · STALE" : ""}',
-      'Rain${weather?.kind == "provider_forecast" ? " · ${weather!.providerLabel} forecast" : ""} $rainValue${weather?.isStale == true ? " · STALE" : ""}',
+      'Rain${weather?.kind == "provider_forecast" ? " forecast" : ""} $rainValue${weather?.isStale == true ? " · STALE" : ""}',
       traffic,
     ].join(' · ');
   }
@@ -2495,7 +2508,7 @@ class TripScreenState extends State<TripScreen> {
           'ML origin · ${mlHour.precipitationMm.toStringAsFixed(1)} mm (${(mlHour.rainProbability * 100).round()}%)';
     } else if (effectiveRain != null) {
       final label = fallbackCond?.weather.kind == 'provider_forecast'
-          ? '${fallbackCond!.weather.providerLabel} forecast'
+          ? 'Rain forecast'
           : 'Precipitation';
       rainChipLabel =
           '${fallbackCond?.weather.isStale == true ? "STALE · " : ""}$label: ${effectiveRain.toStringAsFixed(1)} mm';
@@ -2753,12 +2766,9 @@ class TripScreenState extends State<TripScreen> {
 
             Padding(
               padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                opt.provenanceLabel,
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: SupraTheme.textSecondary,
-                ),
+              child: SourceInfoButton(
+                title: 'Route sources',
+                details: opt.provenanceLabel,
               ),
             ),
             if (opt.transitJourney != null)

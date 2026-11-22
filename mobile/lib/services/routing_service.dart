@@ -109,9 +109,11 @@ class RoutingService {
               ? null
               : snapshot.weather.number('precipitation_mm'),
           trafficDensity: trafficDensity,
-          recommendationReason:
-              '${result['source']} · fetched ${result['fetched_at']}. '
-              '${mode == TransportMode.publicTransit ? 'Transit timetable / frequency estimate; not a live arrival guarantee. Walking links and rail station connections may be schematic.' : 'Mode-specific geometry and provider duration; not a live-traffic ETA.'}',
+          routingSource:
+              '${result['source']} · fetched ${result['fetched_at']}',
+          recommendationReason: mode == TransportMode.publicTransit
+              ? 'Transit timetable / frequency estimate; not a live arrival guarantee. Walking links and rail station connections may be schematic.'
+              : 'Mode-specific geometry and provider duration; not a live-traffic ETA.',
           identifiedRisks: const [],
           protectiveMeasures: const [],
         ),
@@ -203,8 +205,9 @@ class RoutingService {
           waypoints: points,
           turnSteps: steps,
           conditions: snapshot,
+          routingSource: 'OSRM',
           recommendationReason:
-              'OSRM driving estimate — not a live-traffic ETA. '
+              'Driving estimate — not a live-traffic ETA. '
               'Environmental data samples the origin, not the whole route. '
               'Select another mode to compare its routing estimate.',
           identifiedRisks: [

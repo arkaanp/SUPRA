@@ -3,8 +3,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../widgets/source_info_button.dart';
+
 import '../config/map_config.dart';
 import '../models/current_conditions.dart';
+import '../models/chat_message.dart';
 import '../models/ml_forecast.dart';
 import '../services/forecast_repository.dart';
 import '../services/ai_assistant_service.dart';
@@ -339,7 +342,7 @@ class _HomeScreenState extends State<HomeScreen> {
             aqiBgColor: meta?.$2 ?? const Color(0xFFF1F5F9),
             aqiTextColor: meta?.$3 ?? const Color(0xFF64748B),
             status: h != null
-                ? 'PyTorch forecast'
+                ? 'ML forecast'
                 : _loadingForecast
                 ? 'ML loading'
                 : 'ML unavailable',
@@ -375,7 +378,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     : weather?.isStale == true
                     ? 'Stale'
                     : weather?.kind == 'provider_forecast'
-                    ? '${weather!.providerLabel} forecast'
+                    ? 'Weather forecast'
                     : 'Latest')
               : 'ML pending',
         ),
@@ -1003,7 +1006,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final weatherLabel = mlHour != null
         ? 'Rain · ML'
         : weather?.kind == 'provider_forecast'
-        ? '${weather!.providerLabel}${weather.isStale ? ' · STALE' : ' forecast'}'
+        ? 'Rain forecast${weather!.isStale ? ' · STALE' : ''}'
         : weather?.isStale == true
         ? 'Rain · STALE'
         : 'Rain';
@@ -1077,8 +1080,8 @@ class _HomeScreenState extends State<HomeScreen> {
                       child: Text(
                         _showMlPredictions
                             ? (mlHour != null && mlHour.aqi == null
-                                  ? 'Mode Indikator: Prediksi PyTorch (Hujan & Suhu)'
-                                  : 'Mode Indikator: Prediksi PyTorch (Hujan, AQI & Suhu)')
+                                  ? 'Mode Indikator: Prediksi ML (Hujan & Suhu)'
+                                  : 'Mode Indikator: Prediksi ML (Hujan, AQI & Suhu)')
                             : 'Mode Indikator: Data Stale / Terakhir Tersimpan',
                         style: const TextStyle(
                           fontSize: 11.5,
@@ -1105,6 +1108,11 @@ class _HomeScreenState extends State<HomeScreen> {
               // 2. TODAY'S AIR QUALITY CURVED CARD
               // -------------------------------------------------------------
               _buildTodaysAirQualityCard(
+                unit: displayedAqi != null
+                    ? 'US AQI'
+                    : pm25 != null
+                    ? 'µg/m³'
+                    : '',
                 value:
                     displayedAqi?.toString() ?? pm25?.toStringAsFixed(1) ?? '—',
                 category: mlHour?.aqi != null
@@ -1122,25 +1130,28 @@ class _HomeScreenState extends State<HomeScreen> {
                     ? (mlHour == null
                           ? (_forecastError ??
                                 (_loadingForecast
-                                    ? 'Loading PyTorch forecast…'
+                                    ? 'Loading forecast…'
                                     : 'Forecast expired. Pull to refresh.'))
                           : mlHour.aqi == null
                           ? 'Weather-only forecast for ${_wib(mlHour.targetTime)}. Air quality uses available provider readings.'
-                          : 'PyTorch forecast for ${_wib(mlHour.targetTime)}. Experimental regional estimate.')
+                          : 'ML forecast for ${_wib(mlHour.targetTime)}. Experimental regional estimate.')
                     : air?.isStale == true
                     ? 'Last-known reading — not current. ${effectiveAqiMeta.$4}'
                     : effectiveAqiMeta.$4,
-                sourceLabel: mlHour != null
-                    ? '${mlHour.aqi == null && air?.hasData == true ? 'Air: ${air!.source}\n' : ''}${_mlForecast!.modelId}\n${_mlForecast!.attribution}\nInputs through ${_wib(_mlForecast!.inputThrough)}'
-                    : '${displayedAqi == null ? "PM2.5 µg/m³" : "US AQI"} · ${air?.source ?? "No source yet"}'
-                          '${air?.validAt == null ? "" : "\nObserved ${_wib(air!.validAt!)}"}',
+                sourceLabel: [
+                  if (mlHour != null)
+                    '${_mlForecast!.modelId} · PyTorch\n${_mlForecast!.attribution}\nInputs through ${_wib(_mlForecast!.inputThrough)}',
+                  if (snapshot != null) snapshot.sourceDetails,
+                  if (snapshot == null && mlHour == null)
+                    'No source readings available.',
+                ].join('\n\n'),
                 weatherLabel: weatherLabel,
                 rainValue: rainValue,
                 trafficValue: trafficValue,
                 tempValue: tempValue,
                 trafficLabel: traffic?.isStale == true
                     ? 'Traffic · STALE'
-                    : 'Traffic · TomTom',
+                    : 'Traffic',
                 tempLabel: mlHour != null
                     ? 'Temp · ML'
                     : weather?.isStale == true
@@ -1180,6 +1191,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildGeminiConditionsCard() {
+    final (summary, citations) = replyWithSources(
+      _geminiConditionsInsight ?? '',
+    );
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
@@ -1214,13 +1229,21 @@ class _HomeScreenState extends State<HomeScreen> {
               const SizedBox(width: 8),
               const Expanded(
                 child: Text(
-                  'Analisis Kondisi Gemini AI',
+                  'Analisis Kondisi',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
                     color: Color(0xFF0F172A),
                   ),
                 ),
+              ),
+              SourceInfoButton(
+                title: 'Analysis sources',
+                details: [
+                  'SUPRA Assistant',
+                  ?citations,
+                  if (_liveConditions != null) _liveConditions!.sourceDetails,
+                ].join('\n\n'),
               ),
               TextButton.icon(
                 onPressed: _loadingGeminiInsight
@@ -1255,8 +1278,9 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            _geminiConditionsInsight ??
-                'Ketuk "Baca Kondisi" agar Gemini menganalisis data kualitas udara (AQI/PM2.5), curah hujan, suhu, dan lalu lintas terkini/stale di $_selectedLocationName.',
+            summary.isNotEmpty
+                ? summary
+                : 'Ketuk "Baca Kondisi" untuk melihat analisis data kualitas udara (AQI/PM2.5), curah hujan, suhu, dan lalu lintas terkini/stale di $_selectedLocationName.',
             style: const TextStyle(
               fontSize: 12,
               height: 1.4,
@@ -1446,6 +1470,7 @@ class _HomeScreenState extends State<HomeScreen> {
     required String trafficValue,
     required String tempValue,
     required String sourceLabel,
+    required String unit,
     required String trafficLabel,
     required String tempLabel,
   }) {
@@ -1618,16 +1643,24 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             const SizedBox(height: 4),
 
-                            // Bottom: Source
-                            Text(
-                              sourceLabel,
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 10.0,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.white.withValues(alpha: 0.78),
-                              ),
+                            Wrap(
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              children: [
+                                if (unit.isNotEmpty)
+                                  Text(
+                                    unit,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                SourceInfoButton(
+                                  title: 'Conditions sources',
+                                  details: sourceLabel,
+                                  color: Colors.white,
+                                  compact: true,
+                                ),
+                              ],
                             ),
                           ],
                         ),
@@ -1834,12 +1867,12 @@ class _HomeScreenState extends State<HomeScreen> {
                   Text(
                     _showMlPredictions
                         ? (_loadingForecast
-                              ? 'Loading PyTorch forecast…'
+                              ? 'Loading forecast…'
                               : _forecastError ??
                                     (_mlForecast?.nextAt(DateTime.now())?.aqi ==
                                             null
-                                        ? 'PyTorch · rain & temperature'
-                                        : 'PyTorch · AQI, rain & temperature'))
+                                        ? 'ML · rain & temperature'
+                                        : 'ML · AQI, rain & temperature'))
                         : 'Enable ML predictions for the next 12 hours.',
                     style: const TextStyle(
                       fontSize: 12,
@@ -1859,7 +1892,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: Icons.chevron_left_rounded,
                   tooltip: 'Scroll left',
                   onTap: () {
-                    final target = (_hourlyScrollController.offset - 192).clamp(
+                    final target = (_hourlyScrollController.offset - 178).clamp(
                       0.0,
                       _hourlyScrollController.hasClients
                           ? _hourlyScrollController.position.maxScrollExtent
@@ -1877,7 +1910,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: Icons.chevron_right_rounded,
                   tooltip: 'Scroll right',
                   onTap: () {
-                    final target = (_hourlyScrollController.offset + 192).clamp(
+                    final target = (_hourlyScrollController.offset + 178).clamp(
                       0.0,
                       _hourlyScrollController.hasClients
                           ? _hourlyScrollController.position.maxScrollExtent
@@ -1930,6 +1963,12 @@ class _HomeScreenState extends State<HomeScreen> {
               visualDensity: VisualDensity.compact,
               onSelected: _toggleMl,
             ),
+            if (_showMlPredictions && _mlForecast != null)
+              SourceInfoButton(
+                title: 'Forecast source',
+                details:
+                    '${_mlForecast!.modelId} · PyTorch\n${_mlForecast!.attribution}\nInputs through ${_wib(_mlForecast!.inputThrough)}',
+              ),
           ],
         ),
 
@@ -1945,120 +1984,123 @@ class _HomeScreenState extends State<HomeScreen> {
               PointerDeviceKind.stylus,
             },
           ),
-          child: SizedBox(
-            height: 178,
-            child: ListView.separated(
-              controller: _hourlyScrollController,
-              scrollDirection: Axis.horizontal,
-              physics: const AlwaysScrollableScrollPhysics(
-                parent: BouncingScrollPhysics(),
-              ),
-              itemCount: forecastItems.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 12),
-              itemBuilder: (context, index) {
-                final item = forecastItems[index];
-                return Container(
-                  width: 84,
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 12,
-                    horizontal: 8,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(18),
-                    border: Border.all(
-                      color: index == 0
-                          ? SupraTheme.brand.withValues(alpha: 0.3)
-                          : const Color(0xFFE2E8F0),
-                      width: index == 0 ? 1.5 : 1.0,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.03),
-                        blurRadius: 6,
-                        offset: const Offset(0, 2),
+          child: SingleChildScrollView(
+            controller: _hourlyScrollController,
+            scrollDirection: Axis.horizontal,
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
+            ),
+            child: IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final (index, item) in forecastItems.indexed)
+                    Container(
+                      width: 166,
+                      constraints: const BoxConstraints(minHeight: 190),
+                      margin: EdgeInsets.only(
+                        right: index == forecastItems.length - 1 ? 0 : 12,
                       ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      // 1. Time (Now, +1 hr, etc.)
-                      Text(
-                        item.time,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: index == 0
-                              ? FontWeight.bold
-                              : FontWeight.w500,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                        horizontal: 8,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(
                           color: index == 0
-                              ? SupraTheme.brand
-                              : const Color(0xFF64748B),
+                              ? SupraTheme.brand.withValues(alpha: 0.3)
+                              : const Color(0xFFE2E8F0),
+                          width: index == 0 ? 1.5 : 1.0,
                         ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.03),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
                       ),
-
-                      // 2. Weather shown by a symbol
-                      Icon(
-                        item.weatherIcon,
-                        size: 26,
-                        color: item.weatherColor,
-                      ),
-
-                      Text(
-                        item.weatherCondition,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 10,
-                          color: SupraTheme.textSecondary,
-                        ),
-                      ),
-                      // 3. Temperature
-                      Text(
-                        item.temperatureC == null
-                            ? 'Temp —'
-                            : '${item.temperatureC}°C',
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF0F172A),
-                        ),
-                      ),
-
-                      Text(
-                        item.aqi == null ? 'AQI —' : 'AQI ${item.aqi}',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      // State is separate from temperature, AQI and weather.
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: item.aqiBgColor,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Text(
-                            item.status,
-                            maxLines: 1,
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          // 1. Time (Now, +1 hr, etc.)
+                          Text(
+                            item.time,
                             style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: item.aqiTextColor,
+                              fontSize: 12,
+                              fontWeight: index == 0
+                                  ? FontWeight.bold
+                                  : FontWeight.w500,
+                              color: index == 0
+                                  ? SupraTheme.brand
+                                  : const Color(0xFF64748B),
                             ),
                           ),
-                        ),
+
+                          // 2. Weather shown by a symbol
+                          Icon(
+                            item.weatherIcon,
+                            size: 26,
+                            color: item.weatherColor,
+                          ),
+
+                          Text(
+                            item.weatherCondition,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: SupraTheme.textSecondary,
+                            ),
+                          ),
+                          // 3. Temperature
+                          Text(
+                            item.temperatureC == null
+                                ? 'Temp —'
+                                : '${item.temperatureC}°C',
+                            style: const TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+
+                          Text(
+                            item.aqi == null ? 'AQI —' : 'AQI ${item.aqi}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          // State is separate from temperature, AQI and weather.
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: item.aqiBgColor,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(
+                                item.status,
+                                maxLines: 1,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w700,
+                                  color: item.aqiTextColor,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                );
-              },
+                    ),
+                ],
+              ),
             ),
           ),
         ),

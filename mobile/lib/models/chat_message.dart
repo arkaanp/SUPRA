@@ -36,41 +36,52 @@ class ChatMessage {
     String? statusText,
     bool? isError,
     String? model,
-  }) =>
-      ChatMessage(
-        id: id,
-        sender: sender,
-        text: text ?? this.text,
-        timestamp: timestamp,
-        isStreaming: isStreaming ?? this.isStreaming,
-        statusText: statusText ?? this.statusText,
-        isError: isError ?? this.isError,
-        model: model ?? this.model,
-      );
+  }) => ChatMessage(
+    id: id,
+    sender: sender,
+    text: text ?? this.text,
+    timestamp: timestamp,
+    isStreaming: isStreaming ?? this.isStreaming,
+    statusText: statusText ?? this.statusText,
+    isError: isError ?? this.isError,
+    model: model ?? this.model,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'sender': sender == MessageSender.user ? 'user' : 'assistant',
-        'text': text,
-        'timestamp': timestamp.toIso8601String(),
-        'is_streaming': isStreaming,
-        if (statusText != null) 'status_text': statusText,
-        'is_error': isError,
-        if (model != null) 'model': model,
-      };
+    'id': id,
+    'sender': sender == MessageSender.user ? 'user' : 'assistant',
+    'text': text,
+    'timestamp': timestamp.toIso8601String(),
+    'is_streaming': isStreaming,
+    if (statusText != null) 'status_text': statusText,
+    'is_error': isError,
+    if (model != null) 'model': model,
+  };
 
   factory ChatMessage.fromJson(Map<String, dynamic> json) => ChatMessage(
-        id: json['id'] as String? ?? 'msg_${DateTime.now().millisecondsSinceEpoch}',
-        sender: json['sender'] == 'user'
-            ? MessageSender.user
-            : MessageSender.assistant,
-        text: json['text'] as String? ?? '',
-        timestamp: json['timestamp'] != null
-            ? (DateTime.tryParse(json['timestamp'] as String) ?? DateTime.now())
-            : DateTime.now(),
-        isStreaming: json['is_streaming'] as bool? ?? false,
-        statusText: json['status_text'] as String?,
-        isError: json['is_error'] as bool? ?? false,
-        model: json['model'] as String?,
-      );
+    id: json['id'] as String? ?? 'msg_${DateTime.now().millisecondsSinceEpoch}',
+    sender: json['sender'] == 'user'
+        ? MessageSender.user
+        : MessageSender.assistant,
+    text: json['text'] as String? ?? '',
+    timestamp: json['timestamp'] != null
+        ? (DateTime.tryParse(json['timestamp'] as String) ?? DateTime.now())
+        : DateTime.now(),
+    isStreaming: json['is_streaming'] as bool? ?? false,
+    statusText: json['status_text'] as String?,
+    isError: json['is_error'] as bool? ?? false,
+    model: json['model'] as String?,
+  );
+}
+
+/// The backend puts citations in a separate Sources paragraph for display.
+(String, String?) replyWithSources(String text) {
+  final heading = RegExp(
+    r'^Sources:[ \t]*\r?$',
+    multiLine: true,
+  ).firstMatch(text);
+  if (heading == null || heading.start == 0) return (text, null);
+  final sources = text.substring(heading.end).trim();
+  if (sources.isEmpty) return (text, null);
+  return (text.substring(0, heading.start).trimRight(), sources);
 }

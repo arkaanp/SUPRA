@@ -69,7 +69,8 @@ void main() {
     expect(sample.pm25, 45);
     expect(sample.rainfallMm, 0);
     expect(sample.conditions!.airQuality.status, 'stale');
-    expect(sample.descriptiveLabel, contains('openaq: stale'));
+    expect(sample.descriptiveLabel, contains('stale'));
+    expect(sample.conditions!.airQuality.providerLabel, 'OpenAQ');
   });
   test(
     'Route samples follow provider geometry and include both endpoints',

@@ -3,6 +3,9 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+
+import 'source_info_button.dart';
+
 import 'package:maplibre_gl/maplibre_gl.dart' as ml;
 
 import '../config/map_config.dart';
@@ -945,7 +948,7 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                         Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 8,
-                            vertical: 4,
+                            vertical: 0,
                           ),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.92),
@@ -955,25 +958,18 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
-                                _useMapLibre
-                                    ? Icons.public
-                                    : Icons.map_outlined,
-                                size: 13,
-                                color: SupraTheme.brand,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                _useMapLibre
-                                    ? 'MapLibre GL'
+                              SourceInfoButton(
+                                title: 'Map source',
+                                compact: true,
+                                details: _useMapLibre
+                                    ? 'MapLibre GL · CARTO'
                                     : _useTileMap
-                                    ? 'OpenStreetMap'
+                                    ? const String.fromEnvironment(
+                                        'MAP_ATTRIBUTION_TEXT',
+                                        defaultValue:
+                                            '© OpenStreetMap contributors',
+                                      )
                                     : 'Test canvas (no basemap)',
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  color: SupraTheme.onSurface,
-                                ),
                               ),
                             ],
                           ),
@@ -1485,14 +1481,10 @@ class InteractiveLocationMapState extends State<InteractiveLocationMap> {
                       ),
                     ),
                     const SizedBox(height: 2),
-                    Text(
-                      zone.healthAdvisory,
-                      style: const TextStyle(
-                        fontSize: 10,
-                        color: SupraTheme.textSecondary,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                    SourceInfoButton(
+                      title: 'Sources for ${zone.name}',
+                      details:
+                          zone.conditions?.sourceDetails ?? zone.healthAdvisory,
                     ),
                   ],
                 ),

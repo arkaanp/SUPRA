@@ -111,7 +111,8 @@ void main() {
       );
 
       expect(find.byType(InteractiveLocationMap), findsOneWidget);
-      expect(find.text('Test canvas (no basemap)'), findsOneWidget);
+      expect(find.text('Test canvas (no basemap)'), findsNothing);
+      expect(find.byTooltip('Map source'), findsOneWidget);
       expect(find.byIcon(Icons.location_on), findsOneWidget);
       expect(
         find.textContaining('Lat: -6.2000, Lon: 106.8200'),

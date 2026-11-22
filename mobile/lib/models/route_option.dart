@@ -62,6 +62,7 @@ class RouteOption {
   final TransitJourney? transitJourney;
   final bool isRecommended;
   final String recommendationReason;
+  final String? routingSource;
   final List<String> identifiedRisks;
   final List<String> protectiveMeasures;
 
@@ -83,6 +84,7 @@ class RouteOption {
     this.transitJourney,
     this.isRecommended = false,
     required this.recommendationReason,
+    this.routingSource,
     required this.identifiedRisks,
     required this.protectiveMeasures,
     this.predictedAqi,
@@ -116,6 +118,7 @@ class RouteOption {
     transitJourney: transitJourney,
     isRecommended: recommended,
     recommendationReason: reason,
+    routingSource: routingSource,
     identifiedRisks: risks,
     protectiveMeasures: items,
     predictedAqi: predictedAqi,
@@ -136,20 +139,10 @@ class RouteOption {
   String get rainLabel => rainfallMm == null
       ? 'Rainfall unavailable'
       : '${conditions?.weather.agedAt(DateTime.now()).isStale == true ? "STALE · " : ""}Precipitation: ${rainfallMm!.toStringAsFixed(1)} mm (origin)';
-  String get provenanceLabel {
-    final c = conditions;
-    if (c == null) return 'Environmental source metadata unavailable';
-    String label(ConditionSignal s) =>
-        '${s.source}: ${s.status} · ${s.kind ?? "no data"}'
-        '${s.validAt == null ? "" : " · ${s.validAt!.toUtc().toIso8601String()}"} · ${s.message}';
-    final station = c.airQuality.data;
-    final licenses = station?['licenses'] as List? ?? [];
-    return '${label(c.airQuality)}\n${label(c.weather)}\n${label(c.traffic)}\n'
-        '${station == null ? "" : "Station: ${station['station_name'] ?? 'unnamed'} · ${station['distance_km'] ?? 'unknown'} km away\n"}'
-        '${licenses.map((l) => "License: ${l['name'] ?? 'see source terms'} · ${l['attribution']?['name'] ?? ''}").join('\n')}'
-        '\nRetrieved ${c.retrievedAt.toUtc().toIso8601String()} · nearest-road traffic, not route-wide. '
-        'Sources: openaq.org · open-meteo.com · tomtom.com';
-  }
+  String get provenanceLabel => [
+    ?routingSource,
+    conditions?.sourceDetails ?? 'Environmental source metadata unavailable',
+  ].join('\n\n');
 
   String get trafficCategory {
     if (trafficDensity == null) return 'Route traffic unavailable';
