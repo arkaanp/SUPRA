@@ -4,13 +4,10 @@ import '../models/user.dart';
 import '../widgets/news_severity_selector.dart';
 
 import 'package:image_picker/image_picker.dart';
-import 'package:supabase_flutter/supabase_flutter.dart'
-    show Supabase, UserAttributes;
 
 import 'package:supra_mobile_ui/models/notification_preference.dart';
 import 'package:supra_mobile_ui/services/supra_api_service.dart';
 
-import 'password_recovery_screen.dart';
 import 'commutes_screen.dart';
 
 /// Settings: profile + notification preferences (ERD entity
@@ -184,7 +181,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     bool submitting = false;
     bool obscureCurrent = true;
     bool obscureNew = true;
-    String? currentPasswordError;
 
     final changed = await showDialog<bool>(
       context: context,
@@ -211,15 +207,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       autofocus: true,
                       obscureText: obscureCurrent,
                       enabled: !submitting,
-                      onChanged: (_) {
-                        if (currentPasswordError != null) {
-                          setDialogState(() => currentPasswordError = null);
-                        }
-                      },
                       decoration: InputDecoration(
                         labelText: 'Current Password',
                         hintText: 'Enter your current password',
-                        errorText: currentPasswordError,
                         suffixIcon: IconButton(
                           icon: Icon(
                             obscureCurrent
@@ -280,47 +270,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   onPressed: submitting
                       ? null
                       : () async {
-                          setDialogState(() => currentPasswordError = null);
                           if (!formKey.currentState!.validate()) return;
                           setDialogState(() => submitting = true);
 
-                          final userEmail =
-                              SupraService.instance.currentUser?.email ??
-                              Supabase
-                                  .instance
-                                  .client
-                                  .auth
-                                  .currentUser
-                                  ?.email ??
-                              '';
-
                           try {
-                            await Supabase.instance.client.auth
-                                .signInWithPassword(
-                                  email: userEmail,
-                                  password: currentPasswordController.text,
-                                );
-                          } catch (_) {
-                            setDialogState(() {
-                              submitting = false;
-                              currentPasswordError =
-                                  'Current password incorrect';
-                            });
-                            if (dialogContext.mounted) {
-                              ScaffoldMessenger.of(dialogContext).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Current password incorrect'),
-                                ),
-                              );
-                            }
-                            return;
-                          }
-
-                          try {
-                            await Supabase.instance.client.auth.updateUser(
-                              UserAttributes(
-                                password: newPasswordController.text,
-                              ),
+                            await SupraService.instance.changePassword(
+                              currentPasswordController.text,
+                              newPasswordController.text,
                             );
                             if (dialogContext.mounted) {
                               Navigator.of(dialogContext).pop(true);
@@ -576,13 +532,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                         color: colorScheme.onSurface,
                                       ),
                                     ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      user?.email ?? '',
-                                      style: textTheme.bodySmall?.copyWith(
-                                        color: colorScheme.onSurfaceVariant,
-                                      ),
-                                    ),
                                   ],
                                 ),
                               ),
@@ -660,17 +609,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     color: colorScheme.onSurfaceVariant,
                   ),
                   onTap: _showChangePasswordDialog,
-                ),
-                ListTile(
-                  leading: Icon(Icons.lock_reset, color: colorScheme.primary),
-                  title: const Text('Forgot password?'),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => PasswordRecoveryScreen(
-                        initialEmail: user?.email ?? '',
-                      ),
-                    ),
-                  ),
                 ),
                 ListTile(
                   leading: Icon(

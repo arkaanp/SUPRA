@@ -51,7 +51,7 @@ sudoedit /etc/supra/backend.env
 | AVATAR_STORAGE_DIR | /var/lib/supra/avatars, persisted by systemd across releases |
 | ALERTS_ENABLED | true to evaluate alerts in the background |
 | OPENAQ_API_KEY, TOMTOM_API_KEY, GEMINI_API_KEY, GEMINI_MODEL | Supply the provider credentials and Gemini model enabled for staging. |
-| SUPABASE_SERVICE_ROLE_KEY | Optional server-only secret for the existing account-deletion integration. |
+| SUPABASE_SERVICE_ROLE_KEY | Server-only legacy service-role key for username registration and Auth account deletion. |
 
 ## 3. Migrate and start
 
@@ -84,12 +84,12 @@ curl -fsS "https://$domain/health/live"
 curl -fsS "https://$domain/health/ready"
 ```
 
-From the Flutter checkout copy mobile/config/local.example.json to mobile/config/local.json. Set SUPRA_API_URL to the HTTPS API origin and enter the matching Supabase URL and publishable key. For Android set RECOVERY_REDIRECT_URL to io.supabase.supra://login-callback and allow that URL in Supabase Auth. For web, use the deployed Flutter origin as the redirect target. Build with the chosen configuration from mobile/.
+From the Flutter checkout copy mobile/config/local.example.json to mobile/config/local.json. Set SUPRA_API_URL to the HTTPS API origin and enter the matching Supabase URL and publishable key. Build with the chosen configuration from mobile/.
 
 ```sh
 fvm flutter build apk --release --dart-define-from-file=config/local.json
 ```
 
-On staging, register and confirm a new account, sign in with both identifiers, rename the username and repeat both sign-ins. Sign in to a migrated account by email and check its assigned username in Profile. Upload an avatar, restart the API and confirm the image still loads. Request a named route, forecast and news alerts from Flutter. The readiness probe checks database connectivity only.
+On staging, register with a username and password. Sign in, rename the username in Profile, and sign in again with the new handle. Verify that an existing account still signs in with its assigned username. Upload an avatar, restart the API and confirm the image still loads. Request a named route, forecast and news alerts from Flutter. The readiness probe checks database connectivity only.
 
 For subsequent releases build into a fresh release directory. Preserve /etc/supra/backend.env, /var/lib/supra and the prior release. Stop supra-api and supra-ml, switch the symlink, apply pending migrations and restart both services. Inspect failures with journalctl -u supra-api -u supra-ml -u supra-migrate. A binary rollback needs a compatible schema. For the username cutover, use the pre-upgrade database backup with the previous API and client if rollback is required.

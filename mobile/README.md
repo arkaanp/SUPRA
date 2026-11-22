@@ -35,9 +35,7 @@ changing defines.
 
 From `mobile/`, prepare `config/device.json` with `SUPRA_API_URL` set to
 `https://supra-demo-api.onrender.com` and the matching Supabase project URL and
-publishable key. The build config contains only public settings. For email-link
-recovery, set `RECOVERY_REDIRECT_URL` to `io.supabase.supra://login-callback`
-and add that URI to the Supabase Auth redirect allowlist.
+publishable key. The build config contains only public settings.
 
 ### Android
 
@@ -81,13 +79,13 @@ outside Greater Jakarta.
 
 ## Supported behavior
 
-- Registration takes a username, email and password. Confirm the email if the
-  Supabase project requires confirmation. Sign in with either the username or
-  email. Password recovery uses the account email.
-- The backend exchanges username credentials with Supabase over HTTPS. The SDK
-  restores and refreshes the resulting session for either login method.
-  Protected API calls use bearer tokens. Account refresh reads the stored
-  username, and Profile lets the signed-in user rename it.
+- Enter a username and password to create an account and sign in. Profile lets
+  signed-in users rename their username and change their password. Sign in with
+  the new handle after renaming. Keep the password safe because the app provides
+  no forgotten-password reset.
+- The Rust backend provisions accounts and exchanges username credentials with
+  Supabase over HTTPS. The SDK restores and refreshes the session. Protected
+  API calls use bearer tokens.
 - Saved trips load from `GET /api/trips`; create/delete uses the matching API.
   Departure is sent as UTC and displayed in local time. Trip edits and route
   editing are not exposed by this UI yet.
@@ -160,9 +158,6 @@ previous binaries containing them were distributed.
 
 ## Commute features, advice & alerts
 
-- **Password recovery**: Available on both Login and Profile screens. Supports
-  email request, 6-digit OTP code verification, and password updating. Web and
-  mobile deep linking capture `io.supabase.supra://login-callback`.
 - **Saved places & routines**: Create and edit Home, Work, School, and Custom
   places. Configure daily routines with departure minute (WIB), weekdays, lead
   times, and alerts/news preferences.

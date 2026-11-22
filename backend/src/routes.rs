@@ -30,6 +30,11 @@ pub(crate) fn create_router_with_conditions(
             post(crate::auth::login_with_username)
                 .layer(axum::extract::DefaultBodyLimit::max(16 * 1024)),
         )
+        .route(
+            "/api/auth/register",
+            post(crate::auth::register_with_username)
+                .layer(axum::extract::DefaultBodyLimit::max(16 * 1024)),
+        )
         .merge(protected_routes(verifier.clone()))
         .layer(axum::Extension(verifier))
         .fallback(|| async { crate::error::AppError::NotFound })

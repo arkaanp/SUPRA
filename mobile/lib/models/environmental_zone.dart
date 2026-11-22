@@ -42,7 +42,8 @@ class EnvironmentalZone {
   String get mapLabel {
     final air = conditions?.airQuality.agedAt(DateTime.now());
     final weather = conditions?.weather.agedAt(DateTime.now());
-    final aqi = air?.number('aqi');
+    final aqiReading = conditions?.aqiSignal.agedAt(DateTime.now());
+    final aqi = usAqi;
     final temperature = weather?.number('temperature_c');
     final airText = aqi != null
         ? 'AQI ${aqi.round()}'
@@ -59,8 +60,10 @@ class EnvironmentalZone {
       if (rain != null) '${rain.toStringAsFixed(1)} mm',
       if (weather?.kind == 'provider_forecast') 'Forecast',
     ].join(' · ');
-    final label = air?.kind == 'model_estimate' ? 'model' : 'station';
-    return '$name · $airText ($label)${air?.isStale == true ? " STALE" : ""}\n$weatherText $detail${weather?.isStale == true ? " STALE" : ""}';
+    final label = (aqi != null ? aqiReading : air)?.kind == 'model_estimate'
+        ? 'model'
+        : 'station';
+    return '$name · $airText ($label)${(aqi != null ? aqiReading : air)?.isStale == true ? " STALE" : ""}\n$weatherText $detail${weather?.isStale == true ? " STALE" : ""}';
   }
 
   String get aqiCategory => pm25 == null ? 'Unavailable' : 'PM2.5, not AQI';
@@ -68,9 +71,9 @@ class EnvironmentalZone {
   Color get pm25Color => Colors.transparent;
   Color get rainColor => Colors.transparent;
   Color get compositeAreaColor => Colors.transparent;
-  double? get _suppliedAqi => conditions?.airQuality.number('aqi');
+  double? get usAqi => conditions?.aqiSignal.usAqi;
   int? get _colorBand {
-    if (_suppliedAqi != null) return aqiLevel(_suppliedAqi!).index;
+    if (usAqi != null) return aqiLevel(usAqi!).index;
     if (pm25 == null) return null;
     // Concentration bands for display only; no AQI value is derived.
     if (pm25! <= 9) return 0;
@@ -85,7 +88,7 @@ class EnvironmentalZone {
       _colorBand == null ? Colors.grey : AqiLevel.values[_colorBand!].color();
   String get colorBandLabel => _colorBand == null
       ? 'Unavailable'
-      : _suppliedAqi != null
+      : usAqi != null
       ? AqiLevel.values[_colorBand!].label()
       : 'PM2.5 band · ${['Low', 'Moderate', 'Elevated', 'High', 'Very high', 'Extreme'][_colorBand!]}';
 

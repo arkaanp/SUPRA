@@ -12,7 +12,7 @@ void main() {
         MaterialApp(
           scrollBehavior: const AppScrollBehavior(),
           home: LoginScreen(
-            signIn: (email, password) async {
+            signIn: (username, password) async {
               attempts++;
               throw StateError('Invalid credentials');
             },
@@ -20,7 +20,7 @@ void main() {
         ),
       );
       final fields = find.byType(TextField);
-      await tester.enterText(fields.first, 'person@example.com');
+      await tester.enterText(fields.first, 'test_rider');
       for (var i = 0; i < 3; i++) {
         await tester.enterText(fields.last, 'wrong-$i');
         await tester.tap(find.widgetWithText(ElevatedButton, 'Sign in'));

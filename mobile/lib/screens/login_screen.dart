@@ -2,19 +2,17 @@ import 'package:flutter/material.dart';
 
 import 'package:supra_mobile_ui/services/supra_api_service.dart';
 
-import 'password_recovery_screen.dart';
-
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, this.signIn});
 
-  final Future<void> Function(String identifier, String password)? signIn;
+  final Future<void> Function(String username, String password)? signIn;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _identifier = TextEditingController();
+  final _username = TextEditingController();
   final _password = TextEditingController();
   final _passwordFocus = FocusNode();
   bool _obscure = true;
@@ -22,7 +20,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    _identifier.dispose();
+    _username.dispose();
     _password.dispose();
     _passwordFocus.dispose();
     super.dispose();
@@ -33,10 +31,10 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
     try {
       if (widget.signIn != null) {
-        await widget.signIn!(_identifier.text.trim(), _password.text);
+        await widget.signIn!(_username.text.trim(), _password.text);
       } else {
         await SupraService.instance.login(
-          _identifier.text.trim(),
+          _username.text.trim(),
           _password.text,
         );
       }
@@ -71,19 +69,19 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 8),
               const Text(
-                'Save trips and manage your account. Forecasts are coming soon.',
+                'Sign in to save trips and see your commute forecast.',
                 style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 32),
               TextField(
-                controller: _identifier,
+                controller: _username,
                 autocorrect: false,
                 autofillHints: const [AutofillHints.username],
                 textInputAction: TextInputAction.next,
                 onSubmitted: (_) => _passwordFocus.requestFocus(),
                 decoration: const InputDecoration(
-                  labelText: 'Username or email',
+                  labelText: 'Username',
                   prefixIcon: Icon(Icons.person_outline),
                 ),
               ),
@@ -111,20 +109,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ),
               const SizedBox(height: 24),
-              TextButton(
-                onPressed: _loading
-                    ? null
-                    : () => Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => PasswordRecoveryScreen(
-                            initialEmail: _identifier.text.contains('@')
-                                ? _identifier.text.trim()
-                                : '',
-                          ),
-                        ),
-                      ),
-                child: const Text('Forgot password?'),
-              ),
               ElevatedButton(
                 onPressed: _loading ? null : _signIn,
                 child: _loading

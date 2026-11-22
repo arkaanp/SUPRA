@@ -108,9 +108,13 @@ class ConditionSignal {
     return age >= const Duration(minutes: -10) && age <= maxAge;
   }
 
+  double? get usAqi => data?['aqi_standard'] == 'US EPA' ? number('aqi') : null;
+
   double? number(String key) {
     final value = data?[key];
-    return value is num && value.isFinite && value >= 0
+    return value is num &&
+            value.isFinite &&
+            (value >= 0 || key == 'temperature_c')
         ? value.toDouble()
         : null;
   }
@@ -136,6 +140,7 @@ class CurrentConditions {
     required this.retrievedAt,
     required this.weather,
     required this.airQuality,
+    this.airIndex,
     required this.traffic,
   });
   final double latitude;
@@ -143,10 +148,13 @@ class CurrentConditions {
   final DateTime retrievedAt;
   final ConditionSignal weather;
   final ConditionSignal airQuality;
+  final ConditionSignal? airIndex;
+  ConditionSignal get aqiSignal => airIndex ?? airQuality;
   final ConditionSignal traffic;
 
   String get sourceDetails => [
     airQuality.sourceDetails,
+    if (airIndex != null) airIndex!.sourceDetails,
     weather.sourceDetails,
     traffic.sourceDetails,
     'Retrieved ${retrievedAt.toUtc().toIso8601String()}',
@@ -158,6 +166,7 @@ class CurrentConditions {
     retrievedAt: retrievedAt,
     weather: weather.agedAt(now),
     airQuality: airQuality.agedAt(now),
+    airIndex: airIndex?.agedAt(now),
     traffic: traffic.agedAt(now),
   );
 
@@ -187,8 +196,25 @@ class CurrentConditions {
       retrievedAt: retrievedAt,
       weather: signal(weather, sameLocation ? previous.weather : null),
       airQuality: signal(airQuality, sameLocation ? previous.airQuality : null),
+      airIndex:
+          airIndex?.withReceipt(retrievedAt) ??
+          (airQuality.usAqi == null && sameLocation && previous.airIndex != null
+              ? _retainedIndex(previous.airIndex!, retrievedAt)
+              : null),
       traffic: signal(traffic, sameLocation ? previous.traffic : null),
     );
+  }
+
+  static ConditionSignal? _retainedIndex(
+    ConditionSignal previous,
+    DateTime now,
+  ) {
+    final time = previous.validAt ?? previous.receivedAt;
+    return time != null && now.difference(time) <= const Duration(hours: 24)
+        ? previous.asStale(
+            'Latest AQI unavailable. Showing the last-known index.',
+          )
+        : null;
   }
 
   Map<String, dynamic> toJson() => {
@@ -197,6 +223,7 @@ class CurrentConditions {
     'retrieved_at': retrievedAt.toUtc().toIso8601String(),
     'weather': weather.toJson(),
     'air_quality': airQuality.toJson(),
+    if (airIndex != null) 'air_index': airIndex!.toJson(),
     'traffic': traffic.toJson(),
   };
 
@@ -210,6 +237,9 @@ class CurrentConditions {
     airQuality: ConditionSignal.fromJson(
       json['air_quality'] as Map<String, dynamic>,
     ),
+    airIndex: json['air_index'] is Map<String, dynamic>
+        ? ConditionSignal.fromJson(json['air_index'] as Map<String, dynamic>)
+        : null,
     traffic: ConditionSignal.fromJson(json['traffic'] as Map<String, dynamic>),
   );
 }

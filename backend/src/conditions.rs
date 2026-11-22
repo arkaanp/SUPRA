@@ -67,6 +67,7 @@ pub struct ConditionsService {
     met_worker: String,
     openaq: String,
     cams: String,
+    cams_key: Option<String>,
     tomtom: String,
     openaq_key: Option<String>,
     tomtom_key: Option<String>,
@@ -83,6 +84,12 @@ impl ConditionsService {
                 .map(|v| v.trim().to_owned())
                 .filter(|v| !v.is_empty())
         }
+        let cams_key = key("OPEN_METEO_API_KEY");
+        let cams_host = if cams_key.is_some() {
+            "customer-air-quality-api"
+        } else {
+            "air-quality-api"
+        };
         Self {
             client: reqwest::Client::builder()
                 .user_agent("SUPRA-Commute/1.0")
@@ -95,7 +102,8 @@ impl ConditionsService {
             met_worker: format!("{}/v1/weather", crate::intelligence::base_url()),
             bmkg: "https://api.bmkg.go.id/publik/prakiraan-cuaca".into(),
             openaq: "https://api.openaq.org/v3".into(),
-            cams: "https://air-quality-api.open-meteo.com/v1/air-quality".into(),
+            cams: format!("https://{cams_host}.open-meteo.com/v1/air-quality"),
+            cams_key,
             tomtom: "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/16/json"
                 .into(),
             openaq_key: key("OPENAQ_API_KEY"),
@@ -232,29 +240,34 @@ impl ConditionsService {
         alternate.unwrap_or_else(|reason| Signal::missing("met_norway", reason))
     }
 
-    async fn air_quality(&self, q: &ConditionsQuery) -> Signal {
-        // Reserve time for the alternate provider even when station discovery is slow.
-        let station = tokio::time::timeout(Duration::from_secs(3), self.station_air(q))
-            .await
-            .unwrap_or_else(|_| Signal::missing("openaq", "provider_timeout"));
-        if station.status == "available" {
-            return station;
+    async fn cams_air(&self, q: &ConditionsQuery) -> Result<Signal, &'static str> {
+        let mut request = self.client.get(&self.cams).query(&[
+            ("latitude", q.latitude.to_string()),
+            ("longitude", q.longitude.to_string()),
+            ("current", "pm2_5,us_aqi".into()),
+            ("domains", "cams_global".into()),
+            ("timezone", "GMT".into()),
+            ("timeformat", "unixtime".into()),
+        ]);
+        if let Some(key) = &self.cams_key {
+            request = request.query(&[("apikey", key)]);
         }
-        let alternative = self
-            .get_with_backoff(
-                self.client.get(&self.cams).query(&[
-                    ("latitude", q.latitude.to_string()),
-                    ("longitude", q.longitude.to_string()),
-                    ("current", "pm2_5,us_aqi".into()),
-                    ("domains", "cams_global".into()),
-                    ("timezone", "GMT".into()),
-                    ("timeformat", "unixtime".into()),
-                ]),
-                Some(&self.cams_retry_at),
-            )
+        self.get_with_backoff(request, Some(&self.cams_retry_at))
             .await
-            .and_then(|v| parse_cams(&v));
-        match alternative {
+            .and_then(|value| parse_cams(&value))
+    }
+
+    async fn air_quality(&self, q: &ConditionsQuery) -> (Signal, Option<Signal>) {
+        let (station, model) = tokio::join!(
+            tokio::time::timeout(Duration::from_secs(3), self.station_air(q)),
+            self.cams_air(q),
+        );
+        let station = station.unwrap_or_else(|_| Signal::missing("openaq", "provider_timeout"));
+        if station.status == "available" {
+            // Station PM2.5 and model AQI have different valid times and provenance.
+            return (station, model.ok());
+        }
+        let air = match model {
             Ok(signal) => signal,
             Err(_)
                 if station
@@ -264,7 +277,8 @@ impl ConditionsService {
                 station
             }
             Err(reason) => Signal::missing("open_meteo_cams", reason),
-        }
+        };
+        (air, None)
     }
 
     async fn station_air(&self, q: &ConditionsQuery) -> Signal {
@@ -383,9 +397,9 @@ impl ConditionsService {
                 .await
                 .unwrap_or_else(|_| Signal::missing(source, "provider_timeout"))
         }
-        let (weather, air_quality, traffic) = tokio::join!(
+        let (weather, (air_quality, air_index), traffic) = tokio::join!(
             self.weather(q),
-            bounded("openaq", self.air_quality(q)),
+            self.air_quality(q),
             bounded("tomtom", self.traffic(q)),
         );
         ConditionsResponse {
@@ -394,6 +408,7 @@ impl ConditionsService {
             retrieved_at: Utc::now(),
             weather,
             air_quality,
+            air_index,
             traffic,
         }
     }
@@ -429,6 +444,8 @@ pub struct ConditionsResponse {
     pub retrieved_at: DateTime<Utc>,
     pub weather: Signal,
     pub air_quality: Signal,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub air_index: Option<Signal>,
     pub traffic: Signal,
 }
 
@@ -776,6 +793,7 @@ mod tests {
         let server = tokio::spawn(async { axum::serve(listener, router).await.unwrap() });
         let mut service = ConditionsService::from_env();
         service.open_meteo = format!("{base}/weather");
+        service.cams_key = None;
         service.cams = format!("{base}/cams");
         service.met_worker = format!("{base}/denied");
         service.bmkg = format!("{base}/bmkg");
@@ -833,6 +851,7 @@ mod tests {
         assert_eq!(body["weather"]["kind"], "model_estimate");
         assert_eq!(body["air_quality"]["data"]["pm25_ug_m3"], 18.5);
         assert!(body["air_quality"]["data"].get("aqi").is_none());
+        assert_eq!(body["air_index"]["data"]["aqi"], 90.0);
         assert_eq!(body["traffic"]["data"]["speed_kmh"].as_f64(), Some(20.0));
         assert!(body["traffic"]["valid_at"].is_null());
         assert!(!body.to_string().contains("fake-openaq-key"));

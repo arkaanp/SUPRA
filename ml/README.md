@@ -77,8 +77,11 @@ hour boundary. Provider failures do not manufacture replacement forecasts.
 When Open-Meteo weather or CAMS history is unavailable, the worker uses a second
 PyTorch model for rain amount, wet-hour probability and temperature. It uses the
 current forecast-hour temperature from MET Norway, coordinates, and Jakarta local
-time. The API identifies this model with `scope=weather_only` and returns null
-for forecast PM2.5 and AQI. Both models enforce the 90-day training-data limit.
+time. The API identifies this model with `scope=weather_only`. If hourly CAMS
+data is available, the API includes it as `provider_aqi` at matching valid
+times, with separate attribution. The weather model leaves its own AQI and
+PM2.5 fields null. MET Norway symbols are also matched to valid times and shown
+alongside the model's precipitation predictions. Both models enforce the 90-day training-data limit.
 
 Rebuild the fallback weights from the saved training history with
 `ml/.venv/bin/python ml/weather_model.py`. The model fits ridge regressions for

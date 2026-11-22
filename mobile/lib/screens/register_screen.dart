@@ -13,7 +13,6 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _username = TextEditingController();
-  final _email = TextEditingController();
   final _password = TextEditingController();
   final _confirm = TextEditingController();
   bool _loading = false;
@@ -21,7 +20,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   void dispose() {
     _username.dispose();
-    _email.dispose();
     _password.dispose();
     _confirm.dispose();
     super.dispose();
@@ -41,21 +39,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
     try {
       await SupraService.instance.register(
         _username.text.trim(),
-        _email.text.trim(),
         _password.text,
       );
       if (!mounted) return;
-      if (!SupraService.instance.isLoggedIn) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Check your email to confirm your account, then sign in.',
-            ),
-          ),
-        );
-        Navigator.of(context).popUntil((route) => route.isFirst);
-        return;
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Account created. Sign in with your username.'),
+        ),
+      );
       Navigator.of(context).popUntil((route) => route.isFirst);
     } catch (e) {
       if (!mounted) return;
@@ -96,15 +87,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 16),
               TextField(
-                controller: _email,
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                  prefixIcon: Icon(Icons.email_outlined),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
                 controller: _password,
                 obscureText: true,
                 decoration: const InputDecoration(
@@ -120,6 +102,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   labelText: 'Confirm password',
                   prefixIcon: Icon(Icons.lock_outline),
                 ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'You can change your username in Profile. Keep your password safe. Forgotten passwords cannot be reset in the app.',
               ),
               const SizedBox(height: 24),
               ElevatedButton(

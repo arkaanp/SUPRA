@@ -34,8 +34,6 @@ class SupraService extends ChangeNotifier {
   User? _currentUser;
   User? get currentUser => _currentUser;
   bool get isLoggedIn => _currentUser != null;
-  bool _recoveringPassword = false;
-  bool get recoveringPassword => _recoveringPassword;
   final List<Trip> _trips = [];
   List<Trip> get trips => List.unmodifiable(_trips);
   final Set<String> _finishedTripIds = {};
@@ -57,19 +55,9 @@ class SupraService extends ChangeNotifier {
   void initializeAuth(supabase.SupabaseClient client) {
     _authSubscription?.cancel();
     _supabase = client;
-    final initialUri = Uri.base;
-    if (initialUri.queryParameters['type'] == 'recovery' ||
-        initialUri.fragment.contains('type=recovery')) {
-      _recoveringPassword = true;
-    }
     _applySession(client.auth.currentSession);
     _authSubscription = client.auth.onAuthStateChange.listen(
-      (event) {
-        if (event.event == supabase.AuthChangeEvent.passwordRecovery) {
-          _recoveringPassword = true;
-        }
-        _applySession(event.session);
-      },
+      (event) => _applySession(event.session),
       onError: (Object error, StackTrace trace) {
         if (client.auth.currentSession == null) {
           _applySession(null);
@@ -87,7 +75,6 @@ class SupraService extends ChangeNotifier {
   void _applySession(supabase.Session? session) {
     final previous = _currentUser?.id;
     final user = session?.user;
-    if (user == null) _recoveringPassword = false;
     _currentUser = user == null
         ? null
         : User(
@@ -96,7 +83,6 @@ class SupraService extends ChangeNotifier {
                 (previous == user.id ? _currentUser?.username : null) ??
                 user.userMetadata?['username'] as String? ??
                 '',
-            email: user.email ?? '',
             avatarUrl:
                 (previous == user.id ? _currentUser?.avatarUrl : null) ??
                 user.userMetadata?['avatar_url'] as String?,
@@ -256,30 +242,36 @@ class SupraService extends ChangeNotifier {
     return result;
   });
 
-  Future<User> login(String identifier, String password) async {
-    final value = identifier.trim();
-    if (value.isEmpty || password.isEmpty) {
-      throw StateError('Enter your username or email and password.');
+  Future<dynamic> _sendCredentials(
+    String endpoint,
+    String username,
+    String password,
+  ) async {
+    if (kReleaseMode && Uri.parse(_apiBaseUrl).scheme != 'https') {
+      throw StateError('Account access requires an HTTPS API URL.');
     }
-    final supabase.AuthResponse result;
-    if (value.contains('@')) {
-      result = await _auth.signInWithPassword(email: value, password: password);
-    } else {
-      if (kReleaseMode && Uri.parse(_apiBaseUrl).scheme != 'https') {
-        throw StateError('Username sign-in requires an HTTPS API URL.');
-      }
-      final client = _httpClientFactory?.call() ?? http.Client();
-      try {
-        final session = await BackendApi(client: client, baseUrl: _apiBaseUrl)
-            .request('POST', '/api/auth/username-login', {
-              'username': value,
-              'password': password,
-            });
-        result = await _auth.recoverSession(jsonEncode(session));
-      } finally {
-        client.close();
-      }
+    final client = _httpClientFactory?.call() ?? http.Client();
+    try {
+      return await BackendApi(
+        client: client,
+        baseUrl: _apiBaseUrl,
+      ).request('POST', endpoint, {'username': username, 'password': password});
+    } finally {
+      client.close();
     }
+  }
+
+  Future<User> login(String username, String password) async {
+    final value = username.trim();
+    if (value.isEmpty || value.contains('@') || password.isEmpty) {
+      throw StateError('Enter your username and password.');
+    }
+    final session = await _sendCredentials(
+      '/api/auth/username-login',
+      value,
+      password,
+    );
+    final result = await _auth.recoverSession(jsonEncode(session));
     if (result.session == null) {
       throw StateError('Sign-in did not create a session.');
     }
@@ -287,68 +279,53 @@ class SupraService extends ChangeNotifier {
     return _currentUser!;
   }
 
-  Future<void> register(String username, String email, String password) async {
-    if (username.trim().isEmpty || email.trim().isEmpty || password.isEmpty) {
-      throw StateError('Please complete all fields.');
-    }
+  Future<void> register(String username, String password) async {
     if (!User.isValidUsername(username)) throw StateError(User.usernameHint);
-    final supabase.AuthResponse result;
+    _validatePassword(password);
     try {
-      result = await _auth.signUp(
-        email: email.trim(),
-        password: password,
-        data: {'username': username.trim().toLowerCase()},
+      await _sendCredentials(
+        '/api/auth/register',
+        username.trim().toLowerCase(),
+        password,
       );
-    } on supabase.AuthException catch (error) {
-      // Auth masks profile-trigger errors, including a duplicate username.
-      if (error.message.toLowerCase().contains(
-        'database error saving new user',
-      )) {
-        throw StateError(
-          'Could not create your account. Try another username or retry later.',
-        );
-      }
+    } on ApiException catch (error) {
+      if (error.status == 409) throw StateError('Username is already in use.');
       rethrow;
     }
-    if (result.session != null) _applySession(result.session);
+  }
+
+  void _validatePassword(String password) {
+    if (password.runes.length < 8 || utf8.encode(password).length > 72) {
+      throw StateError(
+        'Use a password of at least 8 characters and at most 72 bytes.',
+      );
+    }
+  }
+
+  Future<void> changePassword(
+    String currentPassword,
+    String newPassword,
+  ) async {
+    _validatePassword(newPassword);
+    final user = _currentUser;
+    if (user == null) throw StateError('Please sign in first.');
+    final session = await _sendCredentials(
+      '/api/auth/username-login',
+      user.username,
+      currentPassword,
+    ) as Map<String, dynamic>;
+    _requireSameUser(user.id);
+    if ((session['user'] as Map?)?['id'] != user.id) {
+      throw StateError('Sign in with your current username and try again.');
+    }
+    await _auth.recoverSession(jsonEncode(session));
+    _requireSameUser(user.id);
+    await _auth.updateUser(supabase.UserAttributes(password: newPassword));
   }
 
   Future<void> logout() async {
     await _auth.signOut();
     _applySession(null);
-  }
-
-  Future<void> requestPasswordRecovery(String email) async {
-    final address = email.trim();
-    if (!address.contains('@')) throw StateError('Enter your email address.');
-    const redirect = String.fromEnvironment('RECOVERY_REDIRECT_URL');
-    await _auth.resetPasswordForEmail(
-      address,
-      redirectTo: redirect.isEmpty ? null : redirect,
-    );
-  }
-
-  Future<void> verifyRecoveryCode(String email, String code) async {
-    final result = await _auth.verifyOTP(
-      email: email.trim(),
-      token: code.trim(),
-      type: supabase.OtpType.recovery,
-    );
-    if (result.session == null) {
-      throw StateError('Recovery code did not establish a session.');
-    }
-    _recoveringPassword = true;
-    _applySession(result.session);
-  }
-
-  Future<void> completePasswordRecovery(String password) async {
-    if (!_recoveringPassword || _auth.currentSession == null) {
-      throw StateError('Verify your recovery link or code first.');
-    }
-    if (password.length < 8) throw StateError('Use at least 8 characters.');
-    await _auth.updateUser(supabase.UserAttributes(password: password));
-    _recoveringPassword = false;
-    notifyListeners();
   }
 
   Future<Trip> createTrip({

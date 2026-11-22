@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'source_info_button.dart';
+import 'weather_icon.dart';
 
 import '../models/environmental_zone.dart';
 
@@ -103,65 +104,147 @@ class RouteEnvironmentSamples extends StatelessWidget {
           padding: EdgeInsets.all(12),
           child: Text('Loading route samples…'),
         ),
-      for (final sample in samples)
-        Container(
-          key: ValueKey('sample-card-${sample.id}'),
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: sample.solidAqiColor.withValues(alpha: 0.08),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: sample.solidAqiColor.withValues(alpha: 0.4),
-            ),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      for (final sample in samples) _RouteSampleCard(sample: sample),
+    ],
+  );
+}
+
+class _RouteSampleCard extends StatelessWidget {
+  const _RouteSampleCard({required this.sample});
+  final EnvironmentalZone sample;
+
+  @override
+  Widget build(BuildContext context) {
+    final conditions = sample.conditions?.agedAt(DateTime.now());
+    final weather = conditions?.weather;
+    final aqi = sample.usAqi?.round();
+    final temperature = weather?.number('temperature_c')?.round();
+    final rainfall = sample.rainfallMm;
+    final (weatherLabel, icon) = weatherPresentation(
+      code: weather?.number('weather_code')?.toInt(),
+      symbol: weather?.data?['weather_symbol'] as String?,
+      description:
+          sample.weatherDescription ?? weather?.data?['description'] as String?,
+    );
+
+    return Container(
+      key: ValueKey('sample-card-${sample.id}'),
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(12, 6, 6, 12),
+      decoration: BoxDecoration(
+        color: sample.solidAqiColor.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: sample.solidAqiColor.withValues(alpha: 0.5)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             children: [
-              Container(width: 5, height: 50, color: sample.solidAqiColor),
-              const SizedBox(width: 9),
+              const Icon(Icons.place_outlined, size: 18),
+              const SizedBox(width: 6),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      sample.name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 12,
-                      ),
-                    ),
-                    Text(
-                      sample.mapLabel
-                          .split('\n')
-                          .first
-                          .replaceFirst('${sample.name} · ', ''),
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                    Text(
-                      sample.colorBandLabel,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: sample.solidAqiColor,
-                      ),
-                    ),
-                    Text(
-                      sample.mapLabel.split('\n').last,
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                    SourceInfoButton(
-                      title: 'Sources for ${sample.name}',
-                      details:
-                          sample.conditions?.sourceDetails ??
-                          sample.healthAdvisory,
-                    ),
-                  ],
+                child: Text(
+                  sample.name,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 15,
+                  ),
                 ),
+              ),
+              SourceInfoButton(
+                title: 'Sources for ${sample.name}',
+                details: conditions?.sourceDetails ?? sample.healthAdvisory,
+                compact: true,
               ),
             ],
           ),
+          _SampleReading(
+            icon: Icons.air_rounded,
+            label: 'Air quality',
+            value: aqi == null
+                ? 'AQI unavailable'
+                : 'US AQI $aqi · ${sample.colorBandLabel}',
+            stale: aqi != null && conditions?.aqiSignal.isStale == true,
+          ),
+          if (sample.pm25 != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              'PM2.5 ${sample.pm25!.toStringAsFixed(1)} µg/m³'
+              '${conditions?.airQuality.isStale == true ? ' · Stale' : ''}',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 14,
+            runSpacing: 8,
+            children: [
+              _SampleReading(
+                icon: icon,
+                label: weather?.kind == 'provider_forecast'
+                    ? 'Weather forecast'
+                    : 'Weather',
+                value: weatherLabel,
+                stale: weather?.isStale == true,
+              ),
+              _SampleReading(
+                icon: Icons.thermostat_rounded,
+                label: 'Temperature',
+                value: temperature == null ? 'Unavailable' : '$temperature°C',
+                stale: weather?.isStale == true,
+              ),
+              _SampleReading(
+                icon: Icons.water_drop_outlined,
+                label: 'Rain',
+                value: rainfall == null
+                    ? 'Unavailable'
+                    : '${rainfall.toStringAsFixed(1)} mm',
+                stale: weather?.isStale == true,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SampleReading extends StatelessWidget {
+  const _SampleReading({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.stale,
+  });
+
+  final IconData icon;
+  final String label, value;
+  final bool stale;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      WeatherIcon(icon, size: 19, color: const Color(0xFF475569)),
+      const SizedBox(width: 6),
+      Flexible(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '$label${stale ? ' · Stale' : ''}',
+              style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
+            ),
+            Text(
+              value,
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+            ),
+          ],
         ),
+      ),
     ],
   );
 }

@@ -52,11 +52,23 @@ def _series(key, now):
         return data
 
 
-def weather_at(latitude, longitude, now=None):
-    now = now or utcnow()
+def _fresh_series(latitude, longitude, now):
     issued, series = _series((f'{latitude:.3f}', f'{longitude:.3f}'), now)
     if issued < now - timedelta(hours=18) or issued > now + timedelta(minutes=15):
         raise ValueError('Expired MET Norway forecast')
+    return issued, series
+
+
+def forecast_symbols(latitude, longitude, now):
+    _, series = _fresh_series(latitude, longitude, now)
+    return {parse_time(step['time']): hour['summary']['symbol_code']
+            for step in series
+            if (hour := step['data'].get('next_1_hours')) and hour.get('summary', {}).get('symbol_code')}
+
+
+def weather_at(latitude, longitude, now=None):
+    now = now or utcnow()
+    issued, series = _fresh_series(latitude, longitude, now)
     for step in series:
         at = parse_time(step['time'])
         if at <= now < at + timedelta(hours=1):
@@ -65,9 +77,10 @@ def weather_at(latitude, longitude, now=None):
             temp, rain = instant['air_temperature'], hour['details']['precipitation_amount']
             if not (-60 <= temp <= 65 and 0 <= rain <= 1000):
                 raise ValueError('Invalid MET Norway values')
+            symbol = hour['summary']['symbol_code']
             return {'temperature_c': temp, 'precipitation_mm': rain, 'interval_seconds': 3600,
                     'valid_at': at.isoformat(), 'issued_at': issued.isoformat(),
                     'humidity_percent': instant.get('relative_humidity'),
                     'wind_speed_kmh': instant['wind_speed'] * 3.6,
-                    'description': hour['summary']['symbol_code'].split('_')[0], 'attribution': SOURCE}
+                    'weather_symbol': symbol, 'description': symbol.split('_')[0], 'attribution': SOURCE}
     raise ValueError('No MET Norway forecast for this hour')

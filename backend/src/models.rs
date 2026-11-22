@@ -12,7 +12,6 @@ use uuid::Uuid;
 pub struct User {
     pub id: Uuid,
     pub username: String,
-    pub email: String,
     pub avatar_url: Option<String>,
     pub created_at: DateTime<Utc>,
 }

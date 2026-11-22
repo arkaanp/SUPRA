@@ -7,10 +7,14 @@ class MlForecastHour {
     required this.pm25,
     required this.aqi,
     required this.rainProbability,
+    this.providerAqi,
+    this.weatherSymbol,
   });
   final DateTime targetTime;
   final double temperatureC, precipitationMm, rainProbability;
-  final double? pm25, aqi;
+  final double? pm25, aqi, providerAqi;
+  final String? weatherSymbol;
+  double? get displayAqi => aqi ?? providerAqi;
   factory MlForecastHour.fromJson(
     Map<String, dynamic> j, {
     bool weatherOnly = false,
@@ -38,6 +42,10 @@ class MlForecastHour {
       pm25: weatherOnly ? null : number('pm25_ug_m3', 0, 2000),
       aqi: weatherOnly ? null : number('aqi', 0, 1000),
       rainProbability: number('rain_probability', 0, 1),
+      providerAqi: weatherOnly && j['provider_aqi'] != null
+          ? number('provider_aqi', 0, 2000)
+          : null,
+      weatherSymbol: j['weather_symbol'] as String?,
     );
   }
 }
@@ -101,7 +109,14 @@ class MlForecast {
       inputThrough: DateTime.parse(j['input_through'] as String),
       expiresAt: DateTime.parse(j['expires_at'] as String),
       hourly: hours,
-      attribution: (j['sources'] as Map)['attribution'] as String,
+      attribution: [
+        (j['sources'] as Map)['attribution'] as String,
+        if (j['sources']['air_forecast'] is String)
+          j['sources']['air_forecast'] as String,
+        if (j['sources']['weather_symbols'] is String &&
+            j['sources']['weather_symbols'] != j['sources']['attribution'])
+          j['sources']['weather_symbols'] as String,
+      ].join('\n'),
       validation: j['validation'] as Map<String, dynamic>,
     );
   }

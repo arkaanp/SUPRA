@@ -25,12 +25,18 @@ class ForecastArtifactTests(unittest.TestCase):
         app = App()
         weather = {'temperature_c': 28.8, 'valid_at': NOW.replace(minute=0).isoformat(),
                    'issued_at': NOW.replace(minute=0).isoformat()}
+        first_hour = NOW.replace(minute=0) + dt.timedelta(hours=1)
         with patch.object(app.model, 'forecast', side_effect=InputUnavailable('Open-Meteo weather returned HTTP 429')), \
+             patch('serve.forecast_aqi', return_value={first_hour: 82}), \
+             patch('serve.forecast_symbols', return_value={first_hour: 'partlycloudy_day'}), \
              patch('weather_model.utcnow', return_value=NOW), patch('weather_model.weather_at', return_value=weather):
             payload = app.get('/v1/forecast', {'latitude':['-6.2'], 'longitude':['106.8']})
         self.assertEqual(payload['scope'], 'weather_only')
         self.assertEqual(len(payload['hourly']), 12)
         self.assertIsNone(payload['hourly'][0]['aqi'])
+        self.assertEqual(payload['hourly'][0]['provider_aqi'], 82)
+        self.assertEqual(payload['hourly'][0]['weather_symbol'], 'partlycloudy_day')
+        self.assertIsNone(payload['hourly'][1]['provider_aqi'])
         self.assertTrue(all(0 <= row['rain_probability'] <= 1 for row in payload['hourly']))
 
     def checkpoint(self,path):

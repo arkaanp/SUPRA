@@ -1,8 +1,10 @@
 """Public hourly model history. Forecast hours after the issue time are never features."""
 import datetime as dt
+from functools import lru_cache
 from concurrent.futures import ThreadPoolExecutor
 import json
 import math
+import os
 from pathlib import Path
 from threading import Lock
 import time
@@ -52,49 +54,73 @@ def fetch(url, limit=4_000_000, timeout=15, attempts=2):
             if attempt+1==attempts: raise
             time.sleep(0.5)
 
-def history(latitude,longitude,days=3,now=None,cache_dir=None):
-    now=now or utcnow()
+def hourly_data(kind, latitude, longitude, days=3, cache_dir=None):
+    params = dict(latitude=latitude, longitude=longitude, past_days=days,
+                  forecast_days=2, timezone='UTC')
+    if kind == 'air':
+        key = os.getenv('OPEN_METEO_API_KEY', '').strip()
+        host = 'customer-air-quality-api' if key else 'air-quality-api'
+        base = f'https://{host}.open-meteo.com/v1/air-quality'
+        params.update(hourly='pm2_5,us_aqi', domains='cams_global')
+        if key:
+            params['apikey'] = key
+    else:
+        base = 'https://api.open-meteo.com/v1/forecast'
+        params['hourly'] = 'temperature_2m,precipitation'
+
+    with _retry_lock:
+        if time.monotonic() < _retry_after.get(kind, 0):
+            raise InputUnavailable(f'Open-Meteo {kind} returned HTTP 429')
+    try:
+        raw = fetch(base + '?' + urlencode(params), timeout=4 if days <= 3 else 15)
+        hourly = json.loads(raw)['hourly']
+        times = [parse_time(t) for t in hourly['time']]
+        columns = [hourly[name] for name in params['hourly'].split(',')]
+        if any(len(column) != len(times) for column in columns):
+            raise ValueError('Mismatched hourly arrays')
+    except HTTPError as error:
+        if error.code == 429:
+            wait = error.headers.get('Retry-After', '') if error.headers else ''
+            with _retry_lock:
+                _retry_after[kind] = time.monotonic() + (int(wait) if wait.isdigit() else 300)
+        raise InputUnavailable(f'Open-Meteo {kind} returned HTTP {error.code}') from None
+    except (OSError, KeyError, TypeError, ValueError):
+        raise InputUnavailable(f'Open-Meteo {kind} inputs unavailable') from None
+    if cache_dir:
+        (cache_dir / f'{latitude}_{longitude}_{kind}.json').write_bytes(raw)
+    return dict(zip(times, zip(*columns)))
+
+
+def history(latitude, longitude, days=3, now=None, cache_dir=None):
     if cache_dir:
         cache_dir = Path(cache_dir)
         cache_dir.mkdir(parents=True, exist_ok=True)
-    sources = [
-        ('weather','https://api.open-meteo.com/v1/forecast','temperature_2m,precipitation'),
-        ('air','https://air-quality-api.open-meteo.com/v1/air-quality','pm2_5,us_aqi'),
-    ]
 
-    def load(source):
-        kind, base, variables = source
-        params=dict(latitude=latitude,longitude=longitude,hourly=variables,past_days=days,forecast_days=1,timezone='UTC')
-        with _retry_lock:
-            if time.monotonic() < _retry_after.get(kind, 0):
-                raise InputUnavailable(f'Open-Meteo {kind} returned HTTP 429')
-        try:
-            raw = fetch(base + '?' + urlencode(params), timeout=4 if days <= 3 else 15)
-        except HTTPError as error:
-            if error.code == 429:
-                wait = error.headers.get('Retry-After', '') if error.headers else ''
-                with _retry_lock:
-                    _retry_after[kind] = time.monotonic() + (int(wait) if wait.isdigit() else 300)
-            raise InputUnavailable(f'Open-Meteo {kind} returned HTTP {error.code}') from error
-        except (URLError, TimeoutError) as error:
-            raise InputUnavailable(f'Open-Meteo {kind} connection failed') from error
-        if cache_dir:
-            (cache_dir/f'{latitude}_{longitude}_{kind}.json').write_bytes(raw)
-        value=json.loads(raw)
-        hourly=value['hourly']
-        return {parse_time(t): [hourly[k][i] for k in variables.split(',')]
-                for i,t in enumerate(hourly['time'])}
+    def load(kind):
+        if kind == 'air' and days == 3 and cache_dir is None:
+            return _recent_air_data(latitude, longitude, int(time.monotonic() // 300))
+        return hourly_data(kind, latitude, longitude, days, cache_dir)
 
-    # Both inputs are independent. Keep their combined latency within the API
-    # deadline even when one source needs a second attempt.
     with ThreadPoolExecutor(max_workers=2) as pool:
-        weather, air = pool.map(load, sources)
-    return merge_history(weather, air, now)
+        weather, air = pool.map(load, ('weather', 'air'))
+    return merge_history(weather, air, now or utcnow())
+
+
+@lru_cache(maxsize=32)
+def _recent_air_data(latitude, longitude, bucket):
+    return hourly_data('air', latitude, longitude)
+
+
+def forecast_aqi(latitude, longitude):
+    air = _recent_air_data(latitude, longitude, int(time.monotonic() // 300))
+    return {at: aqi for at, (_, aqi) in air.items()
+            if isinstance(aqi, (float, int)) and math.isfinite(aqi) and 0 <= aqi <= 2000}
+
 
 def merge_history(weather,air,now):
     rows=[]
     for at in sorted(weather.keys() & air.keys()):
-        values=weather[at]+air[at]
+        values=[*weather[at], *air[at]]
         if at>now or not all(isinstance(v,(float,int)) and math.isfinite(v) for v in values): continue
         if not (-50<=values[0]<=60 and 0<=values[1]<=500 and 0<=values[2]<=2000 and 0<=values[3]<=1000): continue
         rows.append({'time':at.isoformat(), 'values':values})

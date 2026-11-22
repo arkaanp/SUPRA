@@ -93,12 +93,12 @@ class ForecastTests(unittest.TestCase):
     def test_cache_refreshes_at_hour_boundary(self):
         from serve import App
         app=App();calls=[]
-        app.model.forecast=lambda *a: calls.append(a) or {'test':len(calls)}
+        app.model.forecast=lambda *a: calls.append(a) or {'test':len(calls), 'hourly':[]}
         query={'latitude':['-6.2'],'longitude':['106.8']}
-        with patch('serve.time.time',return_value=3600):
+        with patch('serve.time.time',return_value=3600), patch('serve.forecast_symbols', return_value={}):
             app.get('/v1/forecast',query);app.get('/v1/forecast',query)
         self.assertEqual(len(calls),1)
-        with patch('serve.time.time',return_value=7200):app.get('/v1/forecast',query)
+        with patch('serve.time.time',return_value=7200), patch('serve.forecast_symbols', return_value={}):app.get('/v1/forecast',query)
         self.assertEqual(len(calls),2)
     def test_wrong_scope_stale_and_gaps_fail_closed(self):
         service=Forecaster(load_history=lambda *a,**kw:self.rows())

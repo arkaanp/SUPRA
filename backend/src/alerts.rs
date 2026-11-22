@@ -729,6 +729,7 @@ mod tests {
             latitude: -6.2,
             longitude: 106.8,
             retrieved_at: now,
+            air_index: None,
             air_quality: Signal {
                 status: "available",
                 source: "openaq",
@@ -769,6 +770,7 @@ mod tests {
             latitude: -6.2,
             longitude: 106.8,
             retrieved_at: now,
+            air_index: None,
             air_quality: resp.air_quality.clone(),
             weather: resp.weather.clone(),
             traffic: Signal {

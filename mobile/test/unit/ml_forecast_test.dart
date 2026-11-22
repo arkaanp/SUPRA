@@ -121,6 +121,46 @@ void main() {
     expect(forecast.hourly.first.aqi, isNull);
     expect(forecast.hourly.first.precipitationMm, 0.75);
   });
+  testWidgets(
+    'Home shows matching weather symbols and provider AQI for fallback hours',
+    (tester) async {
+      tester.view.physicalSize = const Size(390, 940);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final data = forecastPayload(DateTime.now());
+      data['scope'] = 'weather_only';
+      (data['sources'] as Map)['air_forecast'] = 'CAMS';
+      for (final row in data['hourly'] as List) {
+        row['aqi'] = null;
+        row['pm25_ug_m3'] = null;
+        row['provider_aqi'] = 82;
+        row['weather_symbol'] = 'partlycloudy_day';
+      }
+      await tester.pumpWidget(
+        MaterialApp(
+          home: HomeScreen(
+            conditions: availableConditions(),
+            forecasts: ForecastRepository(load: (_) async => data),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(Switch).first);
+      await tester.pumpAndSettle();
+      final label = find.textContaining('Partly cloudy').first;
+      await tester.ensureVisible(label);
+      expect(
+        tester.renderObject<RenderParagraph>(label).didExceedMaxLines,
+        isFalse,
+      );
+      expect(find.text('AQI 82 · forecast'), findsWidgets);
+      expect(find.byIcon(Icons.wb_sunny_rounded), findsWidgets);
+      expect(find.byIcon(Icons.cloud_rounded), findsWidgets);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
   testWidgets('Trip keeps provider rain and traffic when the forecast fails', (
     tester,
   ) async {

@@ -4,6 +4,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../widgets/source_info_button.dart';
+import '../widgets/weather_icon.dart';
 
 import '../config/map_config.dart';
 import '../models/current_conditions.dart';
@@ -26,6 +27,8 @@ class HourlyForecast {
   final IconData weatherIcon;
   final Color weatherColor;
   final String weatherCondition;
+  final bool providerAqi;
+  final bool aqiStale;
   final int? temperatureC;
   final int? aqi;
   final String status;
@@ -41,6 +44,8 @@ class HourlyForecast {
     required this.temperatureC,
     required this.aqi,
     required this.aqiCategory,
+    this.providerAqi = false,
+    this.aqiStale = false,
     required this.aqiBgColor,
     required this.aqiTextColor,
     this.status = 'ML pending',
@@ -292,6 +297,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final snapshot = _liveConditions?.agedAt(now);
     final weather = snapshot?.weather;
     final ml = _mlForecast?.isCurrentAt(now) == true ? _mlForecast : null;
+    final hours =
+        ml?.hourly.where((h) => h.targetTime.isAfter(now)).toList() ??
+        const <MlForecastHour>[];
+    final (weatherText, weatherIcon) = weatherPresentation(
+      code: weather?.number('weather_code')?.toInt(),
+      symbol: weather?.data?['weather_symbol'] as String?,
+      description: weather?.data?['description'] as String?,
+    );
     for (int i = 0; i < count; i++) {
       final hourTime = now.add(Duration(hours: i));
       final hourNum = hourTime.hour;
@@ -300,28 +313,14 @@ class _HomeScreenState extends State<HomeScreen> {
           : '${hourNum % 12 == 0 ? 12 : hourNum % 12} ${hourNum >= 12 ? 'PM' : 'AM'}';
 
       final current = i == 0;
-      final description = weather?.data?['description'] as String?;
-      final code = weather?.number('weather_code')?.toInt();
-      final (weatherText, weatherIcon) = switch (code ?? -1) {
-        0 => ('Clear', Icons.wb_sunny_rounded),
-        1 || 2 => ('Partly cloudy', Icons.cloud_queue_rounded),
-        3 => ('Cloudy', Icons.cloud_rounded),
-        45 || 48 => ('Fog', Icons.foggy),
-        >= 51 && <= 57 => ('Drizzle', Icons.grain),
-        >= 61 && <= 67 || >= 80 && <= 82 => ('Rain', Icons.umbrella_rounded),
-        >= 71 && <= 77 || 85 || 86 => ('Snow', Icons.ac_unit),
-        >= 95 && <= 99 => ('Thunderstorm', Icons.thunderstorm),
-        _ => (description ?? 'Weather —', Icons.help_outline),
-      };
       final temp = current ? weather?.number('temperature_c')?.round() : null;
 
       if (_showMlPredictions && !current) {
-        final hours =
-            ml?.hourly.where((h) => h.targetTime.isAfter(now)).toList() ??
-            <MlForecastHour>[];
         final h = i - 1 < hours.length ? hours[i - 1] : null;
-        final meta = h?.aqi == null ? null : _getAqiMeta(h!.aqi!.round());
+        final aqi = h?.displayAqi?.round();
+        final meta = aqi == null ? null : _getAqiMeta(aqi);
         final wib = h?.targetTime.toUtc().add(const Duration(hours: 7));
+        final (label, symbol) = weatherPresentation(symbol: h?.weatherSymbol);
         forecasts.add(
           HourlyForecast(
             time: wib == null
@@ -329,15 +328,18 @@ class _HomeScreenState extends State<HomeScreen> {
                 : '${wib.hour.toString().padLeft(2, '0')}:00',
             weatherIcon: h == null
                 ? Icons.hourglass_empty_rounded
+                : h.weatherSymbol != null
+                ? symbol
                 : h.rainProbability >= 0.5
                 ? Icons.umbrella_rounded
-                : Icons.cloud_outlined,
+                : Icons.water_drop_outlined,
             weatherColor: h == null ? Colors.grey : Colors.blue,
             weatherCondition: h == null
                 ? 'Weather —'
-                : 'Rain ${(h.rainProbability * 100).round()}% · ${h.precipitationMm.toStringAsFixed(1)} mm',
+                : '${h.weatherSymbol != null ? '$label\n' : ''}Rain ${(h.rainProbability * 100).round()}% · ${h.precipitationMm.toStringAsFixed(1)} mm',
             temperatureC: h?.temperatureC.round(),
-            aqi: h?.aqi?.round(),
+            aqi: aqi,
+            providerAqi: h?.providerAqi != null,
             aqiCategory: meta?.$1 ?? 'No prediction',
             aqiBgColor: meta?.$2 ?? const Color(0xFFF1F5F9),
             aqiTextColor: meta?.$3 ?? const Color(0xFF64748B),
@@ -366,9 +368,12 @@ class _HomeScreenState extends State<HomeScreen> {
               : timeStr,
           weatherIcon: current ? weatherIcon : Icons.hourglass_empty_rounded,
           weatherColor: const Color(0xFF64748B),
-          weatherCondition: current ? weatherText : 'Weather —',
+          weatherCondition: current && weather?.hasData == true
+              ? weatherText
+              : 'Weather —',
           temperatureC: temp,
           aqi: current ? effectiveNowAqi : null,
+          aqiStale: current && snapshot?.aqiSignal.isStale == true,
           aqiCategory: nowMeta?.$1 ?? 'No prediction',
           aqiBgColor: nowMeta?.$2 ?? const Color(0xFFF1F5F9),
           aqiTextColor: nowMeta?.$3 ?? const Color(0xFF64748B),
@@ -980,9 +985,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final traffic = snapshot?.traffic;
     final pm25 = air?.number('pm25_ug_m3');
     // Only display a supplied, identified AQI unless the user enables ML/EPA conversion.
-    final suppliedAqi = air?.data?['aqi_standard'] == 'US EPA'
-        ? air?.number('aqi')?.round()
-        : null;
+    final aqiSignal = snapshot?.aqiSignal;
+    final suppliedAqi = aqiSignal?.usAqi?.round();
     final currentAqi = suppliedAqi;
     final aqiMeta = currentAqi == null
         ? (
@@ -1020,7 +1024,8 @@ class _HomeScreenState extends State<HomeScreen> {
         : temp == null
         ? 'Unavailable'
         : '${temp.round()}°C';
-    final displayedAqi = mlHour?.aqi?.round() ?? currentAqi;
+    final displayedAqi = mlHour?.displayAqi?.round() ?? currentAqi;
+    final displayedAir = displayedAqi == null ? air : aqiSignal;
     final effectiveAqiMeta = displayedAqi != null
         ? _getAqiMeta(displayedAqi)
         : aqiMeta;
@@ -1115,15 +1120,15 @@ class _HomeScreenState extends State<HomeScreen> {
                     : '',
                 value:
                     displayedAqi?.toString() ?? pm25?.toStringAsFixed(1) ?? '—',
-                category: mlHour?.aqi != null
-                    ? 'ML · ${effectiveAqiMeta.$1}'
-                    : '${air?.isStale == true ? "STALE · " : ""}${effectiveAqiMeta.$1}',
-                categoryBg: mlHour?.aqi != null
+                category: mlHour?.displayAqi != null
+                    ? '${mlHour?.providerAqi != null ? 'Forecast' : 'ML'} · ${effectiveAqiMeta.$1}'
+                    : '${displayedAir?.isStale == true ? "STALE · " : ""}${effectiveAqiMeta.$1}',
+                categoryBg: mlHour?.displayAqi != null
                     ? const Color(0xFFE0F2FE)
-                    : air?.isStale == true
+                    : displayedAir?.isStale == true
                     ? const Color(0xFFFEF3C7)
                     : effectiveAqiMeta.$2,
-                categoryText: mlHour?.aqi != null
+                categoryText: mlHour?.displayAqi != null
                     ? const Color(0xFF0369A1)
                     : effectiveAqiMeta.$3,
                 advisory: _showMlPredictions
@@ -1133,9 +1138,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                     ? 'Loading forecast…'
                                     : 'Forecast expired. Pull to refresh.'))
                           : mlHour.aqi == null
-                          ? 'Weather-only forecast for ${_wib(mlHour.targetTime)}. Air quality uses available provider readings.'
+                          ? (mlHour.providerAqi != null
+                                ? 'Weather and provider AQI forecasts for ${_wib(mlHour.targetTime)}.'
+                                : 'Weather forecast for ${_wib(mlHour.targetTime)}. Hourly AQI is unavailable.')
                           : 'ML forecast for ${_wib(mlHour.targetTime)}. Experimental regional estimate.')
-                    : air?.isStale == true
+                    : displayedAir?.isStale == true
                     ? 'Last-known reading — not current. ${effectiveAqiMeta.$4}'
                     : effectiveAqiMeta.$4,
                 sourceLabel: [
@@ -1869,7 +1876,9 @@ class _HomeScreenState extends State<HomeScreen> {
                         ? (_loadingForecast
                               ? 'Loading forecast…'
                               : _forecastError ??
-                                    (_mlForecast?.nextAt(DateTime.now())?.aqi ==
+                                    (_mlForecast
+                                                ?.nextAt(DateTime.now())
+                                                ?.displayAqi ==
                                             null
                                         ? 'ML · rain & temperature'
                                         : 'ML · AQI, rain & temperature'))
@@ -2040,7 +2049,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
 
                           // 2. Weather shown by a symbol
-                          Icon(
+                          WeatherIcon(
                             item.weatherIcon,
                             size: 26,
                             color: item.weatherColor,
@@ -2067,7 +2076,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
 
                           Text(
-                            item.aqi == null ? 'AQI —' : 'AQI ${item.aqi}',
+                            item.aqi == null
+                                ? (item.status == 'ML forecast'
+                                      ? 'AQI unavailable'
+                                      : 'AQI —')
+                                : 'AQI ${item.aqi}${item.providerAqi ? ' · forecast' : ''}${item.aqiStale ? ' · stale' : ''}',
                             style: const TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,

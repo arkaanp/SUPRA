@@ -25,7 +25,7 @@ EnvironmentalZone sample(int i, {double? aqi, double? rain = 1.2}) =>
           status: 'available',
           source: 'open_meteo_cams',
           message: 'Air model',
-          data: {'aqi': aqi},
+          data: {'aqi': aqi, 'aqi_standard': 'US EPA'},
         ),
         traffic: const ConditionSignal(
           status: 'unavailable',
@@ -49,8 +49,12 @@ void main() {
   );
 
   testWidgets(
-    'Detailed cards scroll below transport options without map-sized labels',
+    'Detailed readings remain visible on a narrow phone below transport options',
     (tester) async {
+      tester.view.physicalSize = const Size(320, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
@@ -77,6 +81,9 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.text('Destination'), findsOneWidget);
+      expect(find.text('US AQI 120 · Unhealthy for Sensitive'), findsWidgets);
+      expect(find.text('Temperature'), findsWidgets);
+      expect(find.byIcon(Icons.thermostat_rounded), findsWidgets);
       expect(tester.takeException(), isNull);
     },
   );

@@ -35,6 +35,8 @@ pub struct AuthVerifier {
     audience: String,
     jwks_url: String,
     token_url: String,
+    admin_users_url: String,
+    service_role_key: Option<String>,
     publishable_key: Option<String>,
     client: reqwest::Client,
     cache: Arc<RwLock<Option<(Instant, JwkSet)>>>,
@@ -56,6 +58,11 @@ impl AuthVerifier {
         let issuer = format!("{}/auth/v1", project_url.trim_end_matches('/'));
         Ok(Self {
             token_url: format!("{issuer}/token"),
+            admin_users_url: format!("{issuer}/admin/users"),
+            service_role_key: std::env::var("SUPABASE_SERVICE_ROLE_KEY")
+                .ok()
+                .map(|v| v.trim().to_owned())
+                .filter(|v| !v.is_empty()),
             publishable_key: std::env::var("SUPABASE_PUBLISHABLE_KEY")
                 .ok()
                 .filter(|key| !key.is_empty()),
@@ -147,7 +154,7 @@ fn user_from_claims(claims: Claims) -> anyhow::Result<AuthUser> {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct UsernameLogin {
+pub struct UsernameCredentials {
     username: String,
     password: String,
 }
@@ -157,11 +164,17 @@ pub struct UsernameLogin {
 pub async fn login_with_username(
     State(state): State<crate::db::AppState>,
     axum::Extension(auth): axum::Extension<AuthVerifier>,
-    Json(input): Json<UsernameLogin>,
+    Json(input): Json<UsernameCredentials>,
 ) -> crate::error::AppResult<Response> {
     use crate::error::AppError;
     let username = input.username.trim().to_ascii_lowercase();
-    if username.len() > 37 || input.password.is_empty() {
+    if !((3..=32).contains(&username.len())
+        || (username.starts_with("user_") && username.len() == 37))
+        || !username
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'_')
+        || input.password.is_empty()
+    {
         return Err(AppError::InvalidCredentials);
     }
     let key = auth
@@ -201,6 +214,68 @@ pub async fn login_with_username(
         return Err(AppError::InvalidCredentials);
     }
     Ok(([(header::CACHE_CONTROL, "no-store")], Json(session)).into_response())
+}
+
+/// Supabase Auth provisions the identity and the existing signup trigger
+/// reserves its username in the same transaction.
+pub async fn register_with_username(
+    State(state): State<crate::db::AppState>,
+    axum::Extension(auth): axum::Extension<AuthVerifier>,
+    Json(input): Json<UsernameCredentials>,
+) -> crate::error::AppResult<(StatusCode, Json<serde_json::Value>)> {
+    use crate::error::AppError;
+
+    let username = input.username.trim().to_ascii_lowercase();
+    crate::validation::validate_username(&username)?;
+    if input.password.chars().count() < 8 || input.password.len() > 72 {
+        return Err(AppError::bad_request(
+            "Use a password of at least 8 characters and at most 72 bytes.",
+        ));
+    }
+    let key = auth.service_role_key.as_deref().ok_or_else(|| {
+        tracing::warn!("Username registration requires SUPABASE_SERVICE_ROLE_KEY");
+        AppError::Unavailable
+    })?;
+    let response = auth
+        .client
+        .post(&auth.admin_users_url)
+        .header("apikey", key)
+        .bearer_auth(key)
+        .json(&serde_json::json!({
+            "email": format!("{}@accounts.supra.invalid", Uuid::new_v4()),
+            "password": input.password,
+            "email_confirm": true,
+            "user_metadata": {"username": username},
+        }))
+        .send()
+        .await
+        .map_err(|_| AppError::Unavailable)?;
+    match response.status().as_u16() {
+        200 | 201 => Ok((
+            StatusCode::CREATED,
+            Json(serde_json::json!({"username": username})),
+        )),
+        429 => Err(AppError::TooManyAttempts),
+        status => {
+            // GoTrue wraps a duplicate handle from the signup trigger in a generic
+            // error. Check the committed profile without exposing Auth responses.
+            let taken: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM public.users WHERE username = $1)")
+                    .bind(&username)
+                    .fetch_one(&state.pool)
+                    .await?;
+            if taken {
+                return Err(AppError::Conflict);
+            }
+            if let Ok(body) = response.json::<serde_json::Value>().await {
+                if body["error_code"] == "weak_password" || body["code"] == "weak_password" {
+                    return Err(AppError::bad_request("Choose a stronger password."));
+                }
+            }
+            tracing::warn!(status, "Supabase Auth could not register a username");
+            Err(AppError::Unavailable)
+        }
+    }
 }
 
 pub async fn authenticate(
@@ -294,6 +369,11 @@ pub(crate) mod test_support {
         pub fn password_endpoint(&mut self, url: String) {
             self.verifier.token_url = url;
             self.verifier.publishable_key = Some("test-key".into());
+        }
+
+        pub fn admin_endpoint(&mut self, url: String) {
+            self.verifier.admin_users_url = url;
+            self.verifier.service_role_key = Some("test-admin-key".into());
         }
 
         pub fn token(&self, id: Uuid, email: &str) -> String {

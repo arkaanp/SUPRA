@@ -75,6 +75,7 @@ async fn migrated_schema_enforces_user_boundaries() {
         assert_eq!(status, StatusCode::OK, "{profile}");
         assert_eq!(profile["id"], id.to_string());
         assert!(profile.get("password_hash").is_none());
+        assert!(profile.get("email").is_none());
     }
     let new_handle = format!("rider_{}", &alice.simple().to_string()[..12]);
     let (status, profile) = request(&app, &token_a, "PUT", "/api/profile",
@@ -519,19 +520,48 @@ async fn check_username_login(state: &AppState, id: Uuid, username: &str) {
     // The Auth email deliberately differs from the cached profile email.
     sqlx::query("INSERT INTO auth.users (id,email) VALUES ($1,'current@example.invalid')")
         .bind(id).execute(&state.pool).await.unwrap();
+    let pool = state.pool.clone();
     let provider = Router::new().route("/token", post(move |Json(body): Json<Value>| async move {
         if body["email"] == "current@example.invalid" && body["password"] == "correct" {
             (StatusCode::OK, Json(json!({"refresh_token":"refresh", "user":{"id":id}})))
         } else {
             (StatusCode::BAD_REQUEST, Json(json!({"message":"Upstream detail"})))
         }
+    })).route("/admin/users", post(move |headers: axum::http::HeaderMap, Json(body): Json<Value>| {
+        let pool = pool.clone();
+        async move {
+            assert_eq!(headers["apikey"], "test-admin-key");
+            let alias = body["email"].as_str().unwrap();
+            assert!(alias.ends_with("@accounts.supra.invalid"));
+            assert_eq!(body["email_confirm"], true);
+            assert_eq!(body["password"], "tester-password");
+            let id = Uuid::new_v4();
+            let created = sqlx::query("INSERT INTO auth.users (id,email,raw_user_meta_data) VALUES ($1,$2,$3)")
+                .bind(id).bind(alias).bind(&body["user_metadata"]).execute(&pool).await;
+            match created {
+                Ok(_) => (StatusCode::CREATED, Json(json!({"id":id}))),
+                Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({}))),
+            }
+        }
     }));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}/token", listener.local_addr().unwrap());
+    let origin = format!("http://{}", listener.local_addr().unwrap());
     let server = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
     let mut fixture = Fixture::new().await;
-    fixture.password_endpoint(url);
+    fixture.password_endpoint(format!("{origin}/token"));
+    fixture.admin_endpoint(format!("{origin}/admin/users"));
     let app = create_router(state.clone(), fixture.verifier.clone());
+    let new_handle = format!("new_{}", &id.simple().to_string()[..12]);
+    for status in [StatusCode::CREATED, StatusCode::CONFLICT] {
+        let (actual, body) = request(&app, "", "POST", "/api/auth/register",
+            Some(json!({"username":new_handle.to_uppercase(),"password":"tester-password"}))).await;
+        assert_eq!(actual, status, "{body}");
+        assert!(body.get("email").is_none());
+    }
+    let count = sqlx::query_scalar::<_, i64>(
+        "SELECT count(*) FROM public.users WHERE username = $1 AND email LIKE '%@accounts.supra.invalid'",
+    ).bind(new_handle).fetch_one(&state.pool).await.unwrap();
+    assert_eq!(count, 1);
     for (name, password, expected) in [
         (username.to_uppercase(), "correct", StatusCode::OK),
         (username.to_owned(), "wrong", StatusCode::UNAUTHORIZED),

@@ -25,7 +25,7 @@ class _MemoryStorage extends GotrueAsyncStorage {
 }
 
 void main() {
-  test('Supabase signup awaits confirmation; login uses Auth UUID; logout clears state', () async {
+  test('Username registration and sign-in retain the Auth UUID and account state', () async {
     const uuid = 'a1b2c3d4-0000-4000-8000-000000000007';
     final user = {
       'id': uuid,
@@ -44,6 +44,7 @@ void main() {
         base64Url.encode(utf8.encode(jsonEncode(value))).replaceAll('=', '');
     final token =
         '${part({'alg': 'ES256', 'typ': 'JWT'})}.${part({'sub': uuid, 'exp': expiresAt})}.test-signature';
+    var password = 'password123';
     final client = SupabaseClient(
       'https://test.supabase.co',
       'test-publishable-key',
@@ -52,24 +53,11 @@ void main() {
         pkceAsyncStorage: _MemoryStorage(),
       ),
       httpClient: MockClient((request) async {
-        if (request.url.path.endsWith('/signup')) {
-          final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body['data']['username'], 'test_rider');
+        if (request.url.path.endsWith('/user') && request.method == 'PUT') {
+          expect(request.headers['Authorization'], 'Bearer $token');
+          final data = jsonDecode(request.body) as Map<String, dynamic>;
+          if (data['password'] is String) password = data['password'] as String;
           return http.Response(jsonEncode(user), 200);
-        }
-        if (request.url.path.endsWith('/token')) {
-          expect(request.url.queryParameters['grant_type'], 'password');
-          return http.Response(
-            jsonEncode({
-              'access_token': token,
-              'refresh_token': 'refresh-token',
-              'token_type': 'bearer',
-              'expires_in': 3600,
-              'expires_at': expiresAt,
-              'user': user,
-            }),
-            200,
-          );
         }
         if (request.url.path.endsWith('/logout')) {
           expect(request.headers['Authorization'], 'Bearer $token');
@@ -80,17 +68,32 @@ void main() {
     );
     addTearDown(client.dispose);
     var persisted = false;
+    var registered = false;
+    var username = 'test_rider';
     var read = false;
     var deletedAlert = false;
     var prefs = const NotificationPreference();
     final service = SupraService(
       apiBaseUrl: 'http://localhost:3000',
       httpClientFactory: () => MockClient((request) async {
-        if (request.url.path == '/api/auth/username-login') {
+        if (request.url.path == '/api/auth/register') {
           expect(jsonDecode(request.body), {
-            'username': 'Renamed_Rider',
+            'username': 'test_rider',
             'password': 'password123',
           });
+          registered = true;
+          return http.Response('{"username":"test_rider"}', 201);
+        }
+        if (request.url.path == '/api/auth/username-login') {
+          final data = jsonDecode(request.body) as Map<String, dynamic>;
+          if (!registered ||
+              (data['username'] as String).toLowerCase() != username ||
+              data['password'] != password) {
+            return http.Response(
+              '{"error":"Invalid username or password"}',
+              401,
+            );
+          }
           return http.Response(
             jsonEncode({
               'access_token': token,
@@ -110,8 +113,19 @@ void main() {
           return http.Response(
             jsonEncode({
               'id': uuid,
-              'username': 'renamed_rider',
-              'email': user['email'],
+              'username': username,
+              'created_at': user['created_at'],
+            }),
+            200,
+          );
+        }
+        if (path == '/api/profile' && request.method == 'PUT') {
+          username = (jsonDecode(request.body)['username'] as String)
+              .toLowerCase();
+          return http.Response(
+            jsonEncode({
+              'id': uuid,
+              'username': username,
               'created_at': user['created_at'],
             }),
             200,
@@ -190,10 +204,15 @@ void main() {
     );
     addTearDown(service.dispose);
     service.initializeAuth(client);
-    await service.register('test_rider', 'rider@example.com', 'password123');
+    await service.register(' Test_Rider ', 'password123');
+    expect(registered, isTrue);
     expect(service.isLoggedIn, isFalse);
 
-    final profile = await service.login('rider@example.com', 'password123');
+    await expectLater(
+      service.login('rider@example.com', 'password123'),
+      throwsStateError,
+    );
+    final profile = await service.login('test_rider', 'password123');
     expect(profile.id, uuid);
     expect(profile.username, 'test_rider');
     expect(service.isLoggedIn, isTrue);
@@ -233,102 +252,28 @@ void main() {
     expect(service.notifications, isEmpty);
     expect(await service.getNotifications(), isEmpty);
 
+    await service.updateProfile('renamed_rider');
+    await expectLater(
+      service.changePassword('wrong123', 'newpassword123'),
+      throwsException,
+    );
+    await service.changePassword('password123', 'newpassword123');
     await service.logout();
     expect(service.isLoggedIn, isFalse);
     expect(service.trips, isEmpty);
     expect(service.notifications, isEmpty);
     expect(service.backendReady, isFalse);
-    await service.login(' Renamed_Rider ', 'password123');
+    await expectLater(
+      service.login('test_rider', 'newpassword123'),
+      throwsException,
+    );
+    await expectLater(
+      service.login('renamed_rider', 'password123'),
+      throwsException,
+    );
+    await service.login(' Renamed_Rider ', 'newpassword123');
     expect(client.auth.currentSession?.user.id, uuid);
     await service.loadAccount();
     expect(service.currentUser?.username, 'renamed_rider');
-  });
-
-  test('Password recovery requests email, verifies OTP code, and completes password update', () async {
-    const uuid = 'a1b2c3d4-0000-4000-8000-000000000007';
-    final user = {
-      'id': uuid,
-      'aud': 'authenticated',
-      'role': 'authenticated',
-      'email': 'rider@example.com',
-      'created_at': '2026-01-01T00:00:00Z',
-      'app_metadata': {
-        'provider': 'email',
-        'providers': ['email'],
-      },
-      'user_metadata': {'username': 'test_rider'},
-    };
-    final expiresAt = DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600;
-    String part(Object value) =>
-        base64Url.encode(utf8.encode(jsonEncode(value))).replaceAll('=', '');
-    final token =
-        '${part({'alg': 'ES256', 'typ': 'JWT'})}.${part({'sub': uuid, 'exp': expiresAt})}.test-signature';
-    var recoverRequested = false;
-    var otpVerified = false;
-    var passwordUpdated = false;
-
-    final client = SupabaseClient(
-      'https://test.supabase.co',
-      'test-publishable-key',
-      authOptions: AuthClientOptions(
-        autoRefreshToken: false,
-        pkceAsyncStorage: _MemoryStorage(),
-      ),
-      httpClient: MockClient((request) async {
-        final path = request.url.path;
-        if (path.endsWith('/recover')) {
-          final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body['email'], 'rider@example.com');
-          recoverRequested = true;
-          return http.Response('{}', 200);
-        }
-        if (path.endsWith('/verify')) {
-          final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body['type'], 'recovery');
-          expect(body['token'], '123456');
-          otpVerified = true;
-          return http.Response(
-            jsonEncode({
-              'access_token': token,
-              'refresh_token': 'refresh-token',
-              'token_type': 'bearer',
-              'expires_in': 3600,
-              'expires_at': expiresAt,
-              'user': user,
-            }),
-            200,
-          );
-        }
-        if (path.endsWith('/user') && request.method == 'PUT') {
-          expect(request.headers['Authorization'], 'Bearer $token');
-          final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body['password'], 'newpassword123');
-          passwordUpdated = true;
-          return http.Response(jsonEncode(user), 200);
-        }
-        return http.Response('{}', 404);
-      }),
-    );
-    addTearDown(client.dispose);
-
-    final service = SupraService(
-      apiBaseUrl: 'http://localhost:3000',
-      httpClientFactory: () =>
-          MockClient((_) async => http.Response('{}', 200)),
-    );
-    addTearDown(service.dispose);
-    service.initializeAuth(client);
-
-    expect(service.recoveringPassword, isFalse);
-    await service.requestPasswordRecovery('rider@example.com');
-    expect(recoverRequested, isTrue);
-
-    await service.verifyRecoveryCode('rider@example.com', '123456');
-    expect(otpVerified, isTrue);
-    expect(service.recoveringPassword, isTrue);
-
-    await service.completePasswordRecovery('newpassword123');
-    expect(passwordUpdated, isTrue);
-    expect(service.recoveringPassword, isFalse);
   });
 }

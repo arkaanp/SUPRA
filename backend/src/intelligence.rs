@@ -171,6 +171,17 @@ fn valid_forecast(v: &Value, q: &ConditionsQuery, now: DateTime<Utc>) -> bool {
                     return Some(false);
                 }
             }
+            if !row["provider_aqi"].is_null()
+                && (v["scope"] != "weather_only"
+                    || v["sources"]["air_forecast"]
+                        .as_str()
+                        .is_none_or(str::is_empty)
+                    || !row["provider_aqi"]
+                        .as_f64()
+                        .is_some_and(|aqi| (0.0..=2000.0).contains(&aqi)))
+            {
+                return Some(false);
+            }
             // Traffic has not been trained. Reject mislabeled numeric output.
             if !row["traffic_speed_kmh"].is_null() || !row["traffic_density"].is_null() {
                 return Some(false);
@@ -202,6 +213,10 @@ mod tests {
         assert!(!valid_forecast(&partial, &q, now));
         partial["hourly"][0]["aqi"] = Value::Null;
         partial["hourly"][0]["pm25_ug_m3"] = Value::Null;
+        assert!(valid_forecast(&partial, &q, now));
+        partial["hourly"][0]["provider_aqi"] = json!(82);
+        assert!(!valid_forecast(&partial, &q, now));
+        partial["sources"] = json!({"air_forecast":"CAMS"});
         assert!(valid_forecast(&partial, &q, now));
         for (key, value) in [
             ("latitude", json!(-6.4)),

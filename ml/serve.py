@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Loopback-only intelligence service. Axum provides user authentication externally."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
@@ -10,8 +11,8 @@ from urllib.parse import parse_qs,urlparse
 import torch
 from inference import Forecaster
 from news import latest_news
-from data import InputUnavailable
-from met_weather import weather_at
+from data import InputUnavailable, SOURCES, forecast_aqi, parse_time, utcnow
+from met_weather import SOURCE, forecast_symbols, weather_at
 import weather_model
 
 class App:
@@ -44,11 +45,34 @@ class App:
             if path == '/v1/weather':
                 return weather_at(lat, lon)
             def predict():
-                try:
-                    return self.model.forecast(lat, lon)
-                except InputUnavailable as error:
-                    print(f'Using weather-only forecast: {error}', flush=True)
-                    return weather_model.forecast(lat, lon)
+                now = utcnow()
+                with ThreadPoolExecutor(max_workers=1) as pool:
+                    symbols_request = pool.submit(forecast_symbols, lat, lon, now)
+                    try:
+                        result = self.model.forecast(lat, lon)
+                    except InputUnavailable as error:
+                        print(f'Using weather-only forecast: {error}', flush=True)
+                        result = weather_model.forecast(lat, lon)
+                        try:
+                            aqi = forecast_aqi(lat, lon)
+                        except InputUnavailable as air_error:
+                            print(f'Hourly AQI unavailable: {air_error}', flush=True)
+                        else:
+                            for hour in result['hourly']:
+                                hour['provider_aqi'] = aqi.get(parse_time(hour['target_time']))
+                            if any(hour['provider_aqi'] is not None for hour in result['hourly']):
+                                result['sources']['air_forecast'] = SOURCES['attribution']
+                    try:
+                        symbols = symbols_request.result()
+                    except (OSError, ValueError, KeyError, TypeError):
+                        return result
+                for hour in result['hourly']:
+                    symbol = symbols.get(parse_time(hour['target_time']))
+                    if symbol:
+                        hour['weather_symbol'] = symbol
+                if any('weather_symbol' in hour for hour in result['hourly']):
+                    result['sources'] = {**result['sources'], 'weather_symbols': SOURCE}
+                return result
             return self.cached(('forecast',lat,lon,int(time.time()//3600)),600,predict)
         raise KeyError('Unknown endpoint')
 

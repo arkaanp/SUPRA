@@ -1478,11 +1478,11 @@ class TripScreenState extends State<TripScreen> {
     final h = _showMlPredictions ? _mlForecast?.nextAt(now) : null;
     if (h != null) {
       final time = h.targetTime.toUtc().add(const Duration(hours: 7));
-      return 'ML · origin ${time.hour.toString().padLeft(2, '0')}:00 WIB${h.aqi == null ? "" : " · AQI ${h.aqi!.round()}"} · Rain ${h.precipitationMm.toStringAsFixed(1)} mm (${(h.rainProbability * 100).round()}%) · ${h.temperatureC.round()}°C · $traffic';
+      return 'ML · origin ${time.hour.toString().padLeft(2, '0')}:00 WIB${h.displayAqi == null ? "" : " · AQI ${h.displayAqi!.round()}${h.providerAqi != null ? " forecast" : ""}"} · Rain ${h.precipitationMm.toStringAsFixed(1)} mm (${(h.rainProbability * 100).round()}%) · ${h.temperatureC.round()}°C · $traffic';
     }
     final pm25 =
         _selectedRoute?.pm25UgM3 ?? cond?.airQuality.number('pm25_ug_m3');
-    final aqi = cond?.airQuality.number('aqi')?.round();
+    final aqi = cond?.aqiSignal.usAqi?.round();
     final rain =
         _selectedRoute?.rainfallMm ?? cond?.weather.number('precipitation_mm');
     final weather = cond?.weather;
@@ -1492,7 +1492,8 @@ class TripScreenState extends State<TripScreen> {
     return [
       if (_showMlPredictions)
         _loadingMl ? 'Loading forecast…' : _mlError ?? 'ML forecast expired',
-      if (aqi != null) 'AQI $aqi',
+      if (aqi != null)
+        'AQI $aqi${cond?.aqiSignal.isStale == true ? " · STALE" : ""}',
       if (pm25 != null)
         'PM2.5 ${pm25.toStringAsFixed(1)}${cond?.airQuality.isStale == true ? " · STALE" : ""}',
       'Rain${weather?.kind == "provider_forecast" ? " forecast" : ""} $rainValue${weather?.isStale == true ? " · STALE" : ""}',
@@ -2480,11 +2481,7 @@ class TripScreenState extends State<TripScreen> {
         opt.rainfallMm ?? fallbackCond?.weather.number('precipitation_mm');
     final effectivePm25 =
         opt.pm25UgM3 ?? fallbackCond?.airQuality.number('pm25_ug_m3');
-    final effectiveAqi =
-        fallbackCond?.airQuality.number('aqi')?.round() ??
-        (effectivePm25 != null
-            ? ConditionsRepository.pm25ToUsEpaAqi(effectivePm25)
-            : null);
+    final effectiveAqi = fallbackCond?.aqiSignal.usAqi?.round();
     final trafficStale = fallbackCond?.traffic.isStale == true;
     String trafficDesc;
     if (effectiveDensity == null) {
@@ -2522,9 +2519,15 @@ class TripScreenState extends State<TripScreen> {
     if (mlHour?.aqi != null && mlHour?.pm25 != null) {
       airChipLabel =
           'ML origin · US AQI ${mlHour!.aqi!.round()} · PM2.5 ${mlHour.pm25!.toStringAsFixed(1)} µg/m³';
-    } else if (effectivePm25 != null) {
-      airChipLabel =
-          '${fallbackCond?.airQuality.isStale == true ? "STALE · " : ""}${effectiveAqi != null ? "AQI $effectiveAqi • " : ""}PM2.5: ${effectivePm25.toStringAsFixed(1)} µg/m³';
+    } else if (mlHour?.providerAqi != null) {
+      airChipLabel = 'AQI forecast · ${mlHour!.providerAqi!.round()}';
+    } else if (effectivePm25 != null || effectiveAqi != null) {
+      airChipLabel = [
+        if (effectiveAqi != null)
+          '${fallbackCond?.aqiSignal.isStale == true ? "STALE · " : ""}AQI $effectiveAqi',
+        if (effectivePm25 != null)
+          '${fallbackCond?.airQuality.isStale == true ? "STALE · " : ""}PM2.5: ${effectivePm25.toStringAsFixed(1)} µg/m³',
+      ].join(' · ');
     } else {
       airChipLabel = opt.pm25Label;
     }
