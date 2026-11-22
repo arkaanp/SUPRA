@@ -100,11 +100,45 @@ async fn main() {
     alerts::start(state.clone(), conditions);
     let app: Router = create_router(state, verifier).layer(CorsLayer::permissive());
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let port = resolve_port(std::env::var("PORT").ok().as_deref());
+    let addr = SocketAddr::from(([0, 0, 0, 0], port));
     tracing::info!("Supra backend listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .expect("Failed to bind address");
     axum::serve(listener, app).await.expect("Server failed");
+}
+
+/// Resolves the TCP listen port from an optional environment variable string,
+/// defaulting to 3000 when unset or blank (e.g., local dev vs Render's PORT).
+fn resolve_port(raw: Option<&str>) -> u16 {
+    raw.map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.parse::<u16>().expect("PORT must be a valid TCP port"))
+        .unwrap_or(3000)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_port;
+
+    #[test]
+    fn resolve_port_defaults_when_unset_or_blank() {
+        assert_eq!(resolve_port(None), 3000);
+        assert_eq!(resolve_port(Some("")), 3000);
+        assert_eq!(resolve_port(Some("   ")), 3000);
+    }
+
+    #[test]
+    fn resolve_port_parses_explicit_value() {
+        assert_eq!(resolve_port(Some("10000")), 10000);
+        assert_eq!(resolve_port(Some(" 8080 ")), 8080);
+    }
+
+    #[test]
+    #[should_panic(expected = "PORT must be a valid TCP port")]
+    fn resolve_port_rejects_invalid_port() {
+        resolve_port(Some("not-a-port"));
+    }
 }
