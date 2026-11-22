@@ -9,9 +9,9 @@ mod error;
 mod handlers;
 mod intelligence;
 mod mobility;
-mod transit;
 mod models;
 mod routes;
+mod transit;
 mod validation;
 
 use axum::Router;
@@ -66,23 +66,6 @@ async fn main() {
     };
 
     if command.as_deref() == Some("migrate") {
-        if let Err(sqlx::migrate::MigrateError::VersionMismatch(version)) =
-            db::MIGRATOR.run(&state.pool).await
-        {
-            tracing::warn!(
-                version,
-                "Detected migration checksum mismatch (e.g. CRLF vs LF line endings); syncing _sqlx_migrations checksums"
-            );
-            for migration in db::MIGRATOR.iter() {
-                let _ = sqlx::query(
-                    "UPDATE _sqlx_migrations SET checksum = $1 WHERE version = $2",
-                )
-                .bind(migration.checksum.as_ref())
-                .bind(migration.version)
-                .execute(&state.pool)
-                .await;
-            }
-        }
         db::MIGRATOR
             .run(&state.pool)
             .await
@@ -100,7 +83,10 @@ async fn main() {
     alerts::start(state.clone(), conditions);
     let app: Router = create_router(state, verifier).layer(CorsLayer::permissive());
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let addr: SocketAddr = std::env::var("BIND_ADDR")
+        .unwrap_or_else(|_| "0.0.0.0:3000".into())
+        .parse()
+        .expect("BIND_ADDR must be an IP address and port");
     tracing::info!("Supra backend listening on http://{}", addr);
 
     let listener = tokio::net::TcpListener::bind(addr)

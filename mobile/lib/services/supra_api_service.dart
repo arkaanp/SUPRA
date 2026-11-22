@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart' hide Route;
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
@@ -90,14 +92,14 @@ class SupraService extends ChangeNotifier {
         ? null
         : User(
             id: user.id,
-            fullName:
-                (user.userMetadata?['full_name'] as String?) ??
-                user.email?.split('@').first ??
-                'Supra user',
+            username:
+                (previous == user.id ? _currentUser?.username : null) ??
+                user.userMetadata?['username'] as String? ??
+                '',
             email: user.email ?? '',
             avatarUrl:
-                (user.userMetadata?['avatar_url'] as String?) ??
-                _currentUser?.avatarUrl,
+                (previous == user.id ? _currentUser?.avatarUrl : null) ??
+                user.userMetadata?['avatar_url'] as String?,
             createdAt: DateTime.parse(user.createdAt),
           );
     if (previous != _currentUser?.id) {
@@ -145,16 +147,10 @@ class SupraService extends ChangeNotifier {
   }
 
   Future<void> loadAccount() => _withApi((api, id) async {
-    final user = _currentUser!;
-    final profileResponse = await api.request('POST', '/api/users', {
-      'full_name': user.fullName,
-    });
-    if (profileResponse is Map<String, dynamic> &&
-        profileResponse.containsKey('id') &&
-        profileResponse.containsKey('full_name')) {
-      _requireSameUser(id);
-      _currentUser = User.fromJson(profileResponse);
-    }
+    final profile = await api.request('POST', '/api/users', {});
+    _requireSameUser(id);
+    _currentUser = User.fromJson(profile as Map<String, dynamic>);
+    notifyListeners();
     final trips = (await api.request('GET', '/api/trips') as List)
         .map((v) => Trip.fromJson(v as Map<String, dynamic>))
         .toList();
@@ -184,21 +180,25 @@ class SupraService extends ChangeNotifier {
     notifyListeners();
   });
 
-  Future<User> updateProfile(String fullName) => _withApi((api, id) async {
-    final trimmed = fullName.trim();
-    if (trimmed.isEmpty) {
-      throw StateError('Name cannot be empty.');
+  Future<User> updateProfile(String username) => _withApi((api, id) async {
+    final trimmed = username.trim();
+    if (!User.isValidUsername(trimmed)) throw StateError(User.usernameHint);
+    final User updated;
+    try {
+      updated = User.fromJson(
+        await api.request('PUT', '/api/profile', {'username': trimmed})
+            as Map<String, dynamic>,
+      );
+    } on ApiException catch (error) {
+      if (error.status == 409) throw StateError('Username is already in use.');
+      rethrow;
     }
-    final updated = User.fromJson(
-      await api.request('PUT', '/api/profile', {'full_name': trimmed})
-          as Map<String, dynamic>,
-    );
     _requireSameUser(id);
     _currentUser = updated;
     notifyListeners();
     try {
       await _auth.updateUser(
-        supabase.UserAttributes(data: {'full_name': trimmed}),
+        supabase.UserAttributes(data: {'username': updated.username}),
       );
     } catch (_) {
       // Best-effort sync with Supabase Auth metadata; DB is source of truth.
@@ -256,14 +256,30 @@ class SupraService extends ChangeNotifier {
     return result;
   });
 
-  Future<User> login(String email, String password) async {
-    if (email.trim().isEmpty || password.isEmpty) {
-      throw StateError('Please enter email and password.');
+  Future<User> login(String identifier, String password) async {
+    final value = identifier.trim();
+    if (value.isEmpty || password.isEmpty) {
+      throw StateError('Enter your username or email and password.');
     }
-    final result = await _auth.signInWithPassword(
-      email: email.trim(),
-      password: password,
-    );
+    final supabase.AuthResponse result;
+    if (value.contains('@')) {
+      result = await _auth.signInWithPassword(email: value, password: password);
+    } else {
+      if (kReleaseMode && Uri.parse(_apiBaseUrl).scheme != 'https') {
+        throw StateError('Username sign-in requires an HTTPS API URL.');
+      }
+      final client = _httpClientFactory?.call() ?? http.Client();
+      try {
+        final session = await BackendApi(client: client, baseUrl: _apiBaseUrl)
+            .request('POST', '/api/auth/username-login', {
+              'username': value,
+              'password': password,
+            });
+        result = await _auth.recoverSession(jsonEncode(session));
+      } finally {
+        client.close();
+      }
+    }
     if (result.session == null) {
       throw StateError('Sign-in did not create a session.');
     }
@@ -271,15 +287,29 @@ class SupraService extends ChangeNotifier {
     return _currentUser!;
   }
 
-  Future<void> register(String fullName, String email, String password) async {
-    if (fullName.trim().isEmpty || email.trim().isEmpty || password.isEmpty) {
+  Future<void> register(String username, String email, String password) async {
+    if (username.trim().isEmpty || email.trim().isEmpty || password.isEmpty) {
       throw StateError('Please complete all fields.');
     }
-    final result = await _auth.signUp(
-      email: email.trim(),
-      password: password,
-      data: {'full_name': fullName.trim()},
-    );
+    if (!User.isValidUsername(username)) throw StateError(User.usernameHint);
+    final supabase.AuthResponse result;
+    try {
+      result = await _auth.signUp(
+        email: email.trim(),
+        password: password,
+        data: {'username': username.trim().toLowerCase()},
+      );
+    } on supabase.AuthException catch (error) {
+      // Auth masks profile-trigger errors, including a duplicate username.
+      if (error.message.toLowerCase().contains(
+        'database error saving new user',
+      )) {
+        throw StateError(
+          'Could not create your account. Try another username or retry later.',
+        );
+      }
+      rethrow;
+    }
     if (result.session != null) _applySession(result.session);
   }
 

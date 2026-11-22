@@ -34,7 +34,10 @@ def main():
             run(['pg_ctl', '-D', str(data), '-o', options, '-l', str(directory / 'postgres.log'), '-w', 'start'], check=True)
             started = True
             run(['createdb', '-h', '127.0.0.1', '-p', str(port), '-U', 'postgres', 'supra_test'], check=True)
+            run(['psql', '-X', '-v', 'ON_ERROR_STOP=1', '-h', '127.0.0.1', '-p', str(port),
+                 '-U', 'postgres', '-d', 'supra_test', '-f', str(ROOT / 'testing/sql/username_migration.sql')], check=True)
             env = dict(os.environ)
+            env['SUPRA_TEST_AUTH_FIXTURE'] = '1'
             env['SUPRA_TEST_DATABASE_URL'] = f'postgres://postgres@127.0.0.1:{port}/supra_test'
             result = run(['cargo', 'test', '--locked', '--offline', '--', '--ignored', '--exact', 'db_tests::migrated_schema_enforces_user_boundaries'], env=env)
             code = result.returncode

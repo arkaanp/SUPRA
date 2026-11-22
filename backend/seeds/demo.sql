@@ -5,8 +5,8 @@
 -- Stable IDs make repeated application idempotent. Existing rows are not changed.
 BEGIN;
 
-INSERT INTO users (id, full_name, email)
-VALUES (:'demo_user_id'::uuid, 'Demo Commuter', :'demo_email')
+INSERT INTO users (id, username, email)
+VALUES (:'demo_user_id'::uuid, 'demo_commuter', :'demo_email')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO trips (id, user_id, name, start_location, destination, planned_departure)

@@ -18,7 +18,7 @@ void main() {
           expect(req.headers['Authorization'], 'Bearer test-token');
           expect(req.followRedirects, false);
           expect(req.url.path, '/api/users');
-          expect(jsonDecode(req.body), {'full_name': 'Test Rider'});
+          expect(jsonDecode(req.body), {'username': 'test_rider'});
           return http.Response(
             '{"error":"Resource already exists","code":"conflict"}',
             409,
@@ -28,7 +28,7 @@ void main() {
       addTearDown(client.close);
       final api = BackendApi(client: client, baseUrl: 'http://localhost:3000/');
       await expectLater(
-        api.request('POST', '/api/users', {'full_name': 'Test Rider'}),
+        api.request('POST', '/api/users', {'username': 'test_rider'}),
         throwsA(
           isA<ApiException>()
               .having((e) => e.status, 'status', 409)

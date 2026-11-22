@@ -37,7 +37,7 @@ void main() {
         'provider': 'email',
         'providers': ['email'],
       },
-      'user_metadata': {'full_name': 'Test Rider'},
+      'user_metadata': {'username': 'test_rider'},
     };
     final expiresAt = DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600;
     String part(Object value) =>
@@ -54,7 +54,7 @@ void main() {
       httpClient: MockClient((request) async {
         if (request.url.path.endsWith('/signup')) {
           final body = jsonDecode(request.body) as Map<String, dynamic>;
-          expect(body['data']['full_name'], 'Test Rider');
+          expect(body['data']['username'], 'test_rider');
           return http.Response(jsonEncode(user), 200);
         }
         if (request.url.path.endsWith('/token')) {
@@ -86,11 +86,36 @@ void main() {
     final service = SupraService(
       apiBaseUrl: 'http://localhost:3000',
       httpClientFactory: () => MockClient((request) async {
+        if (request.url.path == '/api/auth/username-login') {
+          expect(jsonDecode(request.body), {
+            'username': 'Renamed_Rider',
+            'password': 'password123',
+          });
+          return http.Response(
+            jsonEncode({
+              'access_token': token,
+              'refresh_token': 'refresh-token',
+              'token_type': 'bearer',
+              'expires_in': 3600,
+              'expires_at': expiresAt,
+              'user': user,
+            }),
+            200,
+          );
+        }
         expect(request.headers['Authorization'], 'Bearer $token');
         final path = request.url.path;
         if (path == '/api/users') {
-          expect(jsonDecode(request.body), {'full_name': 'Test Rider'});
-          return http.Response('{}', 200);
+          expect(jsonDecode(request.body), isEmpty);
+          return http.Response(
+            jsonEncode({
+              'id': uuid,
+              'username': 'renamed_rider',
+              'email': user['email'],
+              'created_at': user['created_at'],
+            }),
+            200,
+          );
         }
         if (path == '/api/trips') {
           if (request.method == 'POST') {
@@ -165,12 +190,12 @@ void main() {
     );
     addTearDown(service.dispose);
     service.initializeAuth(client);
-    await service.register('Test Rider', 'rider@example.com', 'password123');
+    await service.register('test_rider', 'rider@example.com', 'password123');
     expect(service.isLoggedIn, isFalse);
 
     final profile = await service.login('rider@example.com', 'password123');
     expect(profile.id, uuid);
-    expect(profile.fullName, 'Test Rider');
+    expect(profile.username, 'test_rider');
     expect(service.isLoggedIn, isTrue);
     expect(client.auth.currentSession!.accessToken, token);
     expect(service.trips, isEmpty);
@@ -213,6 +238,10 @@ void main() {
     expect(service.trips, isEmpty);
     expect(service.notifications, isEmpty);
     expect(service.backendReady, isFalse);
+    await service.login(' Renamed_Rider ', 'password123');
+    expect(client.auth.currentSession?.user.id, uuid);
+    await service.loadAccount();
+    expect(service.currentUser?.username, 'renamed_rider');
   });
 
   test('Password recovery requests email, verifies OTP code, and completes password update', () async {
@@ -227,7 +256,7 @@ void main() {
         'provider': 'email',
         'providers': ['email'],
       },
-      'user_metadata': {'full_name': 'Test Rider'},
+      'user_metadata': {'username': 'test_rider'},
     };
     final expiresAt = DateTime.now().millisecondsSinceEpoch ~/ 1000 + 3600;
     String part(Object value) =>

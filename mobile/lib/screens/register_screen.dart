@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../models/user.dart';
+
 import 'package:supra_mobile_ui/services/supra_api_service.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -10,7 +12,7 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  final _name = TextEditingController();
+  final _username = TextEditingController();
   final _email = TextEditingController();
   final _password = TextEditingController();
   final _confirm = TextEditingController();
@@ -18,7 +20,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
-    _name.dispose();
+    _username.dispose();
     _email.dispose();
     _password.dispose();
     _confirm.dispose();
@@ -38,7 +40,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _loading = true);
     try {
       await SupraService.instance.register(
-        _name.text.trim(),
+        _username.text.trim(),
         _email.text.trim(),
         _password.text,
       );
@@ -83,9 +85,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
               const SizedBox(height: 8),
               TextField(
-                controller: _name,
+                controller: _username,
+                autocorrect: false,
+                autofillHints: const [AutofillHints.newUsername],
                 decoration: const InputDecoration(
-                  labelText: 'Full name',
+                  labelText: 'Username',
+                  helperText: User.usernameHint,
                   prefixIcon: Icon(Icons.person_outline),
                 ),
               ),

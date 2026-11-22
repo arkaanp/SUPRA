@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../models/user.dart';
 import '../widgets/news_severity_selector.dart';
 
 import 'package:image_picker/image_picker.dart';
@@ -88,7 +89,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _showEditProfileDialog() async {
-    final currentName = SupraService.instance.currentUser?.fullName ?? '';
+    final currentName = SupraService.instance.currentUser?.username ?? '';
     final controller = TextEditingController(text: currentName);
     final formKey = GlobalKey<FormState>();
     bool submitting = false;
@@ -115,18 +116,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   autofocus: true,
                   enabled: !submitting,
                   decoration: const InputDecoration(
-                    labelText: 'Full Name',
-                    hintText: 'Enter your full name',
+                    labelText: 'Username',
+                    hintText: 'Enter your username',
                   ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Full name is required';
-                    }
-                    if (value.trim().length > 255) {
-                      return 'Full name must be at most 255 characters';
-                    }
-                    return null;
-                  },
+                  validator: (value) => User.isValidUsername(value ?? '')
+                      ? null
+                      : User.usernameHint,
                 ),
               ),
               actions: [
@@ -146,7 +141,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             final updated = await SupraService.instance
                                 .updateProfile(controller.text.trim());
                             if (dialogContext.mounted) {
-                              Navigator.of(dialogContext).pop(updated.fullName);
+                              Navigator.of(dialogContext).pop(updated.username);
                             }
                           } catch (error) {
                             setDialogState(() => submitting = false);
@@ -573,7 +568,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      user?.fullName ?? 'User',
+                                      (user?.username.isNotEmpty ?? false)
+                                          ? user!.username
+                                          : 'User',
                                       style: textTheme.titleMedium?.copyWith(
                                         fontWeight: FontWeight.w700,
                                         color: colorScheme.onSurface,

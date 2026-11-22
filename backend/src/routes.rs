@@ -25,7 +25,13 @@ pub(crate) fn create_router_with_conditions(
         .route("/health/live", get(health::live))
         .route("/health/ready", get(health::ready))
         .route("/uploads/avatars/{filename}", get(users::serve_avatar))
-        .merge(protected_routes(verifier))
+        .route(
+            "/api/auth/username-login",
+            post(crate::auth::login_with_username)
+                .layer(axum::extract::DefaultBodyLimit::max(16 * 1024)),
+        )
+        .merge(protected_routes(verifier.clone()))
+        .layer(axum::Extension(verifier))
         .fallback(|| async { crate::error::AppError::NotFound })
         .method_not_allowed_fallback(|| async { crate::error::AppError::MethodNotAllowed })
         .layer(axum::Extension(conditions))

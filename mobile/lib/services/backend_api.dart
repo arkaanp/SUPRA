@@ -35,6 +35,8 @@ class BackendApi {
         request.method == 'DELETE' &&
                 request.url.path == '/api/notifications/read'
             ? 'The server did not confirm deletion. Refresh to check the result before retrying.'
+            : request.url.path == '/api/auth/username-login'
+            ? 'Sign-in timed out. Please try again.'
             : request.url.path == '/api/agent/chat'
             ? 'The assistant took too long to respond. Try again.'
             : request.method == 'GET'
@@ -61,6 +63,12 @@ class BackendApi {
       request,
       path == '/api/agent/chat' ? const Duration(seconds: 35) : requestTimeout,
     );
+    if (path == '/api/auth/username-login' && response.statusCode == 429) {
+      throw const ApiException(
+        429,
+        'Too many login attempts. Try again later.',
+      );
+    }
     dynamic body;
     try {
       body = jsonDecode(response.body);

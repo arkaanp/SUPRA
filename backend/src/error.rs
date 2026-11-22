@@ -12,6 +12,8 @@ pub enum AppError {
     MethodNotAllowed,
     Unavailable,
     Conflict,
+    InvalidCredentials,
+    TooManyAttempts,
     Internal(sqlx::Error),
 }
 
@@ -57,6 +59,16 @@ impl IntoResponse for AppError {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "unavailable",
                 "Service not ready".into(),
+            ),
+            Self::InvalidCredentials => (
+                StatusCode::UNAUTHORIZED,
+                "invalid_credentials",
+                "Invalid username or password".into(),
+            ),
+            Self::TooManyAttempts => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "rate_limited",
+                "Too many login attempts. Try again later.".into(),
             ),
             Self::Conflict => (
                 StatusCode::CONFLICT,

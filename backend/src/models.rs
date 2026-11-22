@@ -11,7 +11,7 @@ use uuid::Uuid;
 #[derive(Debug, Serialize, Deserialize, FromRow)]
 pub struct User {
     pub id: Uuid,
-    pub full_name: String,
+    pub username: String,
     pub email: String,
     pub avatar_url: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -20,13 +20,13 @@ pub struct User {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CreateUser {
-    pub full_name: String,
+    pub username: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UpdateUser {
-    pub full_name: Option<String>,
+    pub username: Option<String>,
     pub avatar_url: Option<String>,
 }
 

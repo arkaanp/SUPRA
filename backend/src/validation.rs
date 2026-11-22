@@ -117,19 +117,24 @@ fn waypoints(value: &Value) -> Result<(), AppError> {
     Ok(())
 }
 
+pub fn validate_username(value: &str) -> Result<(), AppError> {
+    if !(3..=32).contains(&value.len())
+        || !value.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_')
+    {
+        return Err(AppError::bad_request("Use 3–32 letters, numbers or underscores for your username"));
+    }
+    Ok(())
+}
+
 impl Validate for CreateUser {
     fn validate(&self) -> Result<(), AppError> {
-        nonempty(&self.full_name, "full_name", 255)?;
-        Ok(())
+        self.username.as_deref().map_or(Ok(()), validate_username)
     }
 }
 
 impl Validate for UpdateUser {
     fn validate(&self) -> Result<(), AppError> {
-        if let Some(name) = &self.full_name {
-            nonempty(name, "full_name", 255)?;
-        }
-        Ok(())
+        self.username.as_deref().map_or(Ok(()), validate_username)
     }
 }
 
@@ -306,11 +311,11 @@ mod tests {
                 "/api/routes",
                 serde_json::json!({"trip_id": "00000000-0000-4000-8000-000000000001", "waypoints": [[-6.2, 106.8]], "total_distance": 1}),
             ),
-            ("POST", "/api/users", serde_json::json!({"full_name": ""})),
+            ("POST", "/api/users", serde_json::json!({"username": ""})),
             (
                 "POST",
                 "/api/users",
-                serde_json::json!({"full_name": "A", "email": "a@example.com", "typo": true}),
+                serde_json::json!({"username": "A", "email": "a@example.com", "typo": true}),
             ),
             (
                 "PUT",

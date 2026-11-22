@@ -1,0 +1,21 @@
+[Unit]
+Description=SUPRA backend
+After=network-online.target supra-ml.service
+Wants=network-online.target supra-ml.service
+
+[Service]
+DynamicUser=yes
+WorkingDirectory=/opt/supra/current/backend
+EnvironmentFile=/etc/supra/backend.env
+Environment=BIND_ADDR=127.0.0.1:3000
+ExecStart=/opt/supra/current/backend/target/release/supra_backend
+StateDirectory=supra
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

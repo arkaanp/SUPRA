@@ -76,14 +76,14 @@ pub async fn create_user(
 ) -> AppResult<Json<User>> {
     let user = sqlx::query_as::<_, User>(
         r#"
-        INSERT INTO users (id, full_name, email)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (id) DO UPDATE SET full_name = EXCLUDED.full_name, email = EXCLUDED.email
-        RETURNING id, full_name, email, avatar_url, created_at
+        INSERT INTO users (id, username, email)
+        VALUES ($1, COALESCE(lower($2), 'user_' || replace($1::uuid::text, '-', '')), $3)
+        ON CONFLICT (id) DO UPDATE SET email = EXCLUDED.email
+        RETURNING id, username, email, avatar_url, created_at
         "#,
     )
     .bind(user.id)
-    .bind(payload.full_name)
+    .bind(payload.username)
     .bind(user.email)
     .fetch_one(&state.pool)
     .await?;
@@ -99,7 +99,7 @@ pub async fn get_user(
     require_self(&user, id)?;
     let user = sqlx::query_as::<_, User>(
         r#"
-        SELECT id, full_name, email, avatar_url, created_at FROM users WHERE id = $1
+        SELECT id, username, email, avatar_url, created_at FROM users WHERE id = $1
         "#,
     )
     .bind(user.id)
@@ -115,7 +115,7 @@ pub async fn list_users(
 ) -> AppResult<Json<Vec<User>>> {
     let users = sqlx::query_as::<_, User>(
         r#"
-        SELECT id, full_name, email, avatar_url, created_at FROM users WHERE id = $1
+        SELECT id, username, email, avatar_url, created_at FROM users WHERE id = $1
         "#,
     )
     .bind(user.id)
@@ -135,14 +135,14 @@ pub async fn update_user(
     let user = sqlx::query_as::<_, User>(
         r#"
         UPDATE users
-        SET full_name  = COALESCE($1, full_name),
+        SET username  = COALESCE(lower($1), username),
             email      = COALESCE($2, email),
             avatar_url = COALESCE($3, avatar_url)
         WHERE id = $4
-        RETURNING id, full_name, email, avatar_url, created_at
+        RETURNING id, username, email, avatar_url, created_at
         "#,
     )
-    .bind(payload.full_name)
+    .bind(payload.username)
     .bind(user.email)
     .bind(payload.avatar_url)
     .bind(user.id)
@@ -158,7 +158,7 @@ pub async fn get_profile(
 ) -> AppResult<Json<User>> {
     let profile = sqlx::query_as::<_, User>(
         r#"
-        SELECT id, full_name, email, avatar_url, created_at FROM users WHERE id = $1
+        SELECT id, username, email, avatar_url, created_at FROM users WHERE id = $1
         "#,
     )
     .bind(user.id)
@@ -175,17 +175,17 @@ pub async fn update_profile(
 ) -> AppResult<Json<User>> {
     let updated = sqlx::query_as::<_, User>(
         r#"
-        INSERT INTO users (id, full_name, email, avatar_url)
-        VALUES ($1, COALESCE($2, 'Supra user'), $3, $4)
+        INSERT INTO users (id, username, email, avatar_url)
+        VALUES ($1, COALESCE(lower($2), 'user_' || replace($1::uuid::text, '-', '')), $3, $4)
         ON CONFLICT (id) DO UPDATE
-        SET full_name  = COALESCE($2, users.full_name),
+        SET username  = COALESCE(lower($2), users.username),
             email      = EXCLUDED.email,
             avatar_url = COALESCE($4, users.avatar_url)
-        RETURNING id, full_name, email, avatar_url, created_at
+        RETURNING id, username, email, avatar_url, created_at
         "#,
     )
     .bind(user.id)
-    .bind(payload.full_name)
+    .bind(payload.username)
     .bind(user.email)
     .bind(payload.avatar_url)
     .fetch_one(&state.pool)
@@ -234,12 +234,8 @@ pub async fn upload_avatar(
 
     let updated = sqlx::query_as::<_, User>(
         r#"
-        INSERT INTO users (id, full_name, email, avatar_url)
-        VALUES ($1, 'Supra user', $2, $3)
-        ON CONFLICT (id) DO UPDATE
-        SET avatar_url = EXCLUDED.avatar_url,
-            email      = EXCLUDED.email
-        RETURNING id, full_name, email, avatar_url, created_at
+        UPDATE users SET email = $2, avatar_url = $3 WHERE id = $1
+        RETURNING id, username, email, avatar_url, created_at
         "#,
     )
     .bind(user.id)

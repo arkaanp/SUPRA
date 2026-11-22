@@ -1,0 +1,19 @@
+[Unit]
+Description=SUPRA CPU forecast and news service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+DynamicUser=yes
+WorkingDirectory=/opt/supra/current/ml
+ExecStart=/opt/supra/current/ml/.venv/bin/python /opt/supra/current/ml/serve.py --port 8001
+Environment=PYTHONDONTWRITEBYTECODE=1
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

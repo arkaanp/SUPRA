@@ -34,6 +34,8 @@ pub struct AuthVerifier {
     issuer: String,
     audience: String,
     jwks_url: String,
+    token_url: String,
+    publishable_key: Option<String>,
     client: reqwest::Client,
     cache: Arc<RwLock<Option<(Instant, JwkSet)>>>,
 }
@@ -53,6 +55,10 @@ impl AuthVerifier {
         );
         let issuer = format!("{}/auth/v1", project_url.trim_end_matches('/'));
         Ok(Self {
+            token_url: format!("{issuer}/token"),
+            publishable_key: std::env::var("SUPABASE_PUBLISHABLE_KEY")
+                .ok()
+                .filter(|key| !key.is_empty()),
             jwks_url: format!("{issuer}/.well-known/jwks.json"),
             issuer,
             audience: audience.to_owned(),
@@ -137,6 +143,64 @@ fn user_from_claims(claims: Claims) -> anyhow::Result<AuthUser> {
         id,
         email: claims.email,
     })
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UsernameLogin {
+    username: String,
+    password: String,
+}
+
+/// Resolve only inside the backend. Supabase still verifies the password and
+/// confirmation state; the app receives a session only for the matched UUID.
+pub async fn login_with_username(
+    State(state): State<crate::db::AppState>,
+    axum::Extension(auth): axum::Extension<AuthVerifier>,
+    Json(input): Json<UsernameLogin>,
+) -> crate::error::AppResult<Response> {
+    use crate::error::AppError;
+    let username = input.username.trim().to_ascii_lowercase();
+    if username.len() > 37 || input.password.is_empty() {
+        return Err(AppError::InvalidCredentials);
+    }
+    let key = auth
+        .publishable_key
+        .as_deref()
+        .ok_or(AppError::Unavailable)?;
+    let account = sqlx::query_as::<_, (Uuid, String)>(
+        "SELECT a.id, a.email FROM public.users p JOIN auth.users a ON a.id = p.id
+         WHERE p.username = $1 AND a.email IS NOT NULL",
+    )
+    .bind(username)
+    .fetch_optional(&state.pool)
+    .await?;
+    // Unknown handles take the same Auth path and return the same error.
+    let email = account.as_ref().map_or_else(
+        || format!("{}@invalid.example", Uuid::new_v4()),
+        |(_, email)| email.clone(),
+    );
+    let response = auth
+        .client
+        .post(&auth.token_url)
+        .query(&[("grant_type", "password")])
+        .header("apikey", key)
+        .json(&serde_json::json!({"email": email, "password": input.password}))
+        .send()
+        .await
+        .map_err(|_| AppError::Unavailable)?;
+    match response.status().as_u16() {
+        200 => (),
+        400 | 401 | 403 | 422 => return Err(AppError::InvalidCredentials),
+        429 => return Err(AppError::TooManyAttempts),
+        _ => return Err(AppError::Unavailable),
+    }
+    let session: serde_json::Value = response.json().await.map_err(|_| AppError::Unavailable)?;
+    let expected_id = account.ok_or(AppError::InvalidCredentials)?.0.to_string();
+    if session.pointer("/user/id").and_then(|id| id.as_str()) != Some(expected_id.as_str()) {
+        return Err(AppError::InvalidCredentials);
+    }
+    Ok(([(header::CACHE_CONTROL, "no-store")], Json(session)).into_response())
 }
 
 pub async fn authenticate(
@@ -225,6 +289,11 @@ pub(crate) mod test_support {
                 signing_key: EncodingKey::from_ec_der(private.as_ref()),
                 server,
             }
+        }
+
+        pub fn password_endpoint(&mut self, url: String) {
+            self.verifier.token_url = url;
+            self.verifier.publishable_key = Some("test-key".into());
         }
 
         pub fn token(&self, id: Uuid, email: &str) -> String {

@@ -33,3 +33,6 @@
 /ml/artifacts/*.pt*
 **/__pycache__/
 /testing/ml-training.log
+
+# Generated OCI release includes the locally trained model.
+/deploy/oracle/dist/

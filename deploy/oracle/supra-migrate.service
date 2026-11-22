@@ -1,0 +1,15 @@
+[Unit]
+Description=Apply SUPRA database migrations
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+WorkingDirectory=/opt/supra/current/backend
+EnvironmentFile=/etc/supra/backend.env
+ExecStart=/opt/supra/current/backend/target/release/supra_backend migrate
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes

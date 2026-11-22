@@ -33,12 +33,13 @@ changing defines.
 
 ## Supported behavior
 
-- Supabase email/password registration, email confirmation, sign-in, restored
-  sessions, token refresh and sign-out. With confirmation enabled, confirm the
-  email and return to sign-in; the app doesn't require an email deep link.
-- After login/session restoration, authenticated `POST /api/users` synchronizes
-  the profile before loading data. All API calls send the current bearer token;
-  no password, email or caller-selected user UUID is used to authenticate Axum.
+- Registration takes a username, email and password. Confirm the email if the
+  Supabase project requires confirmation. Sign in with either the username or
+  email. Password recovery uses the account email.
+- The backend exchanges username credentials with Supabase over HTTPS. The SDK
+  restores and refreshes the resulting session for either login method.
+  Protected API calls use bearer tokens. Account refresh reads the stored
+  username, and Profile lets the signed-in user rename it.
 - Saved trips load from `GET /api/trips`; create/delete uses the matching API.
   Departure is sent as UTC and displayed in local time. Trip edits and route
   editing are not exposed by this UI yet.

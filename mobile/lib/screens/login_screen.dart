@@ -7,14 +7,14 @@ import 'password_recovery_screen.dart';
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key, this.signIn});
 
-  final Future<void> Function(String email, String password)? signIn;
+  final Future<void> Function(String identifier, String password)? signIn;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _email = TextEditingController();
+  final _identifier = TextEditingController();
   final _password = TextEditingController();
   final _passwordFocus = FocusNode();
   bool _obscure = true;
@@ -22,7 +22,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
-    _email.dispose();
+    _identifier.dispose();
     _password.dispose();
     _passwordFocus.dispose();
     super.dispose();
@@ -33,9 +33,12 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
     try {
       if (widget.signIn != null) {
-        await widget.signIn!(_email.text.trim(), _password.text);
+        await widget.signIn!(_identifier.text.trim(), _password.text);
       } else {
-        await SupraService.instance.login(_email.text.trim(), _password.text);
+        await SupraService.instance.login(
+          _identifier.text.trim(),
+          _password.text,
+        );
       }
       if (!mounted) return;
       Navigator.of(context).popUntil((route) => route.isFirst);
@@ -74,13 +77,14 @@ class _LoginScreenState extends State<LoginScreen> {
               ),
               const SizedBox(height: 32),
               TextField(
-                controller: _email,
-                keyboardType: TextInputType.emailAddress,
+                controller: _identifier,
+                autocorrect: false,
+                autofillHints: const [AutofillHints.username],
                 textInputAction: TextInputAction.next,
                 onSubmitted: (_) => _passwordFocus.requestFocus(),
                 decoration: const InputDecoration(
-                  labelText: 'Email',
-                  prefixIcon: Icon(Icons.email_outlined),
+                  labelText: 'Username or email',
+                  prefixIcon: Icon(Icons.person_outline),
                 ),
               ),
               const SizedBox(height: 16),
@@ -113,7 +117,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     : () => Navigator.of(context).push(
                         MaterialPageRoute<void>(
                           builder: (_) => PasswordRecoveryScreen(
-                            initialEmail: _email.text.trim(),
+                            initialEmail: _identifier.text.contains('@')
+                                ? _identifier.text.trim()
+                                : '',
                           ),
                         ),
                       ),

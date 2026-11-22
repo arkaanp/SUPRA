@@ -69,12 +69,24 @@ async fn migrated_schema_enforces_user_boundaries() {
             token,
             "POST",
             "/api/users",
-            Some(json!({"full_name": "API Test"})),
+            Some(json!({"username": id.simple().to_string()})),
         )
         .await;
         assert_eq!(status, StatusCode::OK, "{profile}");
         assert_eq!(profile["id"], id.to_string());
         assert!(profile.get("password_hash").is_none());
+    }
+    let new_handle = format!("rider_{}", &alice.simple().to_string()[..12]);
+    let (status, profile) = request(&app, &token_a, "PUT", "/api/profile",
+        Some(json!({"username":new_handle.to_uppercase()}))).await;
+    assert_eq!(status, StatusCode::OK, "{profile}");
+    let (_, refreshed) = request(&app, &token_a, "POST", "/api/users", Some(json!({}))).await;
+    assert_eq!(refreshed["username"], new_handle);
+    let (duplicate, _) = request(&app, &token_b, "PUT", "/api/profile",
+        Some(json!({"username":new_handle}))).await;
+    assert_eq!(duplicate, StatusCode::CONFLICT);
+    if std::env::var_os("SUPRA_TEST_AUTH_FIXTURE").is_some() {
+        check_username_login(&state, alice, &new_handle).await;
     }
     // Exercise the real upload transaction and profile response, not just image parsing.
     let mut png = std::io::Cursor::new(Vec::new());
@@ -500,4 +512,40 @@ async fn migrated_schema_enforces_user_boundaries() {
         .await
         .unwrap();
     assert_eq!(remaining, 0);
+}
+
+async fn check_username_login(state: &AppState, id: Uuid, username: &str) {
+    use axum::{Json, routing::post};
+    // The Auth email deliberately differs from the cached profile email.
+    sqlx::query("INSERT INTO auth.users (id,email) VALUES ($1,'current@example.invalid')")
+        .bind(id).execute(&state.pool).await.unwrap();
+    let provider = Router::new().route("/token", post(move |Json(body): Json<Value>| async move {
+        if body["email"] == "current@example.invalid" && body["password"] == "correct" {
+            (StatusCode::OK, Json(json!({"refresh_token":"refresh", "user":{"id":id}})))
+        } else {
+            (StatusCode::BAD_REQUEST, Json(json!({"message":"Upstream detail"})))
+        }
+    }));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/token", listener.local_addr().unwrap());
+    let server = tokio::spawn(async move { axum::serve(listener, provider).await.unwrap() });
+    let mut fixture = Fixture::new().await;
+    fixture.password_endpoint(url);
+    let app = create_router(state.clone(), fixture.verifier.clone());
+    for (name, password, expected) in [
+        (username.to_uppercase(), "correct", StatusCode::OK),
+        (username.to_owned(), "wrong", StatusCode::UNAUTHORIZED),
+        ("unknown".into(), "correct", StatusCode::UNAUTHORIZED),
+    ] {
+        let (status, body) = request(&app, "", "POST", "/api/auth/username-login",
+            Some(json!({"username":name,"password":password}))).await;
+        assert_eq!(status, expected, "{body}");
+        if status == StatusCode::OK {
+            assert_eq!(body["user"]["id"], id.to_string());
+        } else {
+            assert_eq!(body["code"], "invalid_credentials");
+            assert!(body.get("user").is_none());
+        }
+    }
+    server.abort();
 }

@@ -5,6 +5,8 @@ reference** containing executable example DML; do **not** run the whole file
 against a database. Use only `migrations/` for schema and `seeds/` for optional
 demo records. Neither migration nor seeding happens on ordinary server startup.
 
+[Render Free demo deployment guide](../deploy/render/README.md) · [Oracle Cloud Always Free deployment guide](../deploy/oracle/README.md)
+
 ## Fresh database
 
 Create a PostgreSQL database (local or Supabase). Set `DATABASE_URL` to a
@@ -61,11 +63,24 @@ to Axum. Set `SUPABASE_URL` and optionally `SUPABASE_JWT_AUDIENCE` (defaults to
 UUID and role via JWKS. HS256 tokens are unsupported; migrate the project's
 signing keys before use. No signing secret or service-role key belongs in Flutter.
 
-After sign-in, `POST /api/users` with `{ "full_name": "Your Name" }` upserts the
-profile; email and UUID come from the verified token. `GET /api/users` returns
-only that user's profile. Deleting the profile does **not** delete its Supabase
-Auth account. Ordinary clients cannot create/delete predictions or create
-notifications: those writes belong to server-side jobs.
+New registrations supply a username, email and password. On Supabase the signup
+trigger reserves the username with the Auth UUID even when email confirmation is
+pending. Registration and profile edits accept 3–32 ASCII letters, digits or
+underscores. Usernames are stored lowercase. The migration normalizes legacy
+names and gives colliding or unusable names a unique UUID-based handle. Existing
+users can sign in by email to see or change their handle in Profile.
+
+Email login and recovery use Supabase directly. For username login, configure
+`SUPABASE_PUBLISHABLE_KEY` for the same project. Public
+`POST /api/auth/username-login` accepts username and password, joins the profile
+to the current Auth email by UUID and exchanges credentials with Supabase.
+Only a successful password grant for that UUID returns a session. Use HTTPS
+and the rate-limited reverse proxy in the deployment guide.
+
+Authenticated `POST /api/users` with `{}` loads or initializes the profile.
+Refresh preserves the stored username. `PUT /api/profile` with
+`{"username":"new_handle"}` renames it. Protected routes derive ownership from
+the verified access token. Release the updated Flutter app with this migration.
 
 ## Tests
 
