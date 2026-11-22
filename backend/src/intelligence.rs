@@ -17,7 +17,7 @@ impl IntelligenceService {
     pub fn from_env() -> Self {
         Self {
             client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(18))
+                .timeout(std::time::Duration::from_secs(28))
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .expect("ML HTTP configuration"),
@@ -182,6 +182,30 @@ fn valid_forecast(v: &Value, q: &ConditionsQuery, now: DateTime<Utc>) -> bool {
             {
                 return Some(false);
             }
+            if !row["estimated_aqi"].is_null() || !row["estimated_pm25"].is_null() {
+                let air = &v["air_forecast"];
+                if v["scope"] != "weather_only"
+                    || !row["provider_aqi"].is_null()
+                    || air["model_id"].as_str().is_none_or(str::is_empty)
+                    || v["sources"]["air_forecast"]
+                        .as_str()
+                        .is_none_or(str::is_empty)
+                    || !date(air, "input_through")
+                        .is_some_and(|t| t <= now && t > now - Duration::hours(2))
+                    || !date(air, "expires_at").is_some_and(|t| t > now)
+                    || !air["station"]["distance_km"]
+                        .as_f64()
+                        .is_some_and(|d| (0.0..=25.0).contains(&d))
+                    || !row["estimated_aqi"]
+                        .as_f64()
+                        .is_some_and(|n| (0.0..=4000.0).contains(&n))
+                    || !row["estimated_pm25"]
+                        .as_f64()
+                        .is_some_and(|n| (0.0..=2000.0).contains(&n))
+                {
+                    return Some(false);
+                }
+            }
             // Traffic has not been trained. Reject mislabeled numeric output.
             if !row["traffic_speed_kmh"].is_null() || !row["traffic_density"].is_null() {
                 return Some(false);
@@ -218,6 +242,28 @@ mod tests {
         assert!(!valid_forecast(&partial, &q, now));
         partial["sources"] = json!({"air_forecast":"CAMS"});
         assert!(valid_forecast(&partial, &q, now));
+        partial["hourly"][0]["provider_aqi"] = Value::Null;
+        partial["hourly"][0]["estimated_aqi"] = json!(95);
+        partial["hourly"][0]["estimated_pm25"] = json!(32.5);
+        assert!(!valid_forecast(&partial, &q, now));
+        partial["air_forecast"] = json!({"model_id":"supra-air-test",
+            "input_through": now-Duration::minutes(30), "expires_at":now+Duration::hours(1),
+            "station":{"distance_km":5.}});
+        assert!(valid_forecast(&partial, &q, now));
+        for (key, value) in [
+            ("input_through", json!(now - Duration::hours(3))),
+            ("expires_at", json!(now - Duration::minutes(1))),
+        ] {
+            let mut bad = partial.clone();
+            bad["air_forecast"][key] = value;
+            assert!(!valid_forecast(&bad, &q, now));
+        }
+        let mut bad = partial.clone();
+        bad["air_forecast"]["station"]["distance_km"] = json!(50.);
+        assert!(!valid_forecast(&bad, &q, now));
+        bad = partial.clone();
+        bad["hourly"][0]["estimated_pm25"] = Value::Null;
+        assert!(!valid_forecast(&bad, &q, now));
         for (key, value) in [
             ("latitude", json!(-6.4)),
             ("expires_at", json!(now - Duration::hours(1))),

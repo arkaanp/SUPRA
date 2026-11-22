@@ -38,7 +38,10 @@ Model weights live in `ml/artifacts/forecast.pt`; downloaded history lives under
 [model_card.json](artifacts/model_card.json) remain visible for demonstration.
 Retraining replaces the checkpoint atomically; the running service reloads it on
 its next inference request. Use `--reuse-data` to reproduce training on the saved
-history. Record a new model card when downloading fresh history.
+history. Record a new model card when downloading fresh history. Export
+`OPENAQ_API_KEY` into the Python worker environment to enable the station-based
+AQI fallback. Render supplies it to both processes from the service environment;
+starting Python separately does not automatically load `backend/.env`.
 
 ## Model and validation
 
@@ -82,6 +85,42 @@ data is available, the API includes it as `provider_aqi` at matching valid
 times, with separate attribution. The weather model leaves its own AQI and
 PM2.5 fields null. MET Norway symbols are also matched to valid times and shown
 alongside the model's precipitation predictions. Both models enforce the 90-day training-data limit.
+
+If CAMS future AQI is missing, an additional PyTorch model uses twelve consecutive
+OpenAQ hourly PM2.5 observations from a stationary sensor within 25 km. The latest
+hour must be less than two hours old; flagged readings, coverage below 75%, gaps
+and duplicate hours are rejected. It predicts fourteen lead hours to cover the
+next twelve hours even when the latest observation is an hour behind. Each future
+PM2.5 value joins the preceding measured/predicted history to calculate a projected
+US EPA PM2.5 NowCast index. These are PM2.5-based indices; they do not include the
+maximum AQI across other pollutants.
+
+The response keeps the original weather model's air fields null and carries
+`estimated_aqi` / `estimated_pm25` separately. CAMS values take priority for hours
+where available. Home's twelve future boxes and Trip's origin forecast show the
+station-based values as **ML estimate**. Station distance, input timestamp,
+attribution and limitations are available through the source information button.
+Missing recent station history leaves AQI unavailable.
+
+The direct ridge model is fitted with PyTorch on log PM2.5, twelve past hours,
+local time and coordinates. Rebuild it with `ml/.venv/bin/python ml/air_model.py`
+after refreshing `ml/data/history.json`. The current artifact has 5,410 training,
+715 validation and 720 test windows with chronological partitions. Held-out CAMS
+PM2.5 MAE is 20.67 µg/m³, compared with 42.40 µg/m³ for persistence; validation MAE
+is 20.16 µg/m³. These scores assess CAMS history. **Accuracy using OpenAQ station
+inputs has not been measured.** Overlapping site/hour windows are correlated.
+This experimental model also expires ninety days after its training data.
+Weights, dataset hash and per-horizon errors are in
+[air_model.json](artifacts/air_model.json).
+
+To demonstrate the fallback through the Python HTTP worker with live station and
+weather inputs while injecting an Open-Meteo/CAMS outage, run:
+
+```sh
+ml/.venv/bin/python testing/scripts/openaq_forecast_smoke.py --env-file backend/.env
+```
+
+The script reads only the OpenAQ key and writes dated evidence under `testing/evidence/`.
 
 Rebuild the fallback weights from the saved training history with
 `ml/.venv/bin/python ml/weather_model.py`. The model fits ridge regressions for

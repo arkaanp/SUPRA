@@ -17,6 +17,7 @@ import '../models/commute.dart';
 import '../services/conditions_repository.dart';
 import '../services/geocoding_service.dart';
 import '../services/routing_service.dart';
+import '../services/backend_api.dart';
 import '../services/ai_assistant_service.dart';
 import '../services/supra_api_service.dart';
 import '../services/transit_network.dart';
@@ -772,7 +773,7 @@ class TripScreenState extends State<TripScreen> {
           _mapKey.currentState?.fitToRoute(points);
         });
       }
-    } catch (_) {
+    } catch (error) {
       if (mounted && generation == _routeGeneration) {
         setState(() {
           _loadingRoutes = false;
@@ -780,9 +781,13 @@ class TripScreenState extends State<TripScreen> {
           _selectedRoute = previous.isEmpty ? null : previous.first;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'Route unavailable. Check your connection/provider configuration. Transit requires an active service within walking distance. No estimated route has been substituted.',
+              _requestedMode == TransportMode.publicTransit
+                  ? error is ApiException && error.status == 404
+                        ? 'No scheduled transit journey reaches this destination in the next 6 hours. Check service hours and nearby stations.'
+                        : 'Transit lookup failed. The service may be waking up or the timetable provider may be unavailable. Please retry.'
+                  : 'Route unavailable. Check your connection and try again.',
             ),
           ),
         );
@@ -1478,7 +1483,11 @@ class TripScreenState extends State<TripScreen> {
     final h = _showMlPredictions ? _mlForecast?.nextAt(now) : null;
     if (h != null) {
       final time = h.targetTime.toUtc().add(const Duration(hours: 7));
-      return 'ML · origin ${time.hour.toString().padLeft(2, '0')}:00 WIB${h.displayAqi == null ? "" : " · AQI ${h.displayAqi!.round()}${h.providerAqi != null ? " forecast" : ""}"} · Rain ${h.precipitationMm.toStringAsFixed(1)} mm (${(h.rainProbability * 100).round()}%) · ${h.temperatureC.round()}°C · $traffic';
+      return 'ML · origin ${time.hour.toString().padLeft(2, '0')}:00 WIB${h.displayAqi == null ? "" : " · AQI ${h.displayAqi!.round()}${h.providerAqi != null
+                ? " forecast"
+                : h.estimatedAqi != null
+                ? " ML estimate"
+                : ""}"} · Rain ${h.precipitationMm.toStringAsFixed(1)} mm (${(h.rainProbability * 100).round()}%) · ${h.temperatureC.round()}°C · $traffic';
     }
     final pm25 =
         _selectedRoute?.pm25UgM3 ?? cond?.airQuality.number('pm25_ug_m3');
@@ -2519,6 +2528,9 @@ class TripScreenState extends State<TripScreen> {
     if (mlHour?.aqi != null && mlHour?.pm25 != null) {
       airChipLabel =
           'ML origin · US AQI ${mlHour!.aqi!.round()} · PM2.5 ${mlHour.pm25!.toStringAsFixed(1)} µg/m³';
+    } else if (mlHour?.estimatedAqi != null) {
+      airChipLabel =
+          'ML estimate · AQI ${mlHour!.estimatedAqi!.round()} · PM2.5 ${mlHour.estimatedPm25!.toStringAsFixed(1)} µg/m³';
     } else if (mlHour?.providerAqi != null) {
       airChipLabel = 'AQI forecast · ${mlHour!.providerAqi!.round()}';
     } else if (effectivePm25 != null || effectiveAqi != null) {

@@ -14,6 +14,7 @@ from news import latest_news
 from data import InputUnavailable, SOURCES, forecast_aqi, parse_time, utcnow
 from met_weather import SOURCE, forecast_symbols, weather_at
 import weather_model
+import air_model
 
 class App:
     def __init__(self):
@@ -57,11 +58,25 @@ class App:
                             aqi = forecast_aqi(lat, lon)
                         except InputUnavailable as air_error:
                             print(f'Hourly AQI unavailable: {air_error}', flush=True)
-                        else:
-                            for hour in result['hourly']:
-                                hour['provider_aqi'] = aqi.get(parse_time(hour['target_time']))
-                            if any(hour['provider_aqi'] is not None for hour in result['hourly']):
-                                result['sources']['air_forecast'] = SOURCES['attribution']
+                            aqi = {}
+                        for hour in result['hourly']:
+                            hour['provider_aqi'] = aqi.get(parse_time(hour['target_time']))
+                        if any(hour['provider_aqi'] is not None for hour in result['hourly']):
+                            result['sources']['air_forecast'] = SOURCES['attribution']
+                        if any(hour['provider_aqi'] is None for hour in result['hourly']):
+                            try:
+                                estimates, metadata = air_model.forecast(lat, lon, now)
+                            except InputUnavailable as station_error:
+                                print(f'OpenAQ air forecast unavailable: {station_error}', flush=True)
+                            else:
+                                for hour in result['hourly']:
+                                    if hour['provider_aqi'] is None:
+                                        hour.update(estimates.get(parse_time(hour['target_time']), {}))
+                                result['air_forecast'] = metadata
+                                result['expires_at'] = min(parse_time(result['expires_at']),
+                                                          parse_time(metadata['expires_at'])).isoformat()
+                                result['sources']['air_forecast'] = '\n'.join(filter(None, [
+                                    result['sources'].get('air_forecast'), metadata['attribution']]))
                     try:
                         symbols = symbols_request.result()
                     except (OSError, ValueError, KeyError, TypeError):

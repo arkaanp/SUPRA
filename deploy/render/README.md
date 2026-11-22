@@ -4,6 +4,12 @@ The root `render.yaml` creates one Singapore web service. Render terminates HTTP
 
 ## 1. Publish a demo branch
 
+The AQI outage fallback also requires `OPENAQ_API_KEY` in the Render service
+environment. The Docker image includes `ml/artifacts/air_model.json`. Deploy the
+backend and rebuild the APK from the same revision to display its experimental
+station-based AQI estimates on Home and Trip. No database migration is needed for
+this forecast change.
+
 From the repository root, start with the checkout containing the username changes. Render builds the commit available on GitHub. For this checkout the following commands include those changes and the deployment files. The Oracle guide remains available in the repository for later use.
 
 ```bash

@@ -67,7 +67,89 @@ ConditionsRepository availableConditions() => ConditionsRepository(
   ),
 );
 
+Map<String, dynamic> stationForecastPayload(DateTime now) {
+  final data = forecastPayload(now);
+  data['scope'] = 'weather_only';
+  (data['sources'] as Map)['air_forecast'] =
+      'OpenAQ / SUPRA experimental PyTorch';
+  data['air_forecast'] = {
+    'model_id': 'supra-air-test',
+    'input_through': data['input_through'],
+    'station': {'station_name': 'Station A', 'distance_km': 2.5},
+    'limitations': 'Station accuracy remains unmeasured.',
+  };
+  for (final row in data['hourly'] as List) {
+    row['aqi'] = null;
+    row['pm25_ug_m3'] = null;
+    row['estimated_aqi'] = 110;
+    row['estimated_pm25'] = 39.2;
+  }
+  return data;
+}
+
 void main() {
+  test('Station estimates expose AQI and require paired PM2.5', () {
+    final data = stationForecastPayload(DateTime.now());
+    final forecast = MlForecast.fromJson(data);
+    expect(forecast.hourly.length, 12);
+    expect(forecast.hourly.every((h) => h.displayAqi == 110), isTrue);
+    expect(forecast.attribution, contains('Station A'));
+    (data['hourly'] as List)[0]['estimated_pm25'] = null;
+    expect(() => MlForecast.fromJson(data), throwsFormatException);
+  });
+  testWidgets('Home displays experimental AQI in all twelve forecast boxes', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(500, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomeScreen(
+          conditions: availableConditions(),
+          forecasts: ForecastRepository(
+            load: (_) async => stationForecastPayload(DateTime.now()),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(Switch).first);
+    await tester.pumpAndSettle();
+    expect(find.text('110'), findsOneWidget);
+    expect(find.text('AQI 110 · ML estimate'), findsNWidgets(12));
+    expect(find.textContaining('AQI is unavailable'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+  testWidgets('Trip shows origin forecast AQI from the OpenAQ model', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(500, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: TripScreen(
+            routingService: RoutingService(conditions: availableConditions()),
+            forecasts: ForecastRepository(
+              load: (point) async => stationForecastPayload(DateTime.now())
+                ..['latitude'] = point.latitude
+                ..['longitude'] = point.longitude,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Prediksi ML').first);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('AQI 110 ML estimate'), findsOneWidget);
+    expect(find.textContaining('ML forecast unavailable'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
   test('Provider forecast parses, expires, and rejects invalid probability and traffic', () {
     final now = DateTime.now();
     final data = forecastPayload(now);

@@ -9,12 +9,14 @@ class MlForecastHour {
     required this.rainProbability,
     this.providerAqi,
     this.weatherSymbol,
+    this.estimatedAqi,
+    this.estimatedPm25,
   });
   final DateTime targetTime;
   final double temperatureC, precipitationMm, rainProbability;
-  final double? pm25, aqi, providerAqi;
+  final double? pm25, aqi, providerAqi, estimatedAqi, estimatedPm25;
   final String? weatherSymbol;
-  double? get displayAqi => aqi ?? providerAqi;
+  double? get displayAqi => aqi ?? providerAqi ?? estimatedAqi;
   factory MlForecastHour.fromJson(
     Map<String, dynamic> j, {
     bool weatherOnly = false,
@@ -32,6 +34,13 @@ class MlForecastHour {
         'Unexpected air forecast in weather-only model',
       );
     }
+    if ((j['estimated_aqi'] != null || j['estimated_pm25'] != null) &&
+        (!weatherOnly ||
+            j['estimated_aqi'] == null ||
+            j['estimated_pm25'] == null ||
+            j['provider_aqi'] != null)) {
+      throw const FormatException('Invalid estimated air forecast');
+    }
     if (j['traffic_speed_kmh'] != null || j['traffic_density'] != null) {
       throw const FormatException('Unsupported traffic forecast');
     }
@@ -46,6 +55,12 @@ class MlForecastHour {
           ? number('provider_aqi', 0, 2000)
           : null,
       weatherSymbol: j['weather_symbol'] as String?,
+      estimatedAqi: weatherOnly && j['estimated_aqi'] != null
+          ? number('estimated_aqi', 0, 4000)
+          : null,
+      estimatedPm25: weatherOnly && j['estimated_pm25'] != null
+          ? number('estimated_pm25', 0, 2000)
+          : null,
     );
   }
 }
@@ -111,6 +126,16 @@ class MlForecast {
       hourly: hours,
       attribution: [
         (j['sources'] as Map)['attribution'] as String,
+        if (j['air_forecast'] is Map)
+          [
+            j['air_forecast']['model_id'],
+            'Station: ${j['air_forecast']['station']['station_name']}',
+            'Distance: ${(j['air_forecast']['station']['distance_km'] as num).toStringAsFixed(1)} km',
+            'Inputs through ${j['air_forecast']['input_through']}',
+            j['air_forecast']['limitations'],
+            'Provider: ${j['air_forecast']['station']['provider']}',
+            'Licenses: ${j['air_forecast']['station']['licenses']}',
+          ].join('\n'),
         if (j['sources']['air_forecast'] is String)
           j['sources']['air_forecast'] as String,
         if (j['sources']['weather_symbols'] is String &&

@@ -12,7 +12,8 @@ use axum::{Json, extract::Extension};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::Semaphore;
+use std::collections::{BTreeMap, HashMap};
+use tokio::sync::{Mutex, Semaphore};
 
 use crate::{
     error::{AppError, AppResult},
@@ -74,6 +75,7 @@ pub struct ConditionsService {
     permits: Arc<Semaphore>,
     meteo_retry_at: Arc<AtomicI64>,
     cams_retry_at: Arc<AtomicI64>,
+    station_indices: Arc<Mutex<HashMap<u64, (std::time::Instant, Signal)>>>,
 }
 
 impl ConditionsService {
@@ -111,6 +113,7 @@ impl ConditionsService {
             permits: Arc::new(Semaphore::new(8)),
             meteo_retry_at: Default::default(),
             cams_retry_at: Default::default(),
+            station_indices: Default::default(),
         }
     }
 
@@ -265,7 +268,11 @@ impl ConditionsService {
         let station = station.unwrap_or_else(|_| Signal::missing("openaq", "provider_timeout"));
         if station.status == "available" {
             // Station PM2.5 and model AQI have different valid times and provenance.
-            return (station, model.ok());
+            let index = match model {
+                Ok(signal) => Some(signal),
+                Err(_) => self.station_index(&station).await,
+            };
+            return (station, index);
         }
         let air = match model {
             Ok(signal) => signal,
@@ -279,6 +286,51 @@ impl ConditionsService {
             Err(reason) => Signal::missing("open_meteo_cams", reason),
         };
         (air, None)
+    }
+
+    async fn station_index(&self, station: &Signal) -> Option<Signal> {
+        let sensor = station.data.as_ref()?["sensor_id"].as_u64()?;
+        if let Some((fetched, index)) = self.station_indices.lock().await.get(&sensor) {
+            if fetched.elapsed() < Duration::from_secs(600) {
+                let mut index = index.clone();
+                index.data.as_mut()?["distance_km"] = station.data.as_ref()?["distance_km"].clone();
+                return Some(index);
+            }
+        }
+        let key = self.openaq_key.as_ref()?;
+        let now = Utc::now();
+        let request = self
+            .client
+            .get(format!("{}/sensors/{sensor}/hours", self.openaq))
+            .header("X-API-Key", key)
+            .query(&[
+                (
+                    "datetime_from",
+                    (now - chrono::Duration::hours(13)).to_rfc3339(),
+                ),
+                ("datetime_to", now.to_rfc3339()),
+                ("limit", "100".into()),
+            ]);
+        let value = self.get(request).await.ok()?;
+        let mut index = nowcast_index(&value, now)?;
+        let data = index.data.as_mut()?.as_object_mut()?;
+        for field in [
+            "station_id",
+            "station_name",
+            "distance_km",
+            "coordinates",
+            "provider",
+            "owner",
+            "licenses",
+        ] {
+            data.insert(field.into(), station.data.as_ref()?[field].clone());
+        }
+        let mut cache = self.station_indices.lock().await;
+        if cache.len() >= 64 {
+            cache.clear();
+        }
+        cache.insert(sensor, (std::time::Instant::now(), index.clone()));
+        Some(index)
     }
 
     async fn station_air(&self, q: &ConditionsQuery) -> Signal {
@@ -614,15 +666,84 @@ fn parse_air_quality(station: &Value, latest: &Value, distance: f64) -> Option<S
         if time > Utc::now() + chrono::Duration::minutes(15) {
             continue;
         }
-        readings.push((time, value));
+        readings.push((time, value, sensor["id"].as_u64()?));
     }
-    let (time, value) = readings.into_iter().max_by_key(|(t, _)| *t)?;
+    let (time, value, sensor_id) = readings.into_iter().max_by_key(|(t, _, _)| *t)?;
     let stale = time < Utc::now() - chrono::Duration::hours(MAX_AIR_AGE_HOURS);
     Some(Signal { status: if stale { "stale" } else { "available" }, source: "openaq", kind: Some("station_observation"), valid_at: Some(time),
         message: "OpenAQ (https://openaq.org/), attributed to the station's provider/owner below. Nearby station PM2.5 is not a computed AQI or a measurement at your exact point.".into(),
-        data: Some(serde_json::json!({ "pm25_ug_m3": value, "station_id": station["id"],
+        data: Some(serde_json::json!({ "pm25_ug_m3": value, "sensor_id": sensor_id, "station_id": station["id"],
             "station_name": station["name"], "distance_km": distance, "coordinates": station["coordinates"],
             "provider": station["provider"], "owner": station["owner"], "licenses": station["licenses"] })) })
+}
+
+/// EPA PM2.5 NowCast with the current breakpoint table. Hourly period end
+/// timestamps keep gaps in their original age slots.
+fn nowcast_index(value: &Value, now: DateTime<Utc>) -> Option<Signal> {
+    let anchor = now.timestamp() / 3600 * 3600;
+    let mut hours = BTreeMap::new();
+    for row in value["results"].as_array()? {
+        if row["parameter"]["name"] != "pm25"
+            || !matches!(
+                row["parameter"]["units"].as_str()?,
+                "µg/m³" | "μg/m³" | "ug/m3"
+            )
+            || row["flagInfo"]["hasFlags"] == true
+            || row["coverage"]["percentCoverage"].as_f64()? < 75.0
+            || row["period"]["interval"] != "01:00:00"
+        {
+            continue;
+        }
+        let end = DateTime::parse_from_rfc3339(row["period"]["datetimeTo"]["utc"].as_str()?)
+            .ok()?
+            .timestamp();
+        if end % 3600 != 0 || end > anchor || end < anchor - 11 * 3600 {
+            continue;
+        }
+        let amount = number(row, "value", 0.0, 2000.0).ok()?;
+        let age = ((anchor - end) / 3600) as i32;
+        if hours.insert(age, amount).is_some() {
+            return None;
+        }
+    }
+    if hours.keys().filter(|age| **age < 3).count() < 2 {
+        return None;
+    }
+    let high = hours.values().copied().fold(0.0, f64::max);
+    let low = hours.values().copied().fold(f64::INFINITY, f64::min);
+    let weight = if high == 0.0 {
+        1.0
+    } else {
+        (low / high).max(0.5)
+    };
+    let denominator: f64 = hours.keys().map(|age| weight.powi(*age)).sum();
+    let concentration = (hours
+        .iter()
+        .map(|(age, amount)| amount * weight.powi(*age))
+        .sum::<f64>()
+        / denominator
+        * 10.0)
+        .floor()
+        / 10.0;
+    let (lo, hi, ilo, ihi) = [
+        (0.0, 9.0, 0.0, 50.0),
+        (9.1, 35.4, 51.0, 100.0),
+        (35.5, 55.4, 101.0, 150.0),
+        (55.5, 125.4, 151.0, 200.0),
+        (125.5, 225.4, 201.0, 300.0),
+        (225.5, 325.4, 301.0, 500.0),
+    ]
+    .into_iter()
+    .find(|(_, hi, _, _)| concentration <= *hi)
+    .unwrap_or((225.5, 325.4, 301.0, 500.0));
+    let aqi = ((ihi - ilo) / (hi - lo) * (concentration - lo) + ilo).round();
+    Some(Signal {
+        status: "available", source: "openaq", kind: Some("calculated_index"),
+        valid_at: DateTime::from_timestamp(anchor - i64::from(*hours.keys().next()?) * 3600, 0),
+        message: "SUPRA PM2.5 NowCast estimate using nearby OpenAQ hourly measurements and US EPA breakpoints. Source terms and station attribution apply. https://docs.openaq.org/ https://document.airnow.gov/technical-assistance-document-for-the-reporting-of-daily-air-quailty.pdf".into(),
+        data: Some(serde_json::json!({"aqi":aqi,"aqi_standard":"US EPA","aqi_method":"PM2.5 NowCast estimate",
+            "nowcast_pm25_ug_m3":concentration,"hours_available":hours.len()})),
+    })
 }
 
 fn parse_traffic(value: &Value) -> Result<Signal, &'static str> {
@@ -682,6 +803,16 @@ mod tests {
             "data": [{ "cuaca": [[{
                 "utc_datetime": (Utc::now() + chrono::Duration::hours(1)).format("%Y-%m-%d %H:%M:%S").to_string(),
                 "analysis_date": Utc::now().to_rfc3339(), "t": 29, "hu": 80, "weather_desc": "Berawan", "tp": 0 }]] }] })
+    }
+
+    fn hourly_air(values: &[(i64, f64)]) -> Value {
+        let anchor = Utc::now().timestamp() / 3600 * 3600;
+        json!({"results": values.iter().map(|(age, amount)| json!({
+            "value":amount, "parameter":{"name":"pm25","units":"µg/m³"},
+            "period":{"datetimeTo":{"utc":DateTime::from_timestamp(anchor-age*3600,0).unwrap()},
+                      "interval":"01:00:00"},
+            "coverage":{"percentCoverage":100.0}, "flagInfo":{"hasFlags":false}
+        })).collect::<Vec<_>>()})
     }
 
     fn station() -> Value {
@@ -765,6 +896,11 @@ mod tests {
                     }))
                 }),
             )
+            .route("/aq/sensors/456/hours", get(|axum::extract::Query(q): axum::extract::Query<HashMap<String,String>>| async move {
+                assert!(q.contains_key("datetime_from"));
+                assert!(q.contains_key("datetime_to"));
+                Json(hourly_air(&[(0, 35.4), (1, 35.4), (2, 35.4)]))
+            }))
             .route(
                 "/aq/locations",
                 get(|headers: axum::http::HeaderMap| async move {
@@ -919,6 +1055,29 @@ mod tests {
             )
             .is_none()
         );
+        mock.service.cams = mock.service.cams.replace("/cams", "/limited");
+        mock.service.openaq_key = Some("fake-openaq-key".into());
+        let fallback = mock.service.lookup(&query()).await;
+        assert_eq!(fallback.air_quality.source, "openaq");
+        assert_eq!(
+            fallback.air_index.as_ref().unwrap().data.as_ref().unwrap()["aqi"],
+            100.0
+        );
+        assert!(nowcast_index(&hourly_air(&[(0, 10.0)]), Utc::now()).is_none());
+        assert!(nowcast_index(&hourly_air(&[(3, 10.0), (4, 10.0)]), Utc::now()).is_none());
+        for (pm, expected) in [
+            (0.0, 0.0),
+            (9.0, 50.0),
+            (9.1, 51.0),
+            (35.4, 100.0),
+            (55.4, 150.0),
+            (125.4, 200.0),
+            (225.4, 300.0),
+            (325.4, 500.0),
+        ] {
+            let index = nowcast_index(&hourly_air(&[(0, pm), (2, pm)]), Utc::now()).unwrap();
+            assert_eq!(index.data.unwrap()["aqi"], expected);
+        }
         let mut wrong_area = query();
         wrong_area.latitude = -6.6;
         assert!(parse_bmkg(&bmkg(), &wrong_area).is_err());

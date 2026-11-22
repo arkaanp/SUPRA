@@ -28,6 +28,7 @@ class ForecastArtifactTests(unittest.TestCase):
         first_hour = NOW.replace(minute=0) + dt.timedelta(hours=1)
         with patch.object(app.model, 'forecast', side_effect=InputUnavailable('Open-Meteo weather returned HTTP 429')), \
              patch('serve.forecast_aqi', return_value={first_hour: 82}), \
+             patch('air_model.forecast', side_effect=InputUnavailable('No station history')), \
              patch('serve.forecast_symbols', return_value={first_hour: 'partlycloudy_day'}), \
              patch('weather_model.utcnow', return_value=NOW), patch('weather_model.weather_at', return_value=weather):
             payload = app.get('/v1/forecast', {'latitude':['-6.2'], 'longitude':['106.8']})
@@ -38,6 +39,38 @@ class ForecastArtifactTests(unittest.TestCase):
         self.assertEqual(payload['hourly'][0]['weather_symbol'], 'partlycloudy_day')
         self.assertIsNone(payload['hourly'][1]['provider_aqi'])
         self.assertTrue(all(0 <= row['rain_probability'] <= 1 for row in payload['hourly']))
+
+    def test_openaq_pytorch_fills_twelve_air_hours_when_cams_is_rate_limited(self):
+        from data import InputUnavailable, parse_time
+        from serve import App
+        from air_model import nowcast_aqi
+        app = App()
+        anchor = NOW.replace(minute=0)
+        times = [anchor-dt.timedelta(hours=h) for h in range(11, -1, -1)]
+        weather = {'temperature_c': 28.8, 'valid_at': anchor.isoformat(), 'issued_at': anchor.isoformat()}
+        with patch.object(app.model, 'forecast', side_effect=InputUnavailable('HTTP 429')), \
+             patch('serve.forecast_aqi', side_effect=InputUnavailable('CAMS HTTP 429')), \
+             patch('serve.forecast_symbols', return_value={}), \
+             patch('serve.utcnow', return_value=NOW), \
+             patch('weather_model.utcnow', return_value=NOW), \
+             patch('weather_model.weather_at', return_value=weather), \
+             patch('air_model.load_station', return_value=(times, [40.]*12, {
+                 'station_name':'Test station','distance_km':2.5})):
+            payload = app.get('/v1/forecast', {'latitude':['-6.2'], 'longitude':['106.8']})
+        hours = payload['hourly']
+        self.assertEqual(len(hours), 12)
+        self.assertEqual(parse_time(hours[-1]['target_time']), anchor+dt.timedelta(hours=12))
+        self.assertTrue(all(row['aqi'] is None and row['provider_aqi'] is None for row in hours))
+        self.assertTrue(all(0 <= row['estimated_aqi'] <= 4000 and 0 <= row['estimated_pm25'] <= 2000 for row in hours))
+        self.assertGreater(len({row['estimated_aqi'] for row in hours}), 1)
+        history = [40.]*12
+        for row in hours:
+            history.append(row['estimated_pm25'])
+            self.assertEqual(row['estimated_aqi'], nowcast_aqi(history[-12:]))
+        self.assertEqual(payload['air_forecast']['station']['station_name'], 'Test station')
+        self.assertIn('OpenAQ', payload['sources']['air_forecast'])
+        self.assertEqual(parse_time(payload['air_forecast']['expires_at']), anchor+dt.timedelta(hours=2))
+        self.assertLessEqual(parse_time(payload['expires_at']), parse_time(payload['air_forecast']['expires_at']))
 
     def checkpoint(self,path):
         torch.manual_seed(42);net=ForecastNet()

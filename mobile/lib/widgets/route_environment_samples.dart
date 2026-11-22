@@ -164,7 +164,7 @@ class _RouteSampleCard extends StatelessWidget {
             label: 'Air quality',
             value: aqi == null
                 ? 'AQI unavailable'
-                : 'US AQI $aqi · ${sample.colorBandLabel}',
+                : 'US AQI $aqi · ${sample.colorBandLabel}${conditions?.aqiSignal.kind == 'calculated_index' ? ' · NowCast estimate' : ''}',
             stale: aqi != null && conditions?.aqiSignal.isStale == true,
           ),
           if (sample.pm25 != null) ...[

@@ -72,3 +72,21 @@ provider failure contracts, route endpoint/intermediate sampling, and rejection
 of years-old cache data. `python3 testing/scripts/provider_freshness.py` inspects
 live source timestamps without exposing keys. Live availability is reported
 separately from deterministic fixture tests.
+
+### OpenAQ AQI fallback
+
+If CAMS is unavailable and a nearby OpenAQ PM2.5 station is fresh, SUPRA requests
+its last 12 hourly averages with `datetime_from` and `datetime_to`.
+It computes a PM2.5 NowCast estimate using the EPA weighting method and the
+current PM2.5 breakpoint table. At least two of the most recent three completed
+hours must be present. Flagged hours and hours below 75% coverage are excluded.
+Gaps keep their original hourly weights. Sensor results are cached for ten minutes.
+
+The API returns this as a separate `air_index` with `kind=calculated_index`,
+the station attribution, valid time, method, and concentration used. Home and
+route cards label it as an estimate. The original station PM2.5 is preserved.
+This calculation supplies current conditions. Hourly future AQI still requires
+the trained model's inputs or the CAMS forecast.
+
+References are [OpenAQ hourly measurements](https://docs.openaq.org/resources/measurements)
+and the [EPA AQI technical document](https://document.airnow.gov/technical-assistance-document-for-the-reporting-of-daily-air-quailty.pdf).

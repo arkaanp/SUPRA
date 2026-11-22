@@ -28,6 +28,7 @@ class HourlyForecast {
   final Color weatherColor;
   final String weatherCondition;
   final bool providerAqi;
+  final bool estimatedAqi;
   final bool aqiStale;
   final int? temperatureC;
   final int? aqi;
@@ -45,6 +46,7 @@ class HourlyForecast {
     required this.aqi,
     required this.aqiCategory,
     this.providerAqi = false,
+    this.estimatedAqi = false,
     this.aqiStale = false,
     required this.aqiBgColor,
     required this.aqiTextColor,
@@ -340,6 +342,7 @@ class _HomeScreenState extends State<HomeScreen> {
             temperatureC: h?.temperatureC.round(),
             aqi: aqi,
             providerAqi: h?.providerAqi != null,
+            estimatedAqi: h?.estimatedAqi != null,
             aqiCategory: meta?.$1 ?? 'No prediction',
             aqiBgColor: meta?.$2 ?? const Color(0xFFF1F5F9),
             aqiTextColor: meta?.$3 ?? const Color(0xFF64748B),
@@ -1084,7 +1087,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     Expanded(
                       child: Text(
                         _showMlPredictions
-                            ? (mlHour != null && mlHour.aqi == null
+                            ? (mlHour != null && mlHour.displayAqi == null
                                   ? 'Mode Indikator: Prediksi ML (Hujan & Suhu)'
                                   : 'Mode Indikator: Prediksi ML (Hujan, AQI & Suhu)')
                             : 'Mode Indikator: Data Stale / Terakhir Tersimpan',
@@ -1114,14 +1117,20 @@ class _HomeScreenState extends State<HomeScreen> {
               // -------------------------------------------------------------
               _buildTodaysAirQualityCard(
                 unit: displayedAqi != null
-                    ? 'US AQI'
+                    ? (displayedAir?.kind == 'calculated_index'
+                          ? 'US AQI · estimate'
+                          : 'US AQI')
                     : pm25 != null
                     ? 'µg/m³'
                     : '',
                 value:
                     displayedAqi?.toString() ?? pm25?.toStringAsFixed(1) ?? '—',
                 category: mlHour?.displayAqi != null
-                    ? '${mlHour?.providerAqi != null ? 'Forecast' : 'ML'} · ${effectiveAqiMeta.$1}'
+                    ? '${mlHour?.providerAqi != null
+                          ? 'Forecast'
+                          : mlHour?.estimatedAqi != null
+                          ? 'ML estimate'
+                          : 'ML'} · ${effectiveAqiMeta.$1}'
                     : '${displayedAir?.isStale == true ? "STALE · " : ""}${effectiveAqiMeta.$1}',
                 categoryBg: mlHour?.displayAqi != null
                     ? const Color(0xFFE0F2FE)
@@ -1140,6 +1149,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           : mlHour.aqi == null
                           ? (mlHour.providerAqi != null
                                 ? 'Weather and provider AQI forecasts for ${_wib(mlHour.targetTime)}.'
+                                : mlHour.estimatedAqi != null
+                                ? 'Experimental AQI and weather forecasts for ${_wib(mlHour.targetTime)}.'
                                 : 'Weather forecast for ${_wib(mlHour.targetTime)}. Hourly AQI is unavailable.')
                           : 'ML forecast for ${_wib(mlHour.targetTime)}. Experimental regional estimate.')
                     : displayedAir?.isStale == true
@@ -2080,7 +2091,11 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ? (item.status == 'ML forecast'
                                       ? 'AQI unavailable'
                                       : 'AQI —')
-                                : 'AQI ${item.aqi}${item.providerAqi ? ' · forecast' : ''}${item.aqiStale ? ' · stale' : ''}',
+                                : 'AQI ${item.aqi}${item.providerAqi
+                                      ? ' · forecast'
+                                      : item.estimatedAqi
+                                      ? ' · ML estimate'
+                                      : ''}${item.aqiStale ? ' · stale' : ''}',
                             style: const TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,

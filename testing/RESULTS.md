@@ -1,5 +1,45 @@
 # Current test results
 
+**Automated PASS — 167 tests: 125 unit and 42 integration.**
+
+Executed **2026-11-22 at 17:46 UTC / 2026-11-23 at 00:46 WIB**, branch
+`feat/deployment`, base commit `5f886c8931085c9d1d9b779013f00282b3ecafe0`,
+including the current working-tree changes. Command: `python3 testing/scripts/run_checks.py`.
+
+| Step | Suite | Passed | Result |
+|---|---|---:|---|
+| Unit | Rust | 22 | PASS |
+| Unit | Flutter | 84 | PASS |
+| Unit | Python | 19 | PASS |
+| Integration | Rust | 24 | PASS |
+| Integration | Flutter | 13 | PASS |
+| Integration | Python | 3 | PASS |
+| Integration | Database | 1 | PASS |
+| Integration | GTFS | 1 | PASS |
+
+Rust inventory validation and Flutter analysis passed. This run covers current
+OpenAQ NowCast fallback, the new PyTorch station-based twelve-hour AQI forecast,
+Home's twelve future AQI boxes, Trip's origin forecast display, missing/stale/
+flagged/duplicate station input rejection and forecast API validation. Forecast
+regressions exercise application behavior, not independent forecast accuracy.
+The two optional live-transit cases were not included.
+
+Evidence: [automated summary](evidence/20261122T174639823683Z/summary.json).
+
+A separate live Python HTTP smoke test injected Open-Meteo/CAMS failure while
+using real OpenAQ and MET Norway inputs. It returned HTTP 200 with twelve future
+AQI estimates, ranging from 134 to 174, and station readings through 16:00 UTC.
+The result is specific to that request and time. Command:
+`ml/.venv/bin/python testing/scripts/openaq_forecast_smoke.py --env-file backend/.env`.
+Evidence: [live outage fallback](evidence/20261122T174648730142Z/integration/live-openaq-forecast.json).
+This smoke check is separate from the 167-test total. It does not establish
+accuracy against station observations or claim that Render has been redeployed.
+
+The system-test screenshots below remain historical evidence; this cycle did
+not repeat interactive device acceptance testing.
+
+## Historical automated run — 2026-11-16
+
 **Automated PASS — 152 tests passed: 111 unit and 41 integration.**
 The 00–08 filenames are retained. System testing is documented separately from these two automated stages.
 

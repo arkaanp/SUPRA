@@ -243,6 +243,7 @@ impl TransitService {
             }
         };
         let (local, remote) = tokio::join!(local, self.remote_options(a, b, at));
+        let remote_unavailable = remote.is_err();
         let mut options = remote.unwrap_or_default();
         options.extend(local);
         options.sort_by_key(|p| p.arrival_at);
@@ -256,7 +257,9 @@ impl TransitService {
                     .collect::<Vec<_>>(),
             )
         });
-        if options.is_empty() {
+        if options.is_empty() && remote_unavailable {
+            Err(AppError::Unavailable)
+        } else if options.is_empty() {
             Err(AppError::NotFound)
         } else {
             Ok(options)
