@@ -29,6 +29,37 @@ void main() {
     item('critical-news', NotificationSeverity.critical),
     item('weather-alert', NotificationSeverity.low, news: false),
   ];
+  testWidgets('Inbox filters and alerts scroll together on a small screen', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 620);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: NotificationsScreen(
+          loadNotifications: (_) async => [
+            for (var i = 1; i <= 12; i++)
+              item('Peringatan $i', NotificationSeverity.moderate, news: false),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final page = find.byKey(const ValueKey('alerts-page-scroll'));
+    final scrollable = find
+        .descendant(of: page, matching: find.byType(Scrollable))
+        .first;
+    final last = find.text('Peringatan 12');
+    await tester.scrollUntilVisible(last, 260, scrollable: scrollable);
+    await tester.pumpAndSettle();
+    expect(last.hitTestable(), findsOneWidget);
+    expect(find.text('Tandai semua sudah dibaca').hitTestable(), findsNothing);
+    expect(find.text('Sedang').hitTestable(), findsWidgets);
+    expect(find.textContaining('severity'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
   test('News minimum ordering leaves weather alerts independent and persists in JSON', () {
     expect(items.where((n) => n.meetsNewsMinimum('medium')).map((n) => n.id), [
       'medium-news',

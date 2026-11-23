@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:supra_mobile_ui/config/map_config.dart';
 import 'package:supra_mobile_ui/models/location.dart';
 import 'package:supra_mobile_ui/models/route_option.dart';
+import 'package:supra_mobile_ui/models/saved_trip.dart';
 import 'package:supra_mobile_ui/screens/map_screen.dart';
 import 'package:supra_mobile_ui/widgets/interactive_location_map.dart';
 import 'package:supra_mobile_ui/widgets/current_conditions_panel.dart';
@@ -229,6 +230,8 @@ void main() {
         await tester.pump();
 
         // Tap confirm button
+        await tester.ensureVisible(find.text('Konfirmasi lokasi'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Konfirmasi lokasi'));
         await tester.pumpAndSettle();
 
@@ -347,6 +350,8 @@ void main() {
         await tester.pump();
 
         // Confirm start location
+        await tester.ensureVisible(find.text('Konfirmasi lokasi'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Konfirmasi lokasi'));
         await tester.pumpAndSettle();
 
@@ -438,6 +443,8 @@ void main() {
 
         // Pin is designated and user can confirm location
         expect(find.text('Konfirmasi lokasi'), findsOneWidget);
+        await tester.ensureVisible(find.text('Konfirmasi lokasi'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Konfirmasi lokasi'));
         await tester.pumpAndSettle();
 
@@ -521,40 +528,40 @@ void main() {
       },
     );
 
-    testWidgets(
-      'Swiping grey bar expands bottom sheet to cover screen and collapses back',
-      (tester) async {
-        await tester.pumpWidget(
-          const MaterialApp(home: Scaffold(body: TripScreen())),
-        );
-
-        // Initially map is visible (takes roughly half the screen)
-        expect(find.byType(InteractiveLocationMap), findsOneWidget);
-
-        // Find the swipe handle bar
-        final handleBar = find.byWidgetPredicate(
-          (w) =>
-              w is Container &&
-              w.decoration is BoxDecoration &&
-              (w.decoration as BoxDecoration).color == const Color(0xFFCBD5E1),
-        );
-        expect(handleBar, findsOneWidget);
-
-        // Swipe UP on the handle bar to expand
-        await tester.fling(handleBar, const Offset(0, -300), 1000);
-        await tester.pumpAndSettle();
-
-        // Sheet is now expanded to full screen, top map is hidden
-        expect(find.byType(InteractiveLocationMap), findsNothing);
-
-        // Tap the collapse arrow icon to collapse back to half screen
-        await tester.tap(find.byIcon(Icons.keyboard_arrow_down));
-        await tester.pumpAndSettle();
-
-        // Map is visible again taking half the screen
-        expect(find.byType(InteractiveLocationMap), findsOneWidget);
-      },
-    );
+    testWidgets('Trip history scrolls with the map on a small screen', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(390, 640);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final store = TripHistoryStore.instance;
+      final now = DateTime.now();
+      store.resetForTesting([
+        for (var i = 1; i <= 18; i++)
+          SavedTrip(
+            id: '$i',
+            start: 'Monas',
+            destination: 'Tujuan $i',
+            startPoint: const LatLng(latitude: -6.17, longitude: 106.83),
+            destPoint: const LatLng(latitude: -6.23, longitude: 106.82),
+            lastUsed: now.subtract(Duration(minutes: i)),
+          ),
+      ]);
+      addTearDown(store.resetForTesting);
+      await tester.pumpWidget(const MaterialApp(home: TripScreen()));
+      await tester.pumpAndSettle();
+      final scroll = find.byKey(const ValueKey('trip-page-scroll'));
+      final map = find.byType(InteractiveLocationMap);
+      final initialMapY = tester.getTopLeft(map).dy;
+      await tester.ensureVisible(find.text('Tujuan 18'));
+      await tester.pumpAndSettle();
+      final lastTrip = tester.getCenter(find.text('Tujuan 18')).dy;
+      expect(lastTrip, greaterThan(0));
+      expect(lastTrip, lessThan(tester.getBottomRight(scroll).dy));
+      expect(tester.getTopLeft(map).dy, lessThan(initialMapY - 220));
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('MapScreen inspection tests', () {

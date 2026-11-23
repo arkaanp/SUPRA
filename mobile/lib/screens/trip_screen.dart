@@ -43,8 +43,7 @@ class NearbySnapOption {
 
 /// Driving-route planner with explicit place selection and provider provenance.
 /// Features:
-/// - Persistent top map (at least half screen, always movable/zoomable even when read-only).
-/// - Location input sheet with swipeable top grey bar to expand to full screen.
+/// - Map and planner share a single vertical scroll surface.
 /// - Clicking a name input opens the map view with search automatically focused in typing mode.
 /// - Predictive search autocomplete matching specific venues (e.g., McDonald's, Cibinong, malls).
 /// - Vertical "Lokasi terdekat:" list scrolling top to bottom.
@@ -87,7 +86,7 @@ class TripScreenState extends State<TripScreen> {
   LatLng? _destCoord;
 
   // Bottom box full-screen expansion state (triggered only by swiping grey bar up)
-  bool _isSheetExpanded = false;
+  final _pageScroll = ScrollController();
 
   // Picking mode state ("Pilih Lewat Peta" with live search & teleport)
   bool _isPickingOnMap = false;
@@ -268,6 +267,7 @@ class TripScreenState extends State<TripScreen> {
     _topNotificationTimer?.cancel();
     _searchDebounce?.cancel();
     _searchGeneration++;
+    _pageScroll.dispose();
     _start.dispose();
     _destination.dispose();
     _mapSearchController.dispose();
@@ -359,11 +359,11 @@ class TripScreenState extends State<TripScreen> {
       _tempTappedPoint = initial;
       _mapSearchController.text = initialName;
       _mapSearchResults = [];
-      _isSheetExpanded = false;
       _selectedRoute = null;
       _calculatedRoutes = [];
       _updateSnapOptions(initial, customName: initialName);
     });
+    if (_pageScroll.hasClients) _pageScroll.jumpTo(0);
     _mapKey.currentState?.animateToLocation(initial);
     if (focusSearch) {
       Future.delayed(const Duration(milliseconds: 150), () {
@@ -405,6 +405,7 @@ class TripScreenState extends State<TripScreen> {
       _calculatedRoutes = [];
       _isTrackingActive = false;
     });
+    if (_pageScroll.hasClients) _pageScroll.jumpTo(0);
     _mapKey.currentState?.animateToLocation(place.point);
   }
 
@@ -469,6 +470,7 @@ class TripScreenState extends State<TripScreen> {
       _mapSearchResults = [];
       // Do not auto-calculate route here so user can freely adjust both locations
     });
+    if (_pageScroll.hasClients) _pageScroll.jumpTo(0);
     if (originChanged && !MapConfig.isTestEnvironment) {
       unawaited(_refreshOriginConditions(point));
     }
@@ -776,6 +778,7 @@ class TripScreenState extends State<TripScreen> {
           _loadingRoutes = false;
         });
 
+        if (_pageScroll.hasClients) _pageScroll.jumpTo(0);
         // When show route is finished, center and zoom in/out the view such that it shows the whole route
         final points = _selectedRoute?.waypoints ?? [_startCoord, _destCoord!];
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1092,436 +1095,376 @@ class TripScreenState extends State<TripScreen> {
   Widget build(BuildContext context) {
     final sortedTrips = TripHistoryStore.instance.getSortedTrips(_historySort);
 
-    // Flex layout: Map occupies at least half of the screen unless the user swipes
-    // the grey bar area to expand the bottom box to full screen.
-    final int mapFlex;
-    final int sheetFlex;
-    if (_isSheetExpanded) {
-      mapFlex = 0;
-      sheetFlex = 100;
-    } else {
-      mapFlex = 42;
-      sheetFlex = 58;
-    }
-
     return Scaffold(
-      backgroundColor: const Color(0xFFF1F5F9),
+      backgroundColor: Colors.white,
       body: SafeArea(
-        child: Stack(
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                // =================================================================
-                // 1. TOP MAP (Always movable/zoomable even when read-only)
-                // =================================================================
-                if (!_isSheetExpanded)
-                  Expanded(
-                    flex: mapFlex,
-                    child: Stack(
-                      children: [
-                        InteractiveLocationMap(
-                          key: _mapKey,
-                          height: double.infinity,
-                          borderRadius: BorderRadius.zero,
-                          selectedLocation: _isPickingOnMap
-                              ? _tempTappedPoint
-                              : (_destCoord ?? _startCoord),
-                          secondaryLocation: _isPickingOnMap
-                              ? null
-                              : (_destCoord != null ? _startCoord : null),
-                          selectedLabel: _isPickingOnMap
-                              ? (_isPickingStart ? 'S' : 'D')
-                              : (_destCoord != null ? 'D' : 'S'),
-                          secondaryLabel: _isPickingOnMap ? null : 'S',
-                          routeWaypoints: _selectedRoute?.waypoints,
-                          routeStartName: _start.text,
-                          routeDestinationName: _destination.text,
-                          onEnvironmentalSamplesChanged: (samples) {
-                            if (mounted) {
-                              setState(() => _routeSamples = samples);
-                            }
-                          },
-                          routeColor: _selectedRoute != null
-                              ? _getRouteColor(_selectedRoute!.mode)
-                              : null,
-                          isInteractive: _isPickingOnMap,
-                          showFooter: false,
-                          onLocationChanged: (tapCoord) {
-                            if (_isPickingOnMap) {
-                              _onMapTapped(tapCoord);
-                            }
-                          },
-                        ),
+        child: LayoutBuilder(
+          builder: (context, viewport) => Stack(
+            children: [
+              SingleChildScrollView(
+                key: const ValueKey('trip-page-scroll'),
+                controller: _pageScroll,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      height: (viewport.maxHeight * 0.42).clamp(220.0, 400.0),
+                      child: Stack(
+                        children: [
+                          InteractiveLocationMap(
+                            key: _mapKey,
+                            height: double.infinity,
+                            borderRadius: BorderRadius.zero,
+                            selectedLocation: _isPickingOnMap
+                                ? _tempTappedPoint
+                                : (_destCoord ?? _startCoord),
+                            secondaryLocation: _isPickingOnMap
+                                ? null
+                                : (_destCoord != null ? _startCoord : null),
+                            selectedLabel: _isPickingOnMap
+                                ? (_isPickingStart ? 'S' : 'D')
+                                : (_destCoord != null ? 'D' : 'S'),
+                            secondaryLabel: _isPickingOnMap ? null : 'S',
+                            routeWaypoints: _selectedRoute?.waypoints,
+                            routeStartName: _start.text,
+                            routeDestinationName: _destination.text,
+                            onEnvironmentalSamplesChanged: (samples) {
+                              if (mounted) {
+                                setState(() => _routeSamples = samples);
+                              }
+                            },
+                            routeColor: _selectedRoute != null
+                                ? _getRouteColor(_selectedRoute!.mode)
+                                : null,
+                            isInteractive: _isPickingOnMap,
+                            showFooter: false,
+                            onLocationChanged: (tapCoord) {
+                              if (_isPickingOnMap) {
+                                _onMapTapped(tapCoord);
+                              }
+                            },
+                          ),
 
-                        // Map-Picking Top Search & Teleport Bar (positioned below top layer controls)
-                        if (_isPickingOnMap)
-                          Positioned(
-                            top: 42,
-                            left: 10,
-                            right: 10,
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(14),
-                                    boxShadow: const [
-                                      BoxShadow(
-                                        color: Color(0x2E000000),
-                                        blurRadius: 8,
-                                        offset: Offset(0, 2),
-                                      ),
-                                    ],
-                                    border: Border.all(
-                                      color: const Color(0xFFE2E8F0),
+                          // Map-Picking Top Search & Teleport Bar (positioned below top layer controls)
+                          if (_isPickingOnMap)
+                            Positioned(
+                              top: 42,
+                              left: 10,
+                              right: 10,
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 3,
                                     ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      IconButton(
-                                        icon: const Icon(
-                                          Icons.arrow_back,
-                                          color: SupraTheme.onSurface,
-                                          size: 20,
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(14),
+                                      boxShadow: const [
+                                        BoxShadow(
+                                          color: Color(0x2E000000),
+                                          blurRadius: 8,
+                                          offset: Offset(0, 2),
                                         ),
-                                        tooltip: 'Kembali',
-                                        onPressed: () => setState(
-                                          () => _isPickingOnMap = false,
-                                        ),
-                                        visualDensity: VisualDensity.compact,
+                                      ],
+                                      border: Border.all(
+                                        color: const Color(0xFFE2E8F0),
                                       ),
-                                      const SizedBox(width: 4),
-                                      Expanded(
-                                        child: TextField(
-                                          controller: _mapSearchController,
-                                          focusNode: _mapSearchFocusNode,
-                                          style: const TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w600,
-                                          ),
-                                          decoration: InputDecoration(
-                                            hintText: _isPickingStart
-                                                ? 'Cari lokasi awal (Enter untuk pencarian daring)'
-                                                : 'Cari tujuan (Enter untuk pencarian daring)',
-                                            border: InputBorder.none,
-                                            isDense: true,
-                                            contentPadding:
-                                                const EdgeInsets.symmetric(
-                                                  vertical: 8,
-                                                ),
-                                          ),
-                                          onChanged: _onMapSearchChanged,
-                                          onSubmitted: (val) =>
-                                              _chooseTypedPlaceAndConfirm(val),
-                                        ),
-                                      ),
-                                      if (_mapSearchController.text.isNotEmpty)
+                                    ),
+                                    child: Row(
+                                      children: [
                                         IconButton(
                                           icon: const Icon(
-                                            Icons.close,
-                                            size: 16,
-                                            color: SupraTheme.textSecondary,
-                                          ),
-                                          onPressed: () {
-                                            _mapSearchController.clear();
-                                            _onMapSearchChanged('');
-                                          },
-                                          visualDensity: VisualDensity.compact,
-                                        )
-                                      else
-                                        const Padding(
-                                          padding: EdgeInsets.only(right: 6),
-                                          child: Icon(
-                                            Icons.search,
+                                            Icons.arrow_back,
+                                            color: SupraTheme.onSurface,
                                             size: 20,
-                                            color: SupraTheme.brand,
+                                          ),
+                                          tooltip: 'Kembali',
+                                          onPressed: () => setState(
+                                            () => _isPickingOnMap = false,
+                                          ),
+                                          visualDensity: VisualDensity.compact,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Expanded(
+                                          child: TextField(
+                                            controller: _mapSearchController,
+                                            focusNode: _mapSearchFocusNode,
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                            decoration: InputDecoration(
+                                              hintText: _isPickingStart
+                                                  ? 'Cari lokasi awal (Enter untuk pencarian daring)'
+                                                  : 'Cari tujuan (Enter untuk pencarian daring)',
+                                              border: InputBorder.none,
+                                              isDense: true,
+                                              contentPadding:
+                                                  const EdgeInsets.symmetric(
+                                                    vertical: 8,
+                                                  ),
+                                            ),
+                                            onChanged: _onMapSearchChanged,
+                                            onSubmitted: (val) =>
+                                                _chooseTypedPlaceAndConfirm(
+                                                  val,
+                                                ),
                                           ),
                                         ),
-                                    ],
-                                  ),
-                                ),
-
-                                Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: Material(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(20),
-                                    child: CurrentLocationButton(
-                                      onSelected: (point) {
-                                        _mapSearchFocusNode.unfocus();
-                                        _teleportToPoint(
-                                          point,
-                                          'Lokasi saat ini',
-                                        );
-                                      },
+                                        if (_mapSearchController
+                                            .text
+                                            .isNotEmpty)
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.close,
+                                              size: 16,
+                                              color: SupraTheme.textSecondary,
+                                            ),
+                                            onPressed: () {
+                                              _mapSearchController.clear();
+                                              _onMapSearchChanged('');
+                                            },
+                                            visualDensity:
+                                                VisualDensity.compact,
+                                          )
+                                        else
+                                          const Padding(
+                                            padding: EdgeInsets.only(right: 6),
+                                            child: Icon(
+                                              Icons.search,
+                                              size: 20,
+                                              color: SupraTheme.brand,
+                                            ),
+                                          ),
+                                      ],
                                     ),
                                   ),
-                                ),
 
-                                // Live Autocomplete Suggestions dropdown on Map
-                                if (_mapSearchResults.isNotEmpty)
-                                  Container(
-                                    margin: const EdgeInsets.only(top: 6),
-                                    constraints: const BoxConstraints(
-                                      maxHeight: 180,
-                                    ),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
                                     child: Material(
                                       color: Colors.white,
-                                      borderRadius: BorderRadius.circular(12),
-                                      elevation: 6,
-                                      shadowColor: const Color(0x33000000),
-                                      child: ListView.separated(
-                                        shrinkWrap: true,
-                                        padding: EdgeInsets.zero,
-                                        itemCount: _mapSearchResults.length,
-                                        separatorBuilder: (context, _) =>
-                                            const Divider(height: 1),
-                                        itemBuilder: (context, i) {
-                                          final place = _mapSearchResults[i];
-                                          return ListTile(
-                                            dense: true,
-                                            leading: const Icon(
-                                              Icons.location_on,
-                                              color: SupraTheme.brand,
-                                              size: 18,
-                                            ),
-                                            title: Text(
-                                              place.name,
-                                              style: const TextStyle(
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w700,
-                                              ),
-                                            ),
-                                            subtitle: Text(
-                                              place.displayName,
-                                              style: const TextStyle(
-                                                fontSize: 10,
-                                                color: SupraTheme.textSecondary,
-                                              ),
-                                              maxLines: 1,
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                            onTap: () {
-                                              _choosePlaceAndConfirm(place);
-                                            },
+                                      borderRadius: BorderRadius.circular(20),
+                                      child: CurrentLocationButton(
+                                        onSelected: (point) {
+                                          _mapSearchFocusNode.unfocus();
+                                          _teleportToPoint(
+                                            point,
+                                            'Lokasi saat ini',
                                           );
                                         },
                                       ),
                                     ),
                                   ),
-                              ],
-                            ),
-                          ),
 
-                        // Environmental Status Header Badge (Traffic, Weather, PM2.5) positioned cleanly below top layer bar
-                        if (!_isPickingOnMap &&
-                            (_selectedRoute != null ||
-                                _originConditions != null))
-                          Positioned(
-                            top: 42,
-                            left: 10,
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxWidth:
-                                    MediaQuery.of(context).size.width - 70,
-                              ),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 5,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.95),
-                                  borderRadius: BorderRadius.circular(20),
-                                  boxShadow: const [
-                                    BoxShadow(
-                                      color: Color(0x14000000),
-                                      blurRadius: 4,
-                                      offset: Offset(0, 2),
-                                    ),
-                                  ],
-                                  border: Border.all(
-                                    color: const Color(0xFFE2E8F0),
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(
-                                      _showMlPredictions
-                                          ? Icons.psychology_rounded
-                                          : Icons.sensors_rounded,
-                                      size: 13,
-                                      color: SupraTheme.brand,
-                                    ),
-                                    const SizedBox(width: 5),
-                                    Flexible(
-                                      child: Text(
-                                        _buildMapConditionsBadgeText(),
-                                        maxLines: 3,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          fontSize: 10.5,
-                                          fontWeight: FontWeight.w700,
-                                          color: SupraTheme.onSurface,
+                                  // Live Autocomplete Suggestions dropdown on Map
+                                  if (_mapSearchResults.isNotEmpty)
+                                    Container(
+                                      margin: const EdgeInsets.only(top: 6),
+                                      constraints: const BoxConstraints(
+                                        maxHeight: 180,
+                                      ),
+                                      child: Material(
+                                        color: Colors.white,
+                                        borderRadius: BorderRadius.circular(12),
+                                        elevation: 6,
+                                        shadowColor: const Color(0x33000000),
+                                        child: ListView.separated(
+                                          shrinkWrap: true,
+                                          padding: EdgeInsets.zero,
+                                          itemCount: _mapSearchResults.length,
+                                          separatorBuilder: (context, _) =>
+                                              const Divider(height: 1),
+                                          itemBuilder: (context, i) {
+                                            final place = _mapSearchResults[i];
+                                            return ListTile(
+                                              dense: true,
+                                              leading: const Icon(
+                                                Icons.location_on,
+                                                color: SupraTheme.brand,
+                                                size: 18,
+                                              ),
+                                              title: Text(
+                                                place.name,
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                              subtitle: Text(
+                                                place.displayName,
+                                                style: const TextStyle(
+                                                  fontSize: 10,
+                                                  color:
+                                                      SupraTheme.textSecondary,
+                                                ),
+                                                maxLines: 1,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                              onTap: () {
+                                                _choosePlaceAndConfirm(place);
+                                              },
+                                            );
+                                          },
                                         ),
                                       ),
                                     ),
-                                    SourceInfoButton(
-                                      title: 'Sumber kondisi perjalanan',
-                                      compact: true,
-                                      details: [
-                                        if (_showMlPredictions &&
-                                            _mlForecast != null)
-                                          '${_mlForecast!.modelId} · PyTorch\n${_mlForecast!.attribution}',
-                                        (_selectedRoute?.conditions ??
-                                                    _originConditions)
-                                                ?.sourceDetails ??
-                                            'Data sumber belum tersedia.',
-                                      ].join('\n\n'),
-                                    ),
-                                  ],
+                                ],
+                              ),
+                            ),
+
+                          if (!_isPickingOnMap)
+                            Positioned(
+                              top: 42,
+                              left: 10,
+                              child: FilledButton.tonalIcon(
+                                onPressed: _showMapConditions,
+                                icon: const Icon(
+                                  Icons.sensors_rounded,
+                                  size: 16,
+                                ),
+                                label: const Text('Kondisi lokasi awal'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Colors.white,
+                                  foregroundColor: SupraTheme.onSurface,
+                                  visualDensity: VisualDensity.compact,
                                 ),
                               ),
                             ),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-
-                // =================================================================
-                // 2. BOTTOM SHEET (Trip planner & Environmental Route selector)
-                // =================================================================
-                Expanded(
-                  flex: sheetFlex,
-                  child: Material(
-                    color: Colors.white,
-                    borderRadius: _isSheetExpanded
-                        ? BorderRadius.zero
-                        : const BorderRadius.vertical(top: Radius.circular(22)),
-                    elevation: 6,
-                    shadowColor: const Color(0x33000000),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // Top Grey Area Swipe Handle Bar
-                        _buildSwipeableGreyBar(),
-
-                        // Sheet Body
-                        Expanded(child: _buildBottomSheetContent(sortedTrips)),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            // Floating top notification popup (does not block the bottom)
-            _buildTopNotificationPopup(),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Builds the top grey bar handle that only allows expanding to full screen
-  /// when explicitly swiped up, or collapsing when swiped down.
-  Widget _buildSwipeableGreyBar() {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onVerticalDragUpdate: (details) {
-        if (details.primaryDelta != null) {
-          if (details.primaryDelta! < -8 && !_isSheetExpanded) {
-            setState(() => _isSheetExpanded = true);
-          } else if (details.primaryDelta! > 8 && _isSheetExpanded) {
-            setState(() => _isSheetExpanded = false);
-          }
-        }
-      },
-      onVerticalDragEnd: (details) {
-        if (details.primaryVelocity != null) {
-          if (details.primaryVelocity! < -100 && !_isSheetExpanded) {
-            setState(() => _isSheetExpanded = true);
-          } else if (details.primaryVelocity! > 100 && _isSheetExpanded) {
-            setState(() => _isSheetExpanded = false);
-          }
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        color: Colors.transparent,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 44,
-              height: 5,
-              decoration: BoxDecoration(
-                color: const Color(0xFFCBD5E1),
-                borderRadius: BorderRadius.circular(3),
-              ),
-            ),
-            if (_isSheetExpanded) ...[
-              const SizedBox(width: 8),
-              InkWell(
-                onTap: () => setState(() => _isSheetExpanded = false),
-                child: const Icon(
-                  Icons.keyboard_arrow_down,
-                  size: 18,
-                  color: SupraTheme.textSecondary,
+                    const SizedBox(height: 12),
+                    _buildBottomSheetContent(sortedTrips),
+                  ],
                 ),
               ),
+              _buildTopNotificationPopup(),
             ],
-          ],
+          ),
         ),
       ),
     );
   }
 
-  String _buildMapConditionsBadgeText() {
+  void _showMapConditions() {
     final now = DateTime.now();
-    final cond = (_selectedRoute?.conditions ?? _originConditions)?.agedAt(now);
-    final speed = cond?.traffic.number('speed_kmh');
-    final traffic = speed == null
-        ? 'Lalu lintas: ${cond?.traffic.unavailableLabel.toLowerCase() ?? "tidak tersedia"}'
-        : 'Lalu lintas${cond!.traffic.isStale ? " · DATA LAMA" : ""} ${speed.round()} km/h';
-    final h = _showMlPredictions ? _mlForecast?.nextAt(now) : null;
-    if (h != null) {
-      final time = h.targetTime.toUtc().add(const Duration(hours: 7));
-      return 'ML · lokasi awal ${time.hour.toString().padLeft(2, '0')}:00 WIB${h.displayAqi == null ? "" : " · AQI ${h.displayAqi!.round()}${h.providerAqi != null
-                ? " prakiraan"
-                : h.estimatedAqi != null
-                ? " perkiraan ML"
-                : ""}"} · Hujan ${h.precipitationMm.toStringAsFixed(1)} mm (${(h.rainProbability * 100).round()}%) · ${h.temperatureC.round()}°C · $traffic';
-    }
+    final conditions = (_selectedRoute?.conditions ?? _originConditions)
+        ?.agedAt(now);
+    final weather = conditions?.weather;
+    final speed = conditions?.traffic.number('speed_kmh');
+    final aqi = conditions?.aqiSignal.usAqi?.round();
     final pm25 =
-        _selectedRoute?.pm25UgM3 ?? cond?.airQuality.number('pm25_ug_m3');
-    final aqi = cond?.aqiSignal.usAqi?.round();
+        _selectedRoute?.pm25UgM3 ?? conditions?.airQuality.number('pm25_ug_m3');
     final rain =
-        _selectedRoute?.rainfallMm ?? cond?.weather.number('precipitation_mm');
-    final weather = cond?.weather;
+        _selectedRoute?.rainfallMm ?? weather?.number('precipitation_mm');
+    final rainLabel = weather?.kind == 'provider_forecast'
+        ? 'Prakiraan hujan'
+        : 'Hujan';
     final rainValue = rain == null
         ? (weather?.data?['description'] ?? 'tidak tersedia')
         : '${rain.toStringAsFixed(1)} mm';
-    return [
+    final hour = _showMlPredictions ? _mlForecast?.nextAt(now) : null;
+    final readings = <(String, bool)>[
       if (_showMlPredictions)
-        _loadingMl
-            ? 'Memuat prakiraan…'
-            : _mlError ?? 'Prakiraan ML kedaluwarsa',
-      if (aqi != null)
-        'AQI $aqi${cond?.aqiSignal.isStale == true ? " · DATA LAMA" : ""}',
-      if (pm25 != null)
-        'PM2.5 ${pm25.toStringAsFixed(1)}${cond?.airQuality.isStale == true ? " · DATA LAMA" : ""}',
-      '${weather?.kind == "provider_forecast" ? "Prakiraan hujan" : "Hujan"} $rainValue${weather?.isStale == true ? " · DATA LAMA" : ""}',
-      traffic,
-    ].join(' · ');
+        (
+          hour != null
+              ? 'Prakiraan ML · ${formatWib(hour.targetTime)}'
+              : _loadingMl
+              ? 'Memuat prakiraan…'
+              : _mlError ?? 'Prakiraan ML kedaluwarsa',
+          false,
+        ),
+      if (hour != null) ...[
+        if (hour.displayAqi != null)
+          (
+            'AQI ${hour.displayAqi!.round()}${hour.providerAqi != null
+                ? ' prakiraan'
+                : hour.estimatedAqi != null
+                ? ' perkiraan ML'
+                : ''}',
+            false,
+          ),
+        (
+          'Hujan ${hour.precipitationMm.toStringAsFixed(1)} mm (${(hour.rainProbability * 100).round()}%)',
+          false,
+        ),
+        ('Suhu ${hour.temperatureC.round()}°C', false),
+      ] else ...[
+        if (aqi != null) ('AQI $aqi', conditions?.aqiSignal.isStale == true),
+        if (pm25 != null)
+          (
+            'PM2.5 ${pm25.toStringAsFixed(1)} µg/m³',
+            conditions?.airQuality.isStale == true,
+          ),
+        ('$rainLabel $rainValue', weather?.isStale == true),
+      ],
+      (
+        speed == null
+            ? 'Lalu lintas: ${conditions?.traffic.unavailableLabel.toLowerCase() ?? 'tidak tersedia'}'
+            : 'Lalu lintas ${speed.round()} km/h',
+        speed != null && conditions?.traffic.isStale == true,
+      ),
+    ];
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Kondisi lokasi awal'),
+        scrollable: true,
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final reading in readings)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _readingText([reading], const TextStyle(fontSize: 14)),
+              ),
+          ],
+        ),
+        actions: [
+          SourceInfoButton(
+            title: 'Sumber kondisi perjalanan',
+            details: [
+              if (_showMlPredictions && _mlForecast != null)
+                '${_mlForecast!.modelId} · PyTorch\n${_mlForecast!.attribution}',
+              conditions?.sourceDetails ?? 'Data sumber belum tersedia.',
+            ].join('\n\n'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Tutup'),
+          ),
+        ],
+      ),
+    );
   }
+
+  Widget _readingText(List<(String, bool)> readings, TextStyle style) =>
+      Text.rich(
+        TextSpan(
+          style: style,
+          children: [
+            for (final (index, reading) in readings.indexed) ...[
+              if (index > 0) const TextSpan(text: ' · '),
+              TextSpan(text: reading.$1),
+              if (reading.$2)
+                TextSpan(
+                  text: ' · data lama',
+                  style: TextStyle(
+                    color: const Color(0xFF64748B),
+                    fontSize: ((style.fontSize ?? 14) - 2).clamp(9.0, 12.0),
+                    fontWeight: FontWeight.w400,
+                  ),
+                ),
+            ],
+          ],
+        ),
+      );
 
   Widget _buildMlPredictionToggleChip() {
     return FilterChip(
@@ -1628,60 +1571,58 @@ class TripScreenState extends State<TripScreen> {
             const SizedBox(height: 4),
 
             // Vertical list of nearest locations scrolling from top to bottom
-            Expanded(
-              child: ListView.separated(
-                padding: EdgeInsets.zero,
-                itemCount: _nearestSnapOptions.length,
-                separatorBuilder: (context, _) => const Divider(height: 1),
-                itemBuilder: (context, i) {
-                  final opt = _nearestSnapOptions[i];
-                  final isCurrent = _tempTappedPoint == opt.point;
-                  final distMeters = (opt.distanceKm * 1000).round();
-                  return ListTile(
-                    dense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 0,
-                    ),
-                    leading: Icon(
-                      Icons.place,
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: EdgeInsets.zero,
+              itemCount: _nearestSnapOptions.length,
+              separatorBuilder: (context, _) => const Divider(height: 1),
+              itemBuilder: (context, i) {
+                final opt = _nearestSnapOptions[i];
+                final isCurrent = _tempTappedPoint == opt.point;
+                final distMeters = (opt.distanceKm * 1000).round();
+                return ListTile(
+                  dense: true,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 0,
+                  ),
+                  leading: Icon(
+                    Icons.place,
+                    color: isCurrent
+                        ? SupraTheme.brand
+                        : SupraTheme.textSecondary,
+                    size: 18,
+                  ),
+                  title: Text(
+                    opt.name,
+                    style: TextStyle(
+                      fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w600,
+                      fontSize: 13,
                       color: isCurrent
                           ? SupraTheme.brand
-                          : SupraTheme.textSecondary,
-                      size: 18,
+                          : SupraTheme.onSurface,
                     ),
-                    title: Text(
-                      opt.name,
-                      style: TextStyle(
-                        fontWeight: isCurrent
-                            ? FontWeight.w800
-                            : FontWeight.w600,
-                        fontSize: 13,
-                        color: isCurrent
-                            ? SupraTheme.brand
-                            : SupraTheme.onSurface,
-                      ),
+                  ),
+                  subtitle: Text(
+                    '$distMeters m dari titik',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: SupraTheme.textSecondary,
                     ),
-                    subtitle: Text(
-                      '$distMeters m dari titik',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: SupraTheme.textSecondary,
-                      ),
-                    ),
-                    trailing: isCurrent
-                        ? const Icon(
-                            Icons.check,
-                            size: 16,
-                            color: SupraTheme.brand,
-                          )
-                        : null,
-                    onTap: () {
-                      _teleportToPoint(opt.point, opt.name);
-                    },
-                  );
-                },
-              ),
+                  ),
+                  trailing: isCurrent
+                      ? const Icon(
+                          Icons.check,
+                          size: 16,
+                          color: SupraTheme.brand,
+                        )
+                      : null,
+                  onTap: () {
+                    _teleportToPoint(opt.point, opt.name);
+                  },
+                );
+              },
             ),
             const SizedBox(height: 4),
 
@@ -1802,22 +1743,10 @@ class TripScreenState extends State<TripScreen> {
             ),
             const Divider(height: 12),
 
-            // List of Environmental Route Options (Car & Motorcycle only)
-            Expanded(
-              child: ListView.separated(
-                padding: EdgeInsets.zero,
-                itemCount: _calculatedRoutes.length + 1,
-                separatorBuilder: (context, _) => const SizedBox(height: 8),
-                itemBuilder: (context, index) {
-                  if (index == _calculatedRoutes.length) {
-                    return RouteEnvironmentSamples(samples: _routeSamples);
-                  }
-                  final opt = _calculatedRoutes[index];
-                  final isSelected = identical(opt, _selectedRoute);
-                  return _buildRouteOptionCard(opt, isSelected);
-                },
-              ),
-            ),
+            for (final option in _calculatedRoutes) ...[
+              _buildRouteOptionCard(option, identical(option, _selectedRoute)),
+              const SizedBox(height: 8),
+            ],
             const SizedBox(height: 8),
 
             // Live Tracking Banner when tracking is active
@@ -1914,6 +1843,8 @@ class TripScreenState extends State<TripScreen> {
                       onPressed: _busy ? null : _confirmTripAndStartTracking,
                     ),
             ),
+            const SizedBox(height: 16),
+            RouteEnvironmentSamples(samples: _routeSamples),
           ],
         ),
       );
@@ -2110,9 +2041,9 @@ class TripScreenState extends State<TripScreen> {
           ),
           const SizedBox(height: 6),
 
-          // Loading indicator for route calculations: Expanded to fill the sheet area smoothly
           if (_loadingRoutes)
-            const Expanded(
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
               child: Center(
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
@@ -2144,53 +2075,46 @@ class TripScreenState extends State<TripScreen> {
             )
           // Live autocomplete search dropdown results
           else if (_searchResults.isNotEmpty)
-            Expanded(
-              child: ListView.separated(
-                padding: EdgeInsets.zero,
-                itemCount: _searchResults.length,
-                separatorBuilder: (context, _) => const Divider(height: 1),
-                itemBuilder: (context, i) {
-                  final place = _searchResults[i];
-                  return ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    leading: const CircleAvatar(
-                      radius: 14,
-                      backgroundColor: Color(0xFFF1F5F9),
-                      child: Icon(
-                        Icons.location_on,
-                        size: 14,
-                        color: SupraTheme.brand,
-                      ),
+            ListView.separated(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              padding: EdgeInsets.zero,
+              itemCount: _searchResults.length,
+              separatorBuilder: (context, _) => const Divider(height: 1),
+              itemBuilder: (context, i) {
+                final place = _searchResults[i];
+                return ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const CircleAvatar(
+                    radius: 14,
+                    backgroundColor: Color(0xFFF1F5F9),
+                    child: Icon(
+                      Icons.location_on,
+                      size: 14,
+                      color: SupraTheme.brand,
                     ),
-                    title: Text(
-                      place.name,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 13,
-                      ),
+                  ),
+                  title: Text(
+                    place.name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
                     ),
-                    subtitle: Text(
-                      place.displayName,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: SupraTheme.textSecondary,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                  ),
+                  subtitle: Text(
+                    place.displayName,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: SupraTheme.textSecondary,
                     ),
-                    onTap: () => _selectDestination(place.name, place.point),
-                  );
-                },
-              ),
-            )
-          // Trip History Section with Sort Option
-          else ...[
-            _buildTripHistoryHeader(sortedTrips.length),
-            const SizedBox(height: 6),
-            Expanded(child: _buildTripHistoryList(sortedTrips)),
-          ],
-
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  onTap: () => _selectDestination(place.name, place.point),
+                );
+              },
+            ),
           const SizedBox(height: 4),
 
           // Explicit "Tampilkan rute" Button: Erased while loading so it never appears in the middle
@@ -2215,6 +2139,12 @@ class TripScreenState extends State<TripScreen> {
                 onPressed: _destCoord == null ? null : _fetchRoutes,
               ),
             ),
+          if (!_loadingRoutes && _searchResults.isEmpty) ...[
+            const SizedBox(height: 16),
+            _buildTripHistoryHeader(sortedTrips.length),
+            const SizedBox(height: 6),
+            _buildTripHistoryList(sortedTrips),
+          ],
         ],
       ),
     );
@@ -2368,6 +2298,8 @@ class TripScreenState extends State<TripScreen> {
     }
 
     return ListView.separated(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
       padding: EdgeInsets.zero,
       itemCount: trips.length,
       separatorBuilder: (context, _) => const Divider(height: 1),
@@ -2522,13 +2454,13 @@ class TripScreenState extends State<TripScreen> {
           : 'Lalu lintas ${effectiveSpeed.round()} km/h';
     } else if (effectiveDensity < 0.35) {
       trafficDesc =
-          '${trafficStale ? "DATA LAMA · " : ""}Lancar${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
+          'Lancar${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
     } else if (effectiveDensity < 0.65) {
       trafficDesc =
-          '${trafficStale ? "DATA LAMA · " : ""}Kemacetan sedang${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
+          'Kemacetan sedang${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
     } else {
       trafficDesc =
-          '${trafficStale ? "DATA LAMA · " : ""}Kemacetan parah${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
+          'Kemacetan parah${effectiveSpeed != null ? " (${effectiveSpeed.toStringAsFixed(0)} km/h)" : ""}';
     }
 
     final String rainChipLabel;
@@ -2539,32 +2471,44 @@ class TripScreenState extends State<TripScreen> {
       final label = fallbackCond?.weather.kind == 'provider_forecast'
           ? 'Prakiraan hujan'
           : 'Curah hujan';
-      rainChipLabel =
-          '${fallbackCond?.weather.isStale == true ? "DATA LAMA · " : ""}$label: ${effectiveRain.toStringAsFixed(1)} mm';
+      rainChipLabel = '$label: ${effectiveRain.toStringAsFixed(1)} mm';
     } else {
       rainChipLabel =
           fallbackCond?.weather.data?['description'] as String? ??
           opt.rainLabel;
     }
 
-    final String airChipLabel;
+    final List<(String, bool)> airReadings;
     if (mlHour?.aqi != null && mlHour?.pm25 != null) {
-      airChipLabel =
-          'ML lokasi awal · AQI AS ${mlHour!.aqi!.round()} · PM2.5 ${mlHour.pm25!.toStringAsFixed(1)} µg/m³';
+      airReadings = [
+        (
+          'ML lokasi awal · AQI AS ${mlHour!.aqi!.round()} · PM2.5 ${mlHour.pm25!.toStringAsFixed(1)} µg/m³',
+          false,
+        ),
+      ];
     } else if (mlHour?.estimatedAqi != null) {
-      airChipLabel =
-          'Perkiraan ML · AQI ${mlHour!.estimatedAqi!.round()} · PM2.5 ${mlHour.estimatedPm25!.toStringAsFixed(1)} µg/m³';
+      airReadings = [
+        (
+          'Perkiraan ML · AQI ${mlHour!.estimatedAqi!.round()} · PM2.5 ${mlHour.estimatedPm25!.toStringAsFixed(1)} µg/m³',
+          false,
+        ),
+      ];
     } else if (mlHour?.providerAqi != null) {
-      airChipLabel = 'Prakiraan AQI · ${mlHour!.providerAqi!.round()}';
-    } else if (effectivePm25 != null || effectiveAqi != null) {
-      airChipLabel = [
-        if (effectiveAqi != null)
-          '${fallbackCond?.aqiSignal.isStale == true ? "DATA LAMA · " : ""}AQI $effectiveAqi',
-        if (effectivePm25 != null)
-          '${fallbackCond?.airQuality.isStale == true ? "DATA LAMA · " : ""}PM2.5: ${effectivePm25.toStringAsFixed(1)} µg/m³',
-      ].join(' · ');
+      airReadings = [
+        ('Prakiraan AQI · ${mlHour!.providerAqi!.round()}', false),
+      ];
     } else {
-      airChipLabel = opt.pm25Label;
+      airReadings = [
+        if (effectiveAqi != null)
+          ('AQI $effectiveAqi', fallbackCond?.aqiSignal.isStale == true),
+        if (effectivePm25 != null)
+          (
+            'PM2.5: ${effectivePm25.toStringAsFixed(1)} µg/m³',
+            fallbackCond?.airQuality.isStale == true,
+          ),
+        if (effectiveAqi == null && effectivePm25 == null)
+          ('Kualitas udara tidak tersedia', false),
+      ];
     }
 
     return InkWell(
@@ -2708,12 +2652,19 @@ class TripScreenState extends State<TripScreen> {
                         color: SupraTheme.textSecondary,
                       ),
                       const SizedBox(width: 3),
-                      Text(
-                        trafficDesc,
-                        style: const TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600,
-                          color: SupraTheme.textSecondary,
+                      Flexible(
+                        child: _readingText(
+                          [
+                            (
+                              trafficDesc,
+                              effectiveSpeed != null && trafficStale,
+                            ),
+                          ],
+                          const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color: SupraTheme.textSecondary,
+                          ),
                         ),
                       ),
                     ],
@@ -2743,16 +2694,26 @@ class TripScreenState extends State<TripScreen> {
                             : SupraTheme.textSecondary,
                       ),
                       const SizedBox(width: 3),
-                      Text(
-                        rainChipLabel,
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600,
-                          color:
-                              ((mlHour?.precipitationMm ?? effectiveRain ?? 0) >
-                                  0)
-                              ? const Color(0xFF1D4ED8)
-                              : SupraTheme.textSecondary,
+                      Flexible(
+                        child: _readingText(
+                          [
+                            (
+                              rainChipLabel,
+                              mlHour == null &&
+                                  fallbackCond?.weather.isStale == true,
+                            ),
+                          ],
+                          TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w600,
+                            color:
+                                ((mlHour?.precipitationMm ??
+                                        effectiveRain ??
+                                        0) >
+                                    0)
+                                ? const Color(0xFF1D4ED8)
+                                : SupraTheme.textSecondary,
+                          ),
                         ),
                       ),
                     ],
@@ -2784,16 +2745,18 @@ class TripScreenState extends State<TripScreen> {
                             : const Color(0xFF16A34A),
                       ),
                       const SizedBox(width: 3),
-                      Text(
-                        airChipLabel,
-                        style: TextStyle(
-                          fontSize: 9,
-                          fontWeight: FontWeight.w700,
-                          color: (mlHour == null && effectivePm25 == null)
-                              ? Colors.grey
-                              : (mlHour?.pm25 ?? effectivePm25 ?? 0) >= 35
-                              ? const Color(0xFF92400E)
-                              : const Color(0xFF15803D),
+                      Flexible(
+                        child: _readingText(
+                          airReadings,
+                          TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: (mlHour == null && effectivePm25 == null)
+                                ? Colors.grey
+                                : (mlHour?.pm25 ?? effectivePm25 ?? 0) >= 35
+                                ? const Color(0xFF92400E)
+                                : const Color(0xFF15803D),
+                          ),
                         ),
                       ),
                     ],

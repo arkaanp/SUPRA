@@ -334,125 +334,105 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   void _showVerifiedNewsReader(AppNotification item) {
     if (!item.isRead) unawaited(_markRead(item.id));
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-      ),
-      builder: (ctx) {
-        return SafeArea(
-          child: Padding(
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (readerContext) => Scaffold(
+          appBar: AppBar(title: const Text('Berita')),
+          body: ListView(
             padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Center(
-                  child: Container(
-                    width: 40,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFCBD5E1),
-                      borderRadius: BorderRadius.circular(2),
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
                     ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFDCFCE7),
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(color: const Color(0xFF86EFAC)),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.newspaper_outlined,
-                            size: 13,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFDCFCE7),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFF86EFAC)),
+                    ),
+                    child: const Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.newspaper_outlined,
+                          size: 13,
+                          color: Color(0xFF15803D),
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          'LAPORAN BERITA',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
                             color: Color(0xFF15803D),
                           ),
-                          SizedBox(width: 4),
-                          Text(
-                            'LAPORAN BERITA',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF15803D),
-                            ),
-                          ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                    const Spacer(),
-                    Text(
-                      item.timeLabel,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF64748B),
-                        fontWeight: FontWeight.w600,
-                      ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    item.timeLabel,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF64748B),
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                item.displayTitle,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0F172A),
+                  height: 1.3,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Text(
+                  item.displayBody,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF334155),
+                    height: 1.45,
+                  ),
+                ),
+              ),
+              if (item.sourceUrl != null) ...[
+                const SizedBox(height: 10),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    SourceInfoButton(
+                      title: 'Sumber berita',
+                      details: item.sourceUrl!,
+                      url: item.sourceUrl,
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.pop(readerContext),
+                      child: const Text('Tutup'),
                     ),
                   ],
                 ),
-                const SizedBox(height: 10),
-                Text(
-                  item.displayTitle,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF0F172A),
-                    height: 1.3,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFE2E8F0)),
-                  ),
-                  child: Text(
-                    item.displayBody,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF334155),
-                      height: 1.45,
-                    ),
-                  ),
-                ),
-                if (item.sourceUrl != null) ...[
-                  const SizedBox(height: 10),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      SourceInfoButton(
-                        title: 'Sumber berita',
-                        details: item.sourceUrl!,
-                        url: item.sourceUrl,
-                      ),
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx),
-                        child: const Text('Tutup'),
-                      ),
-                    ],
-                  ),
-                ],
               ],
-            ),
+            ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -529,240 +509,261 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ),
         ],
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  FilledButton.tonalIcon(
-                    onPressed: _mutatingAlerts || unreadCount == 0
-                        ? null
-                        : () => unawaited(_markRead()),
-                    icon: const Icon(Icons.done_all, size: 18),
-                    label: const Text('Tandai semua sudah dibaca'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: _mutatingAlerts
-                        ? null
-                        : () => unawaited(_deleteRead()),
-                    icon: const Icon(Icons.delete_sweep_outlined, size: 18),
-                    label: const Text('Hapus yang sudah dibaca'),
-                  ),
-                  if (_selectedIds.isNotEmpty) ...[
-                    FilledButton.tonalIcon(
-                      onPressed:
-                          _mutatingAlerts ||
-                              !visibleItems.any(
-                                (n) => _selectedIds.contains(n.id) && n.isRead,
-                              )
-                          ? null
-                          : () => unawaited(_markSelectedUnread()),
-                      icon: const Icon(
-                        Icons.mark_email_unread_outlined,
-                        size: 18,
-                      ),
-                      label: const Text('Tandai pilihan belum dibaca'),
-                    ),
-                    TextButton(
-                      onPressed: _mutatingAlerts
-                          ? null
-                          : () => setState(() => _selectedIds.clear()),
-                      child: Text(
-                        'Batal pilih (${_selectedIds.length} dipilih)',
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-          ),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(bottom: BorderSide(color: Color(0xFFE2E8F0))),
-            ),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  ChoiceChip(
-                    selected: _selectedFilter == 'all',
-                    label: Text(
-                      'Semua (${visibleItems.length})',
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    visualDensity: VisualDensity.compact,
-                    onSelected: (_) => setState(() => _selectedFilter = 'all'),
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    selected: _selectedFilter == 'verified_news',
-                    avatar: const Icon(
-                      Icons.newspaper_outlined,
-                      size: 14,
-                      color: Color(0xFF15803D),
-                    ),
-                    label: Text(
-                      'Berita ($verifiedNewsCount)',
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    visualDensity: VisualDensity.compact,
-                    onSelected: (_) =>
-                        setState(() => _selectedFilter = 'verified_news'),
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    selected: _selectedFilter == 'hazard',
-                    label: const Text(
-                      'Peringatan Cuaca & AQI',
-                      style: TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    visualDensity: VisualDensity.compact,
-                    onSelected: (_) =>
-                        setState(() => _selectedFilter = 'hazard'),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          if (_checkStatus != null)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text(_checkStatus!, style: const TextStyle(fontSize: 12)),
-            ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
-            child: NewsSeveritySelector(
-              value: _newsMinimum,
-              onChanged: _savingFilter ? null : _saveSeverity,
-            ),
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 14),
-            child: Text(
-              'Saring berita dan simpan preferensi pengiriman. Peringatan cuaca dan AQI mengikuti pengaturannya masing-masing.',
-              style: TextStyle(fontSize: 11),
-            ),
-          ),
-          for (final trip in SupraService.instance.activeTrips.take(3))
-            ListTile(
-              dense: true,
-              leading: const Icon(Icons.route),
-              title: Text(trip.name),
-              subtitle: const Text(
-                'Peringatan perjalanan aktif (maksimal 4 jam)',
-              ),
-              trailing: TextButton(
-                child: const Text('Hentikan peringatan'),
-                onPressed: () async {
-                  try {
-                    await SupraService.instance.finishTrip(trip.id);
-                    if (mounted) setState(() {});
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(
-                        context,
-                      ).showSnackBar(SnackBar(content: Text(displayError(e))));
-                    }
-                  }
-                },
-              ),
-            ),
-          Expanded(
-            child: RefreshIndicator(
-              onRefresh: _refresh,
-              child: _loading
-                  ? const Center(child: CircularProgressIndicator())
-                  : _error != null
-                  ? ListView(
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: CustomScrollView(
+          key: const ValueKey('alerts-page-scroll'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverList.list(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
-                        ListTile(title: Text(_error!)),
-                        TextButton(
-                          onPressed: _refresh,
-                          child: const Text('Coba lagi'),
+                        FilledButton.tonalIcon(
+                          onPressed: _mutatingAlerts || unreadCount == 0
+                              ? null
+                              : () => unawaited(_markRead()),
+                          icon: const Icon(Icons.done_all, size: 18),
+                          label: const Text('Tandai semua sudah dibaca'),
                         ),
-                      ],
-                    )
-                  : filteredItems.isEmpty
-                  ? ListView(
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      children: const [
-                        SizedBox(
-                          height: 300,
-                          child: Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.notifications_none,
-                                  size: 64,
-                                  color: Color(0xFFCBD5E1),
-                                ),
-                                SizedBox(height: 16),
-                                Text(
-                                  'Belum ada peringatan',
-                                  style: TextStyle(fontWeight: FontWeight.w700),
-                                ),
-                                Text(
-                                  'Simpan rutinitas atau konfirmasi perjalanan. Gunakan tombol radar untuk memeriksa jadwal perjalanan.',
-                                  style: TextStyle(color: Color(0xFF64748B)),
-                                ),
-                              ],
+                        OutlinedButton.icon(
+                          onPressed: _mutatingAlerts
+                              ? null
+                              : () => unawaited(_deleteRead()),
+                          icon: const Icon(
+                            Icons.delete_sweep_outlined,
+                            size: 18,
+                          ),
+                          label: const Text('Hapus yang sudah dibaca'),
+                        ),
+                        if (_selectedIds.isNotEmpty) ...[
+                          FilledButton.tonalIcon(
+                            onPressed:
+                                _mutatingAlerts ||
+                                    !visibleItems.any(
+                                      (n) =>
+                                          _selectedIds.contains(n.id) &&
+                                          n.isRead,
+                                    )
+                                ? null
+                                : () => unawaited(_markSelectedUnread()),
+                            icon: const Icon(
+                              Icons.mark_email_unread_outlined,
+                              size: 18,
+                            ),
+                            label: const Text('Tandai pilihan belum dibaca'),
+                          ),
+                          TextButton(
+                            onPressed: _mutatingAlerts
+                                ? null
+                                : () => setState(() => _selectedIds.clear()),
+                            child: Text(
+                              'Batal pilih (${_selectedIds.length} dipilih)',
                             ),
                           ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border: Border(
+                      bottom: BorderSide(color: Color(0xFFE2E8F0)),
+                    ),
+                  ),
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        ChoiceChip(
+                          selected: _selectedFilter == 'all',
+                          label: Text(
+                            'Semua (${visibleItems.length})',
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (_) =>
+                              setState(() => _selectedFilter = 'all'),
+                        ),
+                        const SizedBox(width: 8),
+                        ChoiceChip(
+                          selected: _selectedFilter == 'verified_news',
+                          avatar: const Icon(
+                            Icons.newspaper_outlined,
+                            size: 14,
+                            color: Color(0xFF15803D),
+                          ),
+                          label: Text(
+                            'Berita ($verifiedNewsCount)',
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (_) =>
+                              setState(() => _selectedFilter = 'verified_news'),
+                        ),
+                        const SizedBox(width: 8),
+                        ChoiceChip(
+                          selected: _selectedFilter == 'hazard',
+                          label: const Text(
+                            'Peringatan Cuaca & AQI',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          visualDensity: VisualDensity.compact,
+                          onSelected: (_) =>
+                              setState(() => _selectedFilter = 'hazard'),
                         ),
                       ],
-                    )
-                  : ListView.builder(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      itemCount: filteredItems.length,
-                      itemBuilder: (context, i) {
-                        final item = filteredItems[i];
-                        final isNews =
-                            item.sourceUrl != null &&
-                            item.sourceUrl!.trim().isNotEmpty;
-                        return NotificationTile(
-                          notification: item,
-                          selected: _selectedIds.contains(item.id),
-                          actionsEnabled: !_mutatingAlerts,
-                          onSelectionChanged: (selected) => setState(() {
-                            if (selected) {
-                              _selectedIds.add(item.id);
-                            } else {
-                              _selectedIds.remove(item.id);
-                            }
-                          }),
-                          onToggleRead: () =>
-                              unawaited(_setReadState(item.id, !item.isRead)),
-                          onTap: isNews
-                              ? () => _showVerifiedNewsReader(item)
-                              : () => _markRead(item.id),
-                          onReadNews: isNews
-                              ? () => _showVerifiedNewsReader(item)
-                              : null,
-                        );
+                    ),
+                  ),
+                ),
+                if (_checkStatus != null)
+                  Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Text(
+                      _checkStatus!,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 8, 14, 8),
+                  child: NewsSeveritySelector(
+                    value: _newsMinimum,
+                    onChanged: _savingFilter ? null : _saveSeverity,
+                  ),
+                ),
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 14),
+                  child: Text(
+                    'Saring berita dan simpan preferensi pengiriman. Peringatan cuaca dan AQI mengikuti pengaturannya masing-masing.',
+                    style: TextStyle(fontSize: 11),
+                  ),
+                ),
+                for (final trip in SupraService.instance.activeTrips.take(3))
+                  ListTile(
+                    dense: true,
+                    leading: const Icon(Icons.route),
+                    title: Text(trip.name),
+                    subtitle: const Text(
+                      'Peringatan perjalanan aktif (maksimal 4 jam)',
+                    ),
+                    trailing: TextButton(
+                      child: const Text('Hentikan peringatan'),
+                      onPressed: () async {
+                        try {
+                          await SupraService.instance.finishTrip(trip.id);
+                          if (mounted) setState(() {});
+                        } catch (e) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(displayError(e))),
+                            );
+                          }
+                        }
                       },
                     ),
+                  ),
+              ],
             ),
-          ),
-        ],
+            if (_loading)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              )
+            else if (_error != null)
+              SliverList.list(
+                children: [
+                  ListTile(title: Text(_error!)),
+                  TextButton(
+                    onPressed: _refresh,
+                    child: const Text('Coba lagi'),
+                  ),
+                ],
+              )
+            else if (filteredItems.isEmpty)
+              const SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.notifications_none,
+                        size: 64,
+                        color: Color(0xFFCBD5E1),
+                      ),
+                      SizedBox(height: 16),
+                      Text(
+                        'Belum ada peringatan',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        'Simpan rutinitas atau konfirmasi perjalanan. Gunakan tombol radar untuk memeriksa jadwal perjalanan.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Color(0xFF64748B)),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+            else
+              SliverPadding(
+                padding: const EdgeInsets.only(bottom: 16),
+                sliver: SliverList.builder(
+                  itemCount: filteredItems.length,
+                  itemBuilder: (context, i) {
+                    final item = filteredItems[i];
+                    final isNews =
+                        item.sourceUrl != null &&
+                        item.sourceUrl!.trim().isNotEmpty;
+                    return NotificationTile(
+                      notification: item,
+                      selected: _selectedIds.contains(item.id),
+                      actionsEnabled: !_mutatingAlerts,
+                      onSelectionChanged: (selected) => setState(() {
+                        if (selected) {
+                          _selectedIds.add(item.id);
+                        } else {
+                          _selectedIds.remove(item.id);
+                        }
+                      }),
+                      onToggleRead: () =>
+                          unawaited(_setReadState(item.id, !item.isRead)),
+                      onTap: isNews
+                          ? () => _showVerifiedNewsReader(item)
+                          : () => _markRead(item.id),
+                      onReadNews: isNews
+                          ? () => _showVerifiedNewsReader(item)
+                          : null,
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

@@ -169,10 +169,9 @@ class _RouteSampleCard extends StatelessWidget {
           ),
           if (sample.pm25 != null) ...[
             const SizedBox(height: 2),
-            Text(
-              'PM2.5 ${sample.pm25!.toStringAsFixed(1)} µg/m³'
-              '${conditions?.airQuality.isStale == true ? ' · data lama' : ''}',
-              style: const TextStyle(fontSize: 12),
+            _readingLabel(
+              'PM2.5 ${sample.pm25!.toStringAsFixed(1)} µg/m³',
+              stale: conditions?.airQuality.isStale == true,
             ),
           ],
           const SizedBox(height: 8),
@@ -236,10 +235,7 @@ class _SampleReading extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              '$label${stale ? ' · data lama' : ''}',
-              style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
-            ),
+            _readingLabel(label, stale: stale),
             Text(
               value,
               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
@@ -250,3 +246,17 @@ class _SampleReading extends StatelessWidget {
     ],
   );
 }
+
+Widget _readingLabel(String label, {required bool stale}) => Text.rich(
+  TextSpan(
+    text: label,
+    style: const TextStyle(fontSize: 12, color: Color(0xFF475569)),
+    children: [
+      if (stale)
+        const TextSpan(
+          text: ' · data lama',
+          style: TextStyle(fontSize: 10, color: Color(0xFF64748B)),
+        ),
+    ],
+  ),
+);

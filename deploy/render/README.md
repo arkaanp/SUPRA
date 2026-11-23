@@ -62,6 +62,8 @@ Continue after the log says `Database migrations applied`. Apply future pending 
 
 In the service's **Environment** tab, add the server-side keys for the features you want to demonstrate. **GEMINI_API_KEY** enables the Gemini assistant, **TOMTOM_API_KEY** enables traffic, and **OPENAQ_API_KEY** enables station observations. You can also supply **GEMINI_MODEL** if your Google project uses a different model. Use **Save and deploy** after editing. Keep database credentials and provider keys out of the Flutter config. For a separate CAMS quota, set the optional server-side `OPEN_METEO_API_KEY` to an Open-Meteo customer key with Air Quality API access.
 
+Gemini defaults to `gemini-3.5-flash-lite`. If the service explicitly sets `GEMINI_MODEL=gemini-2.5-flash`, remove that override or set it to `gemini-3.5-flash-lite` when deploying this revision. Render logs model and HTTP failure status if Google rejects a request. [Google Gemini migration notes](https://ai.google.dev/gemini-api/docs/changelog)
+
 For a project dedicated to SUPRA, turn off **Allow new users to sign up** in Supabase **Authentication → Sign In / Providers** and keep email/password authentication enabled for Supabase's internal credential exchange. SUPRA registers new users through the Admin API and uses the existing username signup trigger. Existing accounts keep their Auth identities and sign in using the handle shown in Profile. [Supabase authentication settings](https://supabase.com/docs/guides/auth/general-configuration)
 
 ## 4. Connect and verify Flutter

@@ -148,7 +148,16 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Prediksi ML').first);
     await tester.pumpAndSettle();
-    expect(find.textContaining('AQI 110 perkiraan ML'), findsOneWidget);
+    expect(
+      find.textContaining('AQI 110 perkiraan ML', findRichText: true),
+      findsNothing,
+    );
+    await tester.tap(find.text('Kondisi lokasi awal'));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('AQI 110 perkiraan ML', findRichText: true),
+      findsOneWidget,
+    );
     expect(find.textContaining('Prakiraan ML tidak tersedia'), findsNothing);
     expect(tester.takeException(), isNull);
   });
@@ -267,12 +276,15 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Prediksi ML').first);
     await tester.pumpAndSettle();
-    expect(
-      find.textContaining(
-        'Prakiraan ML tidak tersedia. Coba perbarui. · Prakiraan hujan 0.0 mm · Lalu lintas 25 km/h',
-      ),
-      findsOneWidget,
-    );
+    await tester.tap(find.text('Kondisi lokasi awal'));
+    await tester.pumpAndSettle();
+    for (final text in [
+      'Prakiraan ML tidak tersedia. Coba perbarui.',
+      'Prakiraan hujan 0.0 mm',
+      'Lalu lintas 25 km/h',
+    ]) {
+      expect(find.textContaining(text, findRichText: true), findsOneWidget);
+    }
   });
   testWidgets(
     'Home toggle renders actual returned values and model provenance',

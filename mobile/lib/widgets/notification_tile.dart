@@ -190,7 +190,7 @@ class NotificationTile extends StatelessWidget {
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
-                    '${severity.label()} severity',
+                    severity.label(),
                     style: TextStyle(
                       color: severity.color(),
                       fontWeight: FontWeight.w700,

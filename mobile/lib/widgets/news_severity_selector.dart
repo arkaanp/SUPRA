@@ -18,7 +18,7 @@ class NewsSeveritySelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) => InputDecorator(
     decoration: const InputDecoration(
-      labelText: 'Tingkat keparahan berita',
+      labelText: 'Filter berita',
       border: OutlineInputBorder(),
       isDense: true,
     ),
